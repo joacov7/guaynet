@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import asyncio
 
-from app.core.database import get_db
+from app.core.deps import get_db
 from app.models.router import MikrotikRouter
 from app.models.client import Client
 from app.services.mikrotik import build_service_from_router, MikrotikError
