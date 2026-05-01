@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -27,6 +27,7 @@ export default function ClientForm() {
   const { id } = useParams<{ id: string }>();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
+  const location = useLocation();
   const qc = useQueryClient();
   const [form] = Form.useForm();
 
@@ -47,6 +48,14 @@ export default function ClientForm() {
       });
     }
   }, [client, form]);
+
+  useEffect(() => {
+    if (!isEdit && location.state) {
+      const { ip, mac } = location.state as { ip?: string; mac?: string };
+      if (ip) form.setFieldValue("ip_address", ip);
+      if (mac) form.setFieldValue("mac_address", mac);
+    }
+  }, [isEdit, location.state, form]);
 
   const createMutation = useMutation({
     mutationFn: clientsApi.create,
