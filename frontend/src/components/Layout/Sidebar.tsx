@@ -6,6 +6,7 @@ import {
   TagsOutlined,
   ApartmentOutlined,
   FileTextOutlined,
+  SafetyOutlined,
 } from "@ant-design/icons";
 
 const menuItems = [
@@ -14,6 +15,7 @@ const menuItems = [
   { key: "/plans", icon: <TagsOutlined />, label: "Planes" },
   { key: "/routers", icon: <ApartmentOutlined />, label: "Routers" },
   { key: "/billing", icon: <FileTextOutlined />, label: "Facturación" },
+  { key: "/firewall", icon: <SafetyOutlined />, label: "Firewall & QoS" },
 ];
 
 export default function Sidebar() {
