@@ -2,11 +2,16 @@ import axios from "axios";
 import type {
   Client,
   DashboardStats,
+  DHCPScanResponse,
+  FirewallRule,
   Invoice,
+  MangleRule,
   MikrotikQueue,
+  PCQQueue,
   Plan,
   Router,
   RouterStats,
+  TemplateResult,
   User,
 } from "@/types";
 
@@ -115,6 +120,26 @@ export const invoicesApi = {
   addPayment: (invoiceId: number, data: object) =>
     http.post(`/invoices/${invoiceId}/payments`, data).then((r) => r.data),
   markOverdue: () => http.post("/invoices/mark-overdue").then((r) => r.data),
+};
+
+// ── Firewall & QoS ────────────────────────────────────────────────────────────
+export const firewallApi = {
+  dhcpScan: (routerId: number) =>
+    http.get<DHCPScanResponse>(`/firewall/${routerId}/dhcp-scan`).then((r) => r.data),
+  getFilterRules: (routerId: number) =>
+    http.get<FirewallRule[]>(`/firewall/${routerId}/filter`).then((r) => r.data),
+  deleteFilterRule: (routerId: number, ruleId: string) =>
+    http.delete(`/firewall/${routerId}/filter/${ruleId}`).then((r) => r.data),
+  getMangleRules: (routerId: number) =>
+    http.get<MangleRule[]>(`/firewall/${routerId}/mangle`).then((r) => r.data),
+  deleteMangleRule: (routerId: number, ruleId: string) =>
+    http.delete(`/firewall/${routerId}/mangle/${ruleId}`).then((r) => r.data),
+  applyTemplate: (routerId: number, template: string) =>
+    http.post<TemplateResult>(`/firewall/${routerId}/templates/${template}`).then((r) => r.data),
+  getPCQQueues: (routerId: number) =>
+    http.get<PCQQueue[]>(`/firewall/${routerId}/pcq`).then((r) => r.data),
+  setupPCQ: (routerId: number) =>
+    http.post<{ added: number }>(`/firewall/${routerId}/pcq/setup`).then((r) => r.data),
 };
 
 export default http;

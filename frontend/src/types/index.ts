@@ -141,3 +141,68 @@ export interface User {
   is_active: boolean;
   is_superuser: boolean;
 }
+
+export interface DHCPLease {
+  address: string;
+  mac_address: string;
+  hostname?: string;
+  comment?: string;
+  status: string;
+  is_registered: boolean;
+  client_id?: number;
+  client_name?: string;
+}
+
+export interface DHCPScanResponse {
+  total: number;
+  registered: number;
+  unregistered: number;
+  leases: DHCPLease[];
+}
+
+export interface FirewallRule {
+  id: string;
+  chain: string;
+  action: string;
+  src_address?: string;
+  dst_address?: string;
+  protocol?: string;
+  src_port?: string;
+  dst_port?: string;
+  in_interface?: string;
+  out_interface?: string;
+  comment?: string;
+  disabled: boolean;
+  bytes?: string;
+  packets?: string;
+}
+
+export interface MangleRule {
+  id: string;
+  chain: string;
+  action: string;
+  new_packet_mark?: string;
+  new_connection_mark?: string;
+  src_address?: string;
+  dst_address?: string;
+  protocol?: string;
+  dst_port?: string;
+  comment?: string;
+  disabled: boolean;
+  passthrough: boolean;
+}
+
+export interface PCQQueue {
+  id: string;
+  name: string;
+  kind: string;
+  pcq_rate?: string;
+  pcq_limit?: string;
+  pcq_classifier?: string;
+}
+
+export interface TemplateResult {
+  template: string;
+  rules_added: number;
+  message: string;
+}
