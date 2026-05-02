@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Alert,
   Button,
   DatePicker,
+  Drawer,
   Form,
   Input,
   InputNumber,
@@ -10,15 +12,23 @@ import {
   Popconfirm,
   Select,
   Space,
+  Statistic,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from "antd";
-import { CheckCircleOutlined, WarningOutlined } from "@ant-design/icons";
+import {
+  CheckCircleOutlined,
+  DownloadOutlined,
+  FileTextOutlined,
+  PauseCircleOutlined,
+  WarningOutlined,
+} from "@ant-design/icons";
 import dayjs from "dayjs";
 import { invoicesApi } from "@/services/api";
-import type { Invoice, InvoiceStatus } from "@/types";
+import type { Invoice, InvoiceStatus, OverdueEntry } from "@/types";
 
 const { Title } = Typography;
 
@@ -42,6 +52,7 @@ export default function Invoices() {
   const [statusFilter, setStatusFilter] = useState<InvoiceStatus | undefined>();
   const [payModal, setPayModal] = useState<Invoice | null>(null);
   const [payForm] = Form.useForm();
+  const [overdueDrawer, setOverdueDrawer] = useState(false);
 
   const { data = [], isLoading } = useQuery({
     queryKey: ["invoices", { status: statusFilter }],
@@ -54,6 +65,24 @@ export default function Invoices() {
       qc.invalidateQueries({ queryKey: ["invoices"] });
       message.success(`${res.updated} facturas marcadas como vencidas`);
     },
+  });
+
+  const triggerSuspendMutation = useMutation({
+    mutationFn: invoicesApi.triggerSuspend,
+    onSuccess: () => message.success("Tarea de auto-suspensión enviada a la cola"),
+    onError: () => message.error("Error al lanzar tarea"),
+  });
+
+  const triggerGenerateMutation = useMutation({
+    mutationFn: invoicesApi.triggerGenerate,
+    onSuccess: () => message.success("Generación de facturas enviada a la cola"),
+    onError: () => message.error("Error al lanzar tarea"),
+  });
+
+  const { data: overdueData, isLoading: overdueLoading } = useQuery({
+    queryKey: ["overdue-report"],
+    queryFn: () => invoicesApi.overdueReport(0),
+    enabled: overdueDrawer,
   });
 
   const addPaymentMutation = useMutation({
@@ -118,12 +147,35 @@ export default function Invoices() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>Facturación</Title>
-        <Popconfirm
-          title="¿Marcar como vencidas todas las facturas pendientes pasadas de fecha?"
-          onConfirm={() => markOverdueMutation.mutate()}
-        >
-          <Button icon={<WarningOutlined />}>Marcar vencidas</Button>
-        </Popconfirm>
+        <Space wrap>
+          <Tooltip title="Ver reporte de morosidad y exportar CSV">
+            <Button icon={<FileTextOutlined />} onClick={() => setOverdueDrawer(true)}>
+              Reporte de morosidad
+            </Button>
+          </Tooltip>
+          <Popconfirm
+            title="¿Marcar como vencidas todas las facturas pendientes pasadas de fecha?"
+            onConfirm={() => markOverdueMutation.mutate()}
+          >
+            <Button icon={<WarningOutlined />}>Marcar vencidas</Button>
+          </Popconfirm>
+          <Popconfirm
+            title="¿Generar facturas del mes para todos los clientes activos?"
+            onConfirm={() => triggerGenerateMutation.mutate()}
+          >
+            <Button icon={<FileTextOutlined />} loading={triggerGenerateMutation.isPending}>
+              Generar facturas
+            </Button>
+          </Popconfirm>
+          <Popconfirm
+            title="¿Ejecutar auto-suspensión? Se suspenderán clientes con facturas vencidas hace más de 3 días."
+            onConfirm={() => triggerSuspendMutation.mutate()}
+          >
+            <Button icon={<PauseCircleOutlined />} danger loading={triggerSuspendMutation.isPending}>
+              Auto-suspender
+            </Button>
+          </Popconfirm>
+        </Space>
       </div>
 
       <Space style={{ marginBottom: 16 }}>
@@ -161,6 +213,69 @@ export default function Invoices() {
             ),
         }}
       />
+
+      <Drawer
+        title="Reporte de morosidad"
+        open={overdueDrawer}
+        onClose={() => setOverdueDrawer(false)}
+        width={800}
+        extra={
+          <Button
+            icon={<DownloadOutlined />}
+            onClick={() => invoicesApi.overdueReportCsv(0)}
+          >
+            Exportar CSV
+          </Button>
+        }
+      >
+        {overdueData && (
+          <Space style={{ marginBottom: 16 }}>
+            <Statistic title="Facturas vencidas" value={overdueData.total} />
+            <Statistic
+              title="Monto total"
+              value={overdueData.total_amount}
+              prefix="$"
+              precision={2}
+            />
+          </Space>
+        )}
+        <Table
+          loading={overdueLoading}
+          dataSource={overdueData?.items ?? []}
+          rowKey="invoice_id"
+          size="small"
+          pagination={{ pageSize: 25 }}
+          columns={[
+            {
+              title: "Cliente",
+              dataIndex: "client_name",
+              key: "client_name",
+            },
+            { title: "Teléfono", dataIndex: "phone", key: "phone", render: (v: string) => v || "—" },
+            { title: "Período", dataIndex: "period", key: "period" },
+            {
+              title: "Monto",
+              dataIndex: "amount",
+              key: "amount",
+              render: (v: number) => formatARS(v),
+            },
+            {
+              title: "Vencimiento",
+              dataIndex: "due_date",
+              key: "due_date",
+              render: (v: string) => dayjs(v).format("DD/MM/YYYY"),
+            },
+            {
+              title: "Días vencido",
+              dataIndex: "days_overdue",
+              key: "days_overdue",
+              render: (v: number) => (
+                <Tag color={v > 30 ? "red" : v > 15 ? "orange" : "gold"}>{v} días</Tag>
+              ),
+            },
+          ]}
+        />
+      </Drawer>
 
       <Modal
         title="Registrar pago"

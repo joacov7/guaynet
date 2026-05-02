@@ -15,7 +15,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, DeleteOutlined, SyncOutlined } from "@ant-design/icons";
 import { plansApi } from "@/services/api";
 import type { Plan } from "@/types";
 
@@ -44,6 +44,12 @@ export default function Plans() {
     mutationFn: plansApi.delete,
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["plans"] }); message.success("Plan eliminado"); },
     onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al eliminar"),
+  });
+
+  const syncAllMutation = useMutation({
+    mutationFn: plansApi.syncAll,
+    onSuccess: (res) => message.success(`${res.synced} queues sincronizados (plan: ${res.plan})`),
+    onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al sincronizar"),
   });
 
   const openCreate = () => {
@@ -112,6 +118,12 @@ export default function Plans() {
       render: (_: unknown, r: Plan) => (
         <Space>
           <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
+          <Popconfirm
+            title="¿Re-sincronizar todos los queues de este plan en Mikrotik?"
+            onConfirm={() => syncAllMutation.mutate(r.id)}
+          >
+            <Button size="small" icon={<SyncOutlined />} loading={syncAllMutation.isPending} />
+          </Popconfirm>
           <Popconfirm title="¿Eliminar plan?" onConfirm={() => deleteMutation.mutate(r.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>

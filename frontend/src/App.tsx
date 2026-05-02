@@ -10,6 +10,7 @@ import Plans from "@/pages/Plans";
 import Routers from "@/pages/Routers";
 import Invoices from "@/pages/Invoices";
 import Firewall from "@/pages/Firewall";
+import Monitoring from "@/pages/Monitoring";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="routers" element={<Routers />} />
           <Route path="billing" element={<Invoices />} />
           <Route path="firewall" element={<Firewall />} />
+          <Route path="monitoring" element={<Monitoring />} />
         </Route>
       </Routes>
     </BrowserRouter>
