@@ -34,12 +34,12 @@ class Plan(Base, TimestampMixin):
 
     @property
     def mikrotik_max_limit(self) -> str:
-        return f"{self.download_mbps}M/{self.upload_mbps}M"
+        return f"{self.upload_mbps}M/{self.download_mbps}M"
 
     @property
     def mikrotik_burst_limit(self) -> Optional[str]:
         if self.burst_download_mbps and self.burst_upload_mbps:
-            return f"{self.burst_download_mbps}M/{self.burst_upload_mbps}M"
+            return f"{self.burst_upload_mbps}M/{self.burst_download_mbps}M"
         return None
 
     @property
