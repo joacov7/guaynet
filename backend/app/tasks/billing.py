@@ -9,15 +9,14 @@ from app.tasks.celery_app import celery_app
 
 
 def _run(coro):
-    """Run an async coroutine from a sync Celery task."""
     return asyncio.run(coro)
 
 
 @celery_app.task(name="app.tasks.billing.mark_overdue_and_suspend")
-def mark_overdue_and_suspend():
+def mark_overdue_and_suspend(grace_days: int = 3):
     """
     1. Mark pending invoices past due_date as overdue.
-    2. Suspend clients with overdue invoices (disable Mikrotik queue).
+    2. Suspend clients whose oldest overdue invoice exceeds grace_days.
     """
 
     async def _execute():
@@ -29,11 +28,12 @@ def mark_overdue_and_suspend():
         from app.services.mikrotik import build_service_from_router, MikrotikError
 
         today = date.today()
+        grace_cutoff = today - timedelta(days=grace_days)
         suspended_count = 0
         overdue_count = 0
 
         async with AsyncSessionLocal() as db:
-            # Mark overdue
+            # Step 1: mark overdue
             result = await db.execute(
                 select(Invoice).where(
                     Invoice.status == InvoiceStatus.pending,
@@ -46,12 +46,13 @@ def mark_overdue_and_suspend():
                 overdue_count += 1
             await db.commit()
 
-            # Suspend clients with overdue invoices
+            # Step 2: suspend clients past grace period
             overdue_clients_r = await db.execute(
                 select(Client.id)
                 .join(Invoice, Invoice.client_id == Client.id)
                 .where(
                     Invoice.status == InvoiceStatus.overdue,
+                    Invoice.due_date <= grace_cutoff,
                     Client.status == ClientStatus.active,
                 )
                 .distinct()
@@ -106,10 +107,10 @@ def generate_monthly_invoices():
             clients = result.scalars().all()
 
             for client in clients:
-                # Skip if invoice already exists for this period
                 existing = await db.execute(
                     select(Invoice).where(
-                        Invoice.client_id == client.id, Invoice.period == period
+                        Invoice.client_id == client.id,
+                        Invoice.period == period,
                     )
                 )
                 if existing.scalar_one_or_none():
@@ -119,9 +120,14 @@ def generate_monthly_invoices():
                 if not plan:
                     continue
 
-                due_date = date(today.year, today.month, client.billing_day)
+                # Clamp billing_day to 28 so it works in all months
+                billing_day = min(client.billing_day, 28)
+                due_date = date(today.year, today.month, billing_day)
                 if due_date < today:
-                    due_date = due_date.replace(month=today.month % 12 + 1)
+                    if today.month == 12:
+                        due_date = date(today.year + 1, 1, billing_day)
+                    else:
+                        due_date = date(today.year, today.month + 1, billing_day)
 
                 invoice = Invoice(
                     client_id=client.id,
