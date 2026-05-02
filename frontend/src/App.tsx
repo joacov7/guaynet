@@ -11,6 +11,7 @@ import Routers from "@/pages/Routers";
 import Invoices from "@/pages/Invoices";
 import Firewall from "@/pages/Firewall";
 import Monitoring from "@/pages/Monitoring";
+import Ubiquiti from "@/pages/Ubiquiti";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="billing" element={<Invoices />} />
           <Route path="firewall" element={<Firewall />} />
           <Route path="monitoring" element={<Monitoring />} />
+          <Route path="ubiquiti" element={<Ubiquiti />} />
         </Route>
       </Routes>
     </BrowserRouter>

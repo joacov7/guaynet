@@ -8,6 +8,7 @@ import {
   FileTextOutlined,
   SafetyOutlined,
   MonitorOutlined,
+  WifiOutlined,
 } from "@ant-design/icons";
 
 const menuItems = [
@@ -18,6 +19,7 @@ const menuItems = [
   { key: "/billing", icon: <FileTextOutlined />, label: "Facturación" },
   { key: "/monitoring", icon: <MonitorOutlined />, label: "Monitoreo" },
   { key: "/firewall", icon: <SafetyOutlined />, label: "Firewall & QoS" },
+  { key: "/ubiquiti", icon: <WifiOutlined />, label: "Ubiquiti" },
 ];
 
 export default function Sidebar() {
