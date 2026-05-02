@@ -246,13 +246,6 @@ export interface OverdueReport {
   items: OverdueEntry[];
 }
 
-export type UbiquitiDeviceType =
-  | "airmax_ap"
-  | "airmax_station"
-  | "unifi_ap"
-  | "unifi_switch"
-  | "unifi_gateway";
-
 export interface UbiquitiDevice {
   id: number;
   name: string;
