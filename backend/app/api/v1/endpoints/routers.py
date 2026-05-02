@@ -239,6 +239,115 @@ async def sync_clients_to_router(
         raise HTTPException(status_code=503, detail=str(e))
 
 
+@router.get("/{router_id}/bandwidth")
+async def get_router_bandwidth(
+    router_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Queue byte/packet stats crossed with registered clients."""
+    rt = await db.get(MikrotikRouter, router_id)
+    if not rt:
+        raise HTTPException(status_code=404, detail="Router no encontrado")
+
+    result = await db.execute(
+        select(Client).where(Client.router_id == router_id, Client.status != "cancelled")
+    )
+    client_map = {c.mikrotik_queue_name: c for c in result.scalars().all()}
+
+    def _get():
+        svc = build_service_from_router(rt)
+        with svc:
+            return svc.get_simple_queues()
+
+    try:
+        queues = await asyncio.to_thread(_get)
+    except MikrotikError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    items = []
+    for q in queues:
+        client = client_map.get(q["name"])
+        parts = (q.get("bytes") or "0/0").split("/")
+        upload_bytes = int(parts[0]) if parts[0].isdigit() else 0
+        download_bytes = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        items.append({
+            "queue_name": q["name"],
+            "client_id": client.id if client else None,
+            "client_name": client.full_name if client else None,
+            "ip_address": client.ip_address if client else q.get("target", ""),
+            "max_limit": q["max_limit"],
+            "disabled": q["disabled"],
+            "upload_bytes": upload_bytes,
+            "download_bytes": download_bytes,
+        })
+
+    items.sort(key=lambda x: x["download_bytes"] + x["upload_bytes"], reverse=True)
+    return items
+
+
+@router.get("/{router_id}/online-clients")
+async def get_online_clients(
+    router_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Cross ARP table with registered clients to show who is currently online."""
+    rt = await db.get(MikrotikRouter, router_id)
+    if not rt:
+        raise HTTPException(status_code=404, detail="Router no encontrado")
+
+    result = await db.execute(
+        select(Client).where(Client.router_id == router_id, Client.status != "cancelled")
+    )
+    client_map = {c.ip_address: c for c in result.scalars().all()}
+
+    def _get_arp():
+        svc = build_service_from_router(rt)
+        with svc:
+            return svc.get_arp_table()
+
+    try:
+        arp_table = await asyncio.to_thread(_get_arp)
+    except MikrotikError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    online_ips = {
+        e.get("address"): e.get("mac-address", "")
+        for e in arp_table
+        if e.get("address") and e.get("complete", "true") != "false"
+    }
+
+    items = []
+    seen_ips = set()
+
+    for ip, client in client_map.items():
+        seen_ips.add(ip)
+        items.append({
+            "client_id": client.id,
+            "client_name": client.full_name,
+            "ip_address": ip,
+            "mac_address": online_ips.get(ip) or client.mac_address or "",
+            "status": client.status,
+            "online": ip in online_ips,
+        })
+
+    # IPs in ARP not registered as clients
+    for ip, mac in online_ips.items():
+        if ip not in seen_ips:
+            items.append({
+                "client_id": None,
+                "client_name": None,
+                "ip_address": ip,
+                "mac_address": mac,
+                "status": None,
+                "online": True,
+            })
+
+    items.sort(key=lambda x: (not x["online"], x["ip_address"]))
+    return items
+
+
 # ── Ubiquiti Devices ──────────────────────────────────────────────────────────
 
 @router.get("/ubiquiti/", response_model=List[UbiquitiDeviceResponse])

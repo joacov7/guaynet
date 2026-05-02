@@ -206,3 +206,42 @@ export interface TemplateResult {
   rules_added: number;
   message: string;
 }
+
+export interface BandwidthEntry {
+  queue_name: string;
+  client_id?: number;
+  client_name?: string;
+  ip_address: string;
+  max_limit: string;
+  disabled: boolean;
+  upload_bytes: number;
+  download_bytes: number;
+}
+
+export interface OnlineClient {
+  client_id?: number;
+  client_name?: string;
+  ip_address: string;
+  mac_address: string;
+  status?: string;
+  online: boolean;
+}
+
+export interface OverdueEntry {
+  client_id: number;
+  client_name: string;
+  phone: string;
+  email: string;
+  address: string;
+  invoice_id: number;
+  period: string;
+  amount: number;
+  due_date: string;
+  days_overdue: number;
+}
+
+export interface OverdueReport {
+  total: number;
+  total_amount: number;
+  items: OverdueEntry[];
+}

@@ -1,5 +1,6 @@
 import axios from "axios";
 import type {
+  BandwidthEntry,
   Client,
   DashboardStats,
   DHCPScanResponse,
@@ -7,6 +8,8 @@ import type {
   Invoice,
   MangleRule,
   MikrotikQueue,
+  OnlineClient,
+  OverdueReport,
   PCQQueue,
   Plan,
   Router,
@@ -65,6 +68,10 @@ export const plansApi = {
   update: (id: number, data: Partial<Plan>) =>
     http.put<Plan>(`/plans/${id}`, data).then((r) => r.data),
   delete: (id: number) => http.delete(`/plans/${id}`),
+  syncAll: (id: number) =>
+    http
+      .post<{ synced: number; errors: unknown[]; plan: string }>(`/plans/${id}/sync-all`)
+      .then((r) => r.data),
 };
 
 // ── Routers ───────────────────────────────────────────────────────────────────
@@ -83,6 +90,10 @@ export const routersApi = {
     http
       .post<{ synced: number; errors: unknown[] }>(`/routers/${id}/sync-clients`)
       .then((r) => r.data),
+  bandwidth: (id: number) =>
+    http.get<BandwidthEntry[]>(`/routers/${id}/bandwidth`).then((r) => r.data),
+  onlineClients: (id: number) =>
+    http.get<OnlineClient[]>(`/routers/${id}/online-clients`).then((r) => r.data),
 };
 
 // ── Clients ───────────────────────────────────────────────────────────────────
@@ -120,6 +131,16 @@ export const invoicesApi = {
   addPayment: (invoiceId: number, data: object) =>
     http.post(`/invoices/${invoiceId}/payments`, data).then((r) => r.data),
   markOverdue: () => http.post("/invoices/mark-overdue").then((r) => r.data),
+  triggerSuspend: () => http.post("/invoices/trigger-suspend").then((r) => r.data),
+  triggerGenerate: () => http.post("/invoices/trigger-generate").then((r) => r.data),
+  overdueReport: (minDays = 0) =>
+    http
+      .get<OverdueReport>("/invoices/overdue-report", { params: { min_days_overdue: minDays } })
+      .then((r) => r.data),
+  overdueReportCsv: (minDays = 0) => {
+    const params = new URLSearchParams({ format: "csv", min_days_overdue: String(minDays) });
+    window.open(`/api/v1/invoices/overdue-report?${params}`, "_blank");
+  },
 };
 
 // ── Firewall & QoS ────────────────────────────────────────────────────────────
