@@ -62,6 +62,15 @@ class UbiquitiDevice(Base, TimestampMixin):
     status: Mapped[DeviceStatus] = mapped_column(SAEnum(DeviceStatus), default=DeviceStatus.unknown)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Cached live fields — updated on test/sync
+    model_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    firmware_version: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    ssid: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    frequency_mhz: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    channel_width_mhz: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    signal_dbm: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    ccq: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
     mikrotik_router: Mapped[Optional["MikrotikRouter"]] = relationship(
         back_populates="ubiquiti_devices", foreign_keys=[mikrotik_router_id]
     )
