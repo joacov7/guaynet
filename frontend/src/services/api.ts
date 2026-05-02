@@ -5,6 +5,7 @@ import type {
   DashboardStats,
   DHCPScanResponse,
   FirewallRule,
+  FrequencyRecommendation,
   Invoice,
   MangleRule,
   MikrotikQueue,
@@ -15,6 +16,12 @@ import type {
   Router,
   RouterStats,
   TemplateResult,
+  UbiquitiDevice,
+  UbiquitiDeviceInfo,
+  UbiquitiLinkInfo,
+  UbiquitiStation,
+  UbiquitiSurveyScan,
+  UbiquitiWirelessConfig,
   User,
 } from "@/types";
 
@@ -141,6 +148,34 @@ export const invoicesApi = {
     const params = new URLSearchParams({ format: "csv", min_days_overdue: String(minDays) });
     window.open(`/api/v1/invoices/overdue-report?${params}`, "_blank");
   },
+};
+
+// ── Ubiquiti ──────────────────────────────────────────────────────────────────
+export const ubiquitiApi = {
+  list: () => http.get<UbiquitiDevice[]>("/ubiquiti/").then((r) => r.data),
+  get: (id: number) => http.get<UbiquitiDevice>(`/ubiquiti/${id}`).then((r) => r.data),
+  create: (data: Partial<UbiquitiDevice> & { password?: string }) =>
+    http.post<UbiquitiDevice>("/ubiquiti/", data).then((r) => r.data),
+  update: (id: number, data: Partial<UbiquitiDevice> & { password?: string }) =>
+    http.put<UbiquitiDevice>(`/ubiquiti/${id}`, data).then((r) => r.data),
+  delete: (id: number) => http.delete(`/ubiquiti/${id}`),
+  test: (id: number) => http.post<UbiquitiDevice>(`/ubiquiti/${id}/test`).then((r) => r.data),
+  getInfo: (id: number) =>
+    http.get<UbiquitiDeviceInfo>(`/ubiquiti/${id}/info`).then((r) => r.data),
+  getWireless: (id: number) =>
+    http.get<UbiquitiWirelessConfig>(`/ubiquiti/${id}/wireless`).then((r) => r.data),
+  setWireless: (id: number, data: { frequency_mhz?: number; channel_width_mhz?: number; tx_power_dbm?: number }) =>
+    http.put<UbiquitiWirelessConfig>(`/ubiquiti/${id}/wireless`, data).then((r) => r.data),
+  getLink: (id: number) =>
+    http.get<UbiquitiLinkInfo>(`/ubiquiti/${id}/link`).then((r) => r.data),
+  getStations: (id: number) =>
+    http.get<UbiquitiStation[]>(`/ubiquiti/${id}/stations`).then((r) => r.data),
+  survey: (id: number) =>
+    http.get<UbiquitiSurveyScan[]>(`/ubiquiti/${id}/survey`).then((r) => r.data),
+  recommendations: (id: number) =>
+    http.get<FrequencyRecommendation[]>(`/ubiquiti/${id}/recommendations`).then((r) => r.data),
+  clients: (id: number) =>
+    http.get<Array<{ id: number; full_name: string; ip_address: string; mac_address?: string; status: string }>>(`/ubiquiti/${id}/clients`).then((r) => r.data),
 };
 
 // ── Firewall & QoS ────────────────────────────────────────────────────────────

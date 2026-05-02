@@ -245,3 +245,91 @@ export interface OverdueReport {
   total_amount: number;
   items: OverdueEntry[];
 }
+
+export type UbiquitiDeviceType =
+  | "airmax_ap"
+  | "airmax_station"
+  | "unifi_ap"
+  | "unifi_switch"
+  | "unifi_gateway";
+
+export interface UbiquitiDevice {
+  id: number;
+  name: string;
+  host: string;
+  device_type: UbiquitiDeviceType;
+  username?: string;
+  mac_address?: string;
+  mikrotik_router_id?: number;
+  location?: string;
+  notes?: string;
+  status: "online" | "offline" | "unknown";
+  last_seen?: string;
+  model_name?: string;
+  firmware_version?: string;
+  ssid?: string;
+  frequency_mhz?: number;
+  channel_width_mhz?: number;
+  signal_dbm?: number;
+  ccq?: number;
+  client_count: number;
+}
+
+export interface UbiquitiDeviceInfo {
+  model: string;
+  firmware: string;
+  hostname: string;
+  uptime_seconds: number;
+  cpu_load: number;
+  ram_used_pct: number;
+}
+
+export interface UbiquitiWirelessConfig {
+  mode: string;
+  ssid: string;
+  frequency_mhz?: number;
+  channel_width_mhz?: number;
+  tx_power_dbm?: number;
+  security: string;
+}
+
+export interface UbiquitiLinkInfo {
+  remote_name: string;
+  remote_mac: string;
+  signal_dbm?: number;
+  noise_dbm?: number;
+  snr_db?: number;
+  ccq?: number;
+  rx_rate_mbps?: number;
+  tx_rate_mbps?: number;
+  distance_m?: number;
+}
+
+export interface UbiquitiStation {
+  mac: string;
+  ip: string;
+  name: string;
+  signal_dbm?: number;
+  noise_dbm?: number;
+  ccq?: number;
+  rx_rate_mbps?: number;
+  tx_rate_mbps?: number;
+  uptime_seconds?: number;
+}
+
+export interface UbiquitiSurveyScan {
+  ssid: string;
+  mac: string;
+  frequency_mhz?: number;
+  channel_width_mhz?: number;
+  signal_dbm?: number;
+  security: string;
+}
+
+export interface FrequencyRecommendation {
+  frequency_mhz: number;
+  network_count: number;
+  congestion_score: number;
+  recommendation: string;
+  networks: string[];
+}
