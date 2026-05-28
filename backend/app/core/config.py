@@ -21,9 +21,18 @@ class Settings(BaseSettings):
     FIRST_SUPERUSER_PASSWORD: str = "changeme"
     FIRST_SUPERUSER_EMAIL: str = "admin@guaynet.local"
 
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_ALLOWED_CHAT_IDS: str = ""
+
     @property
     def allowed_origins_list(self) -> List[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def telegram_allowed_ids_list(self) -> List[int]:
+        if not self.TELEGRAM_ALLOWED_CHAT_IDS:
+            return []
+        return [int(x.strip()) for x in self.TELEGRAM_ALLOWED_CHAT_IDS.split(",") if x.strip()]
 
 
 settings = Settings()
