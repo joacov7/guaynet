@@ -79,6 +79,20 @@ services:
       - redis
     command: celery -A app.tasks.celery_app beat --loglevel=info
 
+  bot:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+    command: python bot.py
+
   frontend:
     build:
       context: ./frontend
