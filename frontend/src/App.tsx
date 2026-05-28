@@ -12,6 +12,9 @@ import Invoices from "@/pages/Invoices";
 import Firewall from "@/pages/Firewall";
 import Monitoring from "@/pages/Monitoring";
 import Ubiquiti from "@/pages/Ubiquiti";
+import NetworkMap from "@/pages/NetworkMap";
+import AuditLog from "@/pages/AuditLog";
+import IpPool from "@/pages/IpPool";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
@@ -49,6 +52,9 @@ export default function App() {
           <Route path="firewall" element={<Firewall />} />
           <Route path="monitoring" element={<Monitoring />} />
           <Route path="ubiquiti" element={<Ubiquiti />} />
+          <Route path="map" element={<NetworkMap />} />
+          <Route path="audit" element={<AuditLog />} />
+          <Route path="ip-pool" element={<IpPool />} />
         </Route>
       </Routes>
     </BrowserRouter>

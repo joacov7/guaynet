@@ -1,14 +1,17 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { Menu } from "antd";
 import {
-  DashboardOutlined,
-  TeamOutlined,
-  TagsOutlined,
   ApartmentOutlined,
+  AuditOutlined,
+  DashboardOutlined,
   FileTextOutlined,
-  SafetyOutlined,
+  GlobalOutlined,
   MonitorOutlined,
+  SafetyOutlined,
+  TagsOutlined,
+  TeamOutlined,
   WifiOutlined,
+  ClusterOutlined,
 } from "@ant-design/icons";
 
 const menuItems = [
@@ -20,6 +23,9 @@ const menuItems = [
   { key: "/monitoring", icon: <MonitorOutlined />, label: "Monitoreo" },
   { key: "/firewall", icon: <SafetyOutlined />, label: "Firewall & QoS" },
   { key: "/ubiquiti", icon: <WifiOutlined />, label: "Ubiquiti" },
+  { key: "/map", icon: <GlobalOutlined />, label: "Mapa de Red" },
+  { key: "/ip-pool", icon: <ClusterOutlined />, label: "Pool de IPs" },
+  { key: "/audit", icon: <AuditOutlined />, label: "Auditoría" },
 ];
 
 export default function Sidebar() {
