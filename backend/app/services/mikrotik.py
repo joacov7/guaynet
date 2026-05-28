@@ -105,6 +105,25 @@ class MikrotikService:
         queues = self.get_simple_queues()
         return next((q for q in queues if q["name"] == name), None)
 
+    def get_queues_with_bytes(self) -> List[Dict]:
+        """Return queues with parsed upload/download byte counters."""
+        result = []
+        for q in self.get_simple_queues():
+            raw_bytes = q.get("bytes", "0/0")
+            parts = raw_bytes.split("/") if "/" in str(raw_bytes) else ["0", "0"]
+            try:
+                upload = int(parts[0])
+                download = int(parts[1]) if len(parts) > 1 else 0
+            except (ValueError, IndexError):
+                upload = download = 0
+            result.append({
+                "name": q["name"],
+                "target": q["target"],
+                "upload_bytes": upload,
+                "download_bytes": download,
+            })
+        return result
+
     def add_simple_queue(
         self,
         name: str,
