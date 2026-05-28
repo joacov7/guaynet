@@ -2,7 +2,7 @@ import enum
 from datetime import date
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Date, Enum as SAEnum, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -42,6 +42,10 @@ class Client(Base, TimestampMixin):
     ubiquiti_device_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("ubiquiti_devices.id", ondelete="SET NULL"), nullable=True
     )
+
+    # Location
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # Billing
     status: Mapped[ClientStatus] = mapped_column(SAEnum(ClientStatus), default=ClientStatus.active)

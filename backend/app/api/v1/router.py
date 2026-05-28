@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, clients, dashboard, firewall, invoices, plans, routers, ubiquiti
+from app.api.v1.endpoints import admin, auth, clients, dashboard, firewall, invoices, plans, routers, ubiquiti
 
 api_router = APIRouter()
 
@@ -12,3 +12,4 @@ api_router.include_router(routers.router, prefix="/routers", tags=["routers"])
 api_router.include_router(invoices.router, prefix="/invoices", tags=["invoices"])
 api_router.include_router(firewall.router, prefix="/firewall", tags=["firewall"])
 api_router.include_router(ubiquiti.router, prefix="/ubiquiti", tags=["ubiquiti"])
+api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
