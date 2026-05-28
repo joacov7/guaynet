@@ -12,6 +12,7 @@ import {
   TeamOutlined,
   WifiOutlined,
   ClusterOutlined,
+  AreaChartOutlined,
 } from "@ant-design/icons";
 
 const menuItems = [
@@ -25,6 +26,7 @@ const menuItems = [
   { key: "/ubiquiti", icon: <WifiOutlined />, label: "Ubiquiti" },
   { key: "/map", icon: <GlobalOutlined />, label: "Mapa de Red" },
   { key: "/ip-pool", icon: <ClusterOutlined />, label: "Pool de IPs" },
+  { key: "/bandwidth", icon: <AreaChartOutlined />, label: "Ancho de Banda" },
   { key: "/audit", icon: <AuditOutlined />, label: "Auditoría" },
 ];
 

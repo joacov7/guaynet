@@ -15,6 +15,7 @@ import Ubiquiti from "@/pages/Ubiquiti";
 import NetworkMap from "@/pages/NetworkMap";
 import AuditLog from "@/pages/AuditLog";
 import IpPool from "@/pages/IpPool";
+import BandwidthDashboard from "@/pages/BandwidthDashboard";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
@@ -55,6 +56,7 @@ export default function App() {
           <Route path="map" element={<NetworkMap />} />
           <Route path="audit" element={<AuditLog />} />
           <Route path="ip-pool" element={<IpPool />} />
+          <Route path="bandwidth" element={<BandwidthDashboard />} />
         </Route>
       </Routes>
     </BrowserRouter>
