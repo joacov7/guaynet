@@ -21,7 +21,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://iptv:iptv@db:5432/iptv
     ports:
