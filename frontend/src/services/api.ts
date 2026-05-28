@@ -1,12 +1,15 @@
 import axios from "axios";
 import type {
+  AuditLogEntry,
   BandwidthEntry,
+  BandwidthHistoryEntry,
   Client,
   DashboardStats,
   DHCPScanResponse,
   FirewallRule,
   FrequencyRecommendation,
   Invoice,
+  IpPoolResponse,
   MangleRule,
   MikrotikQueue,
   OnlineClient,
@@ -196,6 +199,19 @@ export const firewallApi = {
     http.get<PCQQueue[]>(`/firewall/${routerId}/pcq`).then((r) => r.data),
   setupPCQ: (routerId: number) =>
     http.post<{ added: number }>(`/firewall/${routerId}/pcq/setup`).then((r) => r.data),
+};
+
+// ── Admin ─────────────────────────────────────────────────────────────────────
+export const adminApi = {
+  auditLogs: (params?: { entity_type?: string; entity_id?: number; limit?: number }) =>
+    http.get<AuditLogEntry[]>("/admin/audit-logs", { params }).then((r) => r.data),
+  ipPool: (subnet: string) =>
+    http.get<IpPoolResponse>("/admin/ip-pool", { params: { subnet } }).then((r) => r.data),
+  bandwidthHistory: (routerId: number, hours = 24) =>
+    http.get<BandwidthHistoryEntry[]>("/admin/bandwidth-history", {
+      params: { router_id: routerId, hours },
+    }).then((r) => r.data),
+  mapData: () => http.get("/admin/map-data").then((r) => r.data),
 };
 
 export default http;

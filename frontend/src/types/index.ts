@@ -326,3 +326,55 @@ export interface FrequencyRecommendation {
   recommendation: string;
   networks: string[];
 }
+
+export interface AuditLogEntry {
+  id: number;
+  username: string;
+  action: string;
+  entity_type: string;
+  entity_id?: number;
+  entity_name: string;
+  details?: string;
+  created_at: string;
+}
+
+export interface BandwidthHistoryEntry {
+  sampled_at: string;
+  client_id?: number;
+  ip_address: string;
+  queue_name: string;
+  upload_bytes: number;
+  download_bytes: number;
+}
+
+export interface IpPoolEntry {
+  ip: string;
+  free: boolean;
+  client_id?: number;
+  client_name?: string;
+  status?: string;
+}
+
+export interface IpPoolResponse {
+  subnet: string;
+  total_hosts: number;
+  used: number;
+  free: number;
+  ips: IpPoolEntry[];
+}
+
+export interface MapDataPoint {
+  id: number;
+  name?: string;
+  full_name?: string;
+  host?: string;
+  ip_address?: string;
+  status: string;
+  latitude: number;
+  longitude: number;
+  location?: string;
+  client_count?: number;
+  ssid?: string;
+  frequency_mhz?: number;
+  device_type?: string;
+}
