@@ -4,6 +4,8 @@ from app.models.plan import Plan
 from app.models.router import MikrotikRouter, UbiquitiDevice, DeviceStatus, UbiquitiDeviceType
 from app.models.client import Client, ClientStatus
 from app.models.invoice import Invoice, Payment, InvoiceStatus, PaymentMethod
+from app.models.audit import AuditLog
+from app.models.bandwidth import BandwidthSample
 
 __all__ = [
     "Base",
@@ -20,4 +22,6 @@ __all__ = [
     "Payment",
     "InvoiceStatus",
     "PaymentMethod",
+    "AuditLog",
+    "BandwidthSample",
 ]
