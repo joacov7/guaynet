@@ -199,6 +199,8 @@ export const firewallApi = {
     http.get<PCQQueue[]>(`/firewall/${routerId}/pcq`).then((r) => r.data),
   setupPCQ: (routerId: number) =>
     http.post<{ added: number }>(`/firewall/${routerId}/pcq/setup`).then((r) => r.data),
+  dhcpImport: (routerId: number, items: { address: string; mac_address: string; hostname?: string }[], plan_id: number) =>
+    http.post<{ created: number; skipped: number }>(`/firewall/${routerId}/dhcp-import`, { items, plan_id }).then((r) => r.data),
 };
 
 // ── Admin ─────────────────────────────────────────────────────────────────────

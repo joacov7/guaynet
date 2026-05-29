@@ -5,6 +5,7 @@ import {
   Badge,
   Button,
   Empty,
+  Modal,
   Popconfirm,
   Select,
   Space,
@@ -17,14 +18,15 @@ import {
 } from "antd";
 import {
   DeleteOutlined,
+  DownloadOutlined,
   PlusOutlined,
   ReloadOutlined,
   SafetyOutlined,
   ScanOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
-import { firewallApi, routersApi } from "@/services/api";
-import type { DHCPLease, FirewallRule, MangleRule } from "@/types";
+import { firewallApi, plansApi, routersApi } from "@/services/api";
+import type { DHCPLease, FirewallRule, MangleRule, Plan } from "@/types";
 
 const { Title, Text } = Typography;
 
@@ -37,8 +39,12 @@ const FILTER_TEMPLATES = [
 export default function Firewall() {
   const navigate = useNavigate();
   const [routerId, setRouterId] = useState<number | undefined>();
+  const [selectedLeases, setSelectedLeases] = useState<DHCPLease[]>([]);
+  const [importPlanId, setImportPlanId] = useState<number | undefined>();
+  const [importModalOpen, setImportModalOpen] = useState(false);
 
   const { data: routers = [] } = useQuery({ queryKey: ["routers"], queryFn: routersApi.list });
+  const { data: plans = [] } = useQuery({ queryKey: ["plans"], queryFn: plansApi.list });
 
   const {
     data: dhcpData,
@@ -109,6 +115,21 @@ export default function Firewall() {
       message.success(res.added > 0 ? `PCQ configurado (${res.added} tipos creados)` : "Los tipos PCQ ya existen");
     },
     onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al configurar PCQ"),
+  });
+
+  const importMutation = useMutation({
+    mutationFn: () => firewallApi.dhcpImport(
+      routerId!,
+      selectedLeases.map((l) => ({ address: l.address, mac_address: l.mac_address, hostname: l.hostname ?? undefined })),
+      importPlanId!,
+    ),
+    onSuccess: (res) => {
+      message.success(`Importados: ${res.created} clientes, omitidos: ${res.skipped}`);
+      setImportModalOpen(false);
+      setSelectedLeases([]);
+      refetchDhcp();
+    },
+    onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al importar"),
   });
 
   const filterColumns = [
@@ -338,7 +359,7 @@ export default function Firewall() {
               ),
               children: (
                 <div>
-                  <Space style={{ marginBottom: 12 }}>
+                  <Space style={{ marginBottom: 12 }} wrap>
                     {dhcpData && (
                       <>
                         <Tag color="green">Registrados: {dhcpData.registered}</Tag>
@@ -354,6 +375,16 @@ export default function Firewall() {
                     >
                       Escanear
                     </Button>
+                    {selectedLeases.length > 0 && (
+                      <Button
+                        size="small"
+                        type="primary"
+                        icon={<DownloadOutlined />}
+                        onClick={() => setImportModalOpen(true)}
+                      >
+                        Importar {selectedLeases.length} seleccionados
+                      </Button>
+                    )}
                   </Space>
                   <Table
                     loading={dhcpLoading}
@@ -362,7 +393,36 @@ export default function Firewall() {
                     columns={dhcpColumns}
                     size="small"
                     pagination={{ pageSize: 25 }}
+                    rowSelection={{
+                      selectedRowKeys: selectedLeases.map((l) => l.address),
+                      onChange: (_, rows) => setSelectedLeases(rows.filter((r) => !r.is_registered)),
+                      getCheckboxProps: (r: DHCPLease) => ({ disabled: r.is_registered }),
+                    }}
                   />
+                  <Modal
+                    title={`Importar ${selectedLeases.length} clientes desde DHCP`}
+                    open={importModalOpen}
+                    onCancel={() => setImportModalOpen(false)}
+                    onOk={() => importMutation.mutate()}
+                    okText="Importar"
+                    confirmLoading={importMutation.isPending}
+                    okButtonProps={{ disabled: !importPlanId }}
+                  >
+                    <p>Seleccioná el plan que se asignará a todos los clientes importados:</p>
+                    <Select
+                      style={{ width: "100%" }}
+                      placeholder="Seleccionar plan"
+                      value={importPlanId}
+                      onChange={setImportPlanId}
+                      options={plans.map((p: Plan) => ({
+                        value: p.id,
+                        label: `${p.name} — ${p.download_mbps}/${p.upload_mbps} Mbps ($${p.price})`,
+                      }))}
+                    />
+                    <p style={{ marginTop: 12, color: "#888", fontSize: 12 }}>
+                      El nombre del cliente se deriva del hostname DHCP. Podés editarlo después desde la ficha del cliente.
+                    </p>
+                  </Modal>
                 </div>
               ),
             },
