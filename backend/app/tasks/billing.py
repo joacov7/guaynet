@@ -12,16 +12,31 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+async def _send_telegram(text: str):
+    from app.core.config import settings
+    if not settings.TELEGRAM_BOT_TOKEN or not settings.telegram_allowed_ids_list:
+        return
+    from telegram import Bot
+    bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
+    for chat_id in settings.telegram_allowed_ids_list:
+        try:
+            await bot.send_message(chat_id=chat_id, text=text)
+        except Exception:
+            pass
+
+
 @celery_app.task(name="app.tasks.billing.mark_overdue_and_suspend")
 def mark_overdue_and_suspend(grace_days: int = 3):
     """
     1. Mark pending invoices past due_date as overdue.
     2. Suspend clients whose oldest overdue invoice exceeds grace_days.
+    3. Write audit log entries and send Telegram summary.
     """
 
     async def _execute():
         from sqlalchemy import select
         from app.core.database import AsyncSessionLocal
+        from app.models.audit import AuditLog
         from app.models.client import Client, ClientStatus
         from app.models.invoice import Invoice, InvoiceStatus
         from app.models.router import MikrotikRouter
@@ -29,7 +44,7 @@ def mark_overdue_and_suspend(grace_days: int = 3):
 
         today = date.today()
         grace_cutoff = today - timedelta(days=grace_days)
-        suspended_count = 0
+        suspended_names = []
         overdue_count = 0
 
         async with AsyncSessionLocal() as db:
@@ -66,6 +81,17 @@ def mark_overdue_and_suspend(grace_days: int = 3):
                 client.status = ClientStatus.suspended
                 db.add(client)
 
+                # Audit log entry
+                db.add(AuditLog(
+                    user_id=None,
+                    username="sistema",
+                    action="suspend",
+                    entity_type="client",
+                    entity_id=client.id,
+                    entity_name=client.full_name,
+                    details=f"Corte automático por falta de pago (gracia: {grace_days} días)",
+                ))
+
                 rt = await db.get(MikrotikRouter, client.router_id)
                 if rt:
                     def _disable(router=rt, qname=client.mikrotik_queue_name):
@@ -78,11 +104,19 @@ def mark_overdue_and_suspend(grace_days: int = 3):
                         await asyncio.to_thread(_disable)
                     except MikrotikError:
                         pass
-                suspended_count += 1
+
+                suspended_names.append(client.full_name)
 
             await db.commit()
 
-        return {"overdue_marked": overdue_count, "clients_suspended": suspended_count}
+        if suspended_names:
+            names_list = "\n".join(f"  • {n}" for n in suspended_names)
+            await _send_telegram(
+                f"⚠️ Corte automático por falta de pago\n"
+                f"{len(suspended_names)} cliente(s) suspendidos:\n{names_list}"
+            )
+
+        return {"overdue_marked": overdue_count, "clients_suspended": len(suspended_names)}
 
     return _run(_execute())
 
@@ -120,7 +154,6 @@ def generate_monthly_invoices():
                 if not plan:
                     continue
 
-                # Clamp billing_day to 28 so it works in all months
                 billing_day = min(client.billing_day, 28)
                 due_date = date(today.year, today.month, billing_day)
                 if due_date < today:

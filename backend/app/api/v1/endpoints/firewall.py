@@ -1,13 +1,15 @@
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import asyncio
 
-from app.core.deps import get_db
+from app.core.deps import get_current_user, get_db
 from app.models.router import MikrotikRouter
-from app.models.client import Client
+from app.models.client import Client, ClientStatus
+from app.models.plan import Plan
 from app.services.mikrotik import build_service_from_router, MikrotikError
 from app.schemas.firewall import (
     DHCPScanResponse,
@@ -78,6 +80,91 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
         unregistered=len(leases) - registered_count,
         leases=leases,
     )
+
+
+# ── DHCP Import ───────────────────────────────────────────────────────────────
+
+class DHCPImportItem(BaseModel):
+    address: str
+    mac_address: str
+    hostname: Optional[str] = None
+
+
+class DHCPImportRequest(BaseModel):
+    items: List[DHCPImportItem]
+    plan_id: int
+
+
+@router.post("/{router_id}/dhcp-import")
+async def dhcp_import(
+    router_id: int,
+    body: DHCPImportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    from app.services.mikrotik import build_service_from_router, MikrotikError
+    from app.api.v1.endpoints.clients import _push_to_mikrotik
+    from app.core.deps import add_audit_log
+
+    mt_router = await _get_router_or_404(router_id, db)
+    plan = await db.get(Plan, body.plan_id)
+    if not plan:
+        raise HTTPException(404, "Plan no encontrado")
+
+    existing_ips = {
+        row[0] for row in (await db.execute(select(Client.ip_address))).all()
+    }
+
+    created, skipped = 0, 0
+    for item in body.items:
+        if item.address in existing_ips:
+            skipped += 1
+            continue
+
+        # Derive name from hostname or IP last octet
+        if item.hostname:
+            name_parts = item.hostname.replace("-", " ").replace("_", " ").split()
+            first = name_parts[0].capitalize() if name_parts else item.address
+            last = " ".join(name_parts[1:]).capitalize() if len(name_parts) > 1 else "DHCP"
+        else:
+            first = f"Cliente-{item.address.split('.')[-1]}"
+            last = "DHCP"
+
+        client = Client(
+            first_name=first,
+            last_name=last,
+            ip_address=item.address,
+            mac_address=item.mac_address or None,
+            plan_id=body.plan_id,
+            router_id=router_id,
+            status=ClientStatus.active,
+            billing_day=1,
+        )
+        db.add(client)
+        await db.flush()  # get client.id before commit
+
+        add_audit_log(db, current_user, "create", "client", client.id, client.full_name,
+                      details=f"Importado desde DHCP ({item.address})")
+
+        existing_ips.add(item.address)
+        created += 1
+
+    await db.commit()
+
+    # Push all new clients to MikroTik (best-effort)
+    new_clients_r = await db.execute(
+        select(Client).where(
+            Client.router_id == router_id,
+            Client.last_name == "DHCP",
+        )
+    )
+    for client in new_clients_r.scalars().all():
+        try:
+            await _push_to_mikrotik(client, mt_router, db)
+        except MikrotikError:
+            pass
+
+    return {"created": created, "skipped": skipped}
 
 
 # ── Firewall Filter ───────────────────────────────────────────────────────────
