@@ -46,9 +46,9 @@ class RouterStats(BaseModel):
     identity: str
     version: str
     uptime: str
-    cpu_load: str
-    free_memory: str
-    total_memory: str
+    cpu_load: str | int
+    free_memory: str | int
+    total_memory: str | int
     board_name: str = ""
 
 
