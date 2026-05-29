@@ -6,7 +6,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import add_audit_log, get_current_user, get_db
 from app.models.client import Client, ClientStatus
 from app.models.invoice import Invoice
 from app.models.plan import Plan
@@ -147,7 +147,7 @@ async def update_client(
     client_id: int,
     body: ClientUpdate,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     result = await db.execute(
         select(Client)
@@ -165,8 +165,13 @@ async def update_client(
         if dup.scalar_one_or_none():
             raise HTTPException(status_code=400, detail=f"La IP {updates['ip_address']} ya está en uso")
 
+    old_plan_id = client.plan_id
     for field, value in updates.items():
         setattr(client, field, value)
+
+    if "plan_id" in updates and updates["plan_id"] != old_plan_id:
+        add_audit_log(db, current_user, "plan_change", "client", client.id, client.full_name,
+                      details=f"plan {old_plan_id} → {updates['plan_id']}")
 
     db.add(client)
     await db.commit()
@@ -214,7 +219,7 @@ async def delete_client(
 async def suspend_client(
     client_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     result = await db.execute(
         select(Client).options(selectinload(Client.plan), selectinload(Client.router)).where(Client.id == client_id)
@@ -224,6 +229,7 @@ async def suspend_client(
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
     client.status = ClientStatus.suspended
+    add_audit_log(db, current_user, "suspend", "client", client.id, client.full_name)
     db.add(client)
     await db.commit()
 
@@ -248,7 +254,7 @@ async def suspend_client(
 async def activate_client(
     client_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     result = await db.execute(
         select(Client).options(selectinload(Client.plan), selectinload(Client.router)).where(Client.id == client_id)
@@ -258,6 +264,7 @@ async def activate_client(
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
     client.status = ClientStatus.active
+    add_audit_log(db, current_user, "activate", "client", client.id, client.full_name)
     db.add(client)
     await db.commit()
 
