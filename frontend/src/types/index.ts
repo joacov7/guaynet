@@ -34,6 +34,8 @@ export interface Router {
   username: string;
   location?: string;
   notes?: string;
+  latitude?: number;
+  longitude?: number;
   status: DeviceStatus;
   last_seen?: string;
   client_count: number;
@@ -74,6 +76,8 @@ export interface Client {
   notes?: string;
   ip_address: string;
   mac_address?: string;
+  latitude?: number;
+  longitude?: number;
   plan_id: number;
   router_id: number;
   ubiquiti_device_id?: number;
@@ -256,6 +260,8 @@ export interface UbiquitiDevice {
   mikrotik_router_id?: number;
   location?: string;
   notes?: string;
+  latitude?: number;
+  longitude?: number;
   status: "online" | "offline" | "unknown";
   last_seen?: string;
   model_name?: string;

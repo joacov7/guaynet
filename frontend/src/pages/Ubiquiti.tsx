@@ -11,6 +11,7 @@ import {
   Drawer,
   Form,
   Input,
+  InputNumber,
   Modal,
   Popconfirm,
   Progress,
@@ -686,6 +687,18 @@ export default function Ubiquiti() {
           <Form.Item name="location" label="Ubicación / Torre">
             <Input placeholder="Ej: Torre Norte" />
           </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="latitude" label="Latitud">
+                <InputNumber style={{ width: "100%" }} placeholder="-34.6037" step={0.0001} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="longitude" label="Longitud">
+                <InputNumber style={{ width: "100%" }} placeholder="-58.3816" step={0.0001} />
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.Item name="mikrotik_router_id" label="Router Mikrotik asociado">
             <Select
               allowClear

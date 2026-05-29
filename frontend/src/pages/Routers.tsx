@@ -234,6 +234,18 @@ export default function Routers() {
           <Form.Item name="location" label="Ubicación / Zona">
             <Input placeholder="Ej: Zona Norte" />
           </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="latitude" label="Latitud">
+                <InputNumber style={{ width: "100%" }} placeholder="-34.6037" step={0.0001} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="longitude" label="Longitud">
+                <InputNumber style={{ width: "100%" }} placeholder="-58.3816" step={0.0001} />
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.Item name="notes" label="Notas">
             <Input.TextArea rows={2} />
           </Form.Item>
