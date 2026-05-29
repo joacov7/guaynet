@@ -93,6 +93,15 @@ services:
         condition: service_healthy
     command: python bot.py
 
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:latest
+    restart: unless-stopped
+    environment:
+      - SUBDOMAINS=TU_SUBDOMINIO
+      - TOKEN=TU_TOKEN
+      - TZ=America/Argentina/Buenos_Aires
+      - LOG_FILE=false
+
   frontend:
     build:
       context: ./frontend
