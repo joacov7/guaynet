@@ -13,6 +13,8 @@ class RouterBase(BaseModel):
     username: str
     location: Optional[str] = None
     notes: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class RouterCreate(RouterBase):
@@ -27,6 +29,8 @@ class RouterUpdate(BaseModel):
     password: Optional[str] = None
     location: Optional[str] = None
     notes: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class RouterResponse(RouterBase):

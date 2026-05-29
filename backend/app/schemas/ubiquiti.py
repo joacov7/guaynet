@@ -15,6 +15,8 @@ class UbiquitiDeviceCreate(BaseModel):
     mikrotik_router_id: Optional[int] = None
     location: Optional[str] = None
     notes: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class UbiquitiDeviceUpdate(BaseModel):
@@ -27,6 +29,8 @@ class UbiquitiDeviceUpdate(BaseModel):
     mikrotik_router_id: Optional[int] = None
     location: Optional[str] = None
     notes: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class UbiquitiDeviceResponse(BaseModel):
@@ -41,6 +45,8 @@ class UbiquitiDeviceResponse(BaseModel):
     mikrotik_router_id: Optional[int]
     location: Optional[str]
     notes: Optional[str]
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     status: DeviceStatus
     last_seen: Optional[datetime]
     model_name: Optional[str]

@@ -33,6 +33,8 @@ class ClientBase(BaseModel):
     notes: Optional[str] = None
     ip_address: str
     mac_address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     plan_id: int
     router_id: int
     ubiquiti_device_id: Optional[int] = None
@@ -55,6 +57,8 @@ class ClientUpdate(BaseModel):
     notes: Optional[str] = None
     ip_address: Optional[str] = None
     mac_address: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     plan_id: Optional[int] = None
     router_id: Optional[int] = None
     ubiquiti_device_id: Optional[int] = None
