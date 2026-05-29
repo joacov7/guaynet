@@ -147,6 +147,16 @@ export default function ClientForm() {
                     <Input />
                   </Form.Item>
                 </Col>
+                <Col xs={24} sm={6}>
+                  <Form.Item name="latitude" label="Latitud">
+                    <InputNumber style={{ width: "100%" }} placeholder="-34.6037" step={0.0001} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={6}>
+                  <Form.Item name="longitude" label="Longitud">
+                    <InputNumber style={{ width: "100%" }} placeholder="-58.3816" step={0.0001} />
+                  </Form.Item>
+                </Col>
                 <Col span={24}>
                   <Form.Item name="notes" label="Notas">
                     <Input.TextArea rows={2} />
