@@ -16,6 +16,8 @@ import NetworkMap from "@/pages/NetworkMap";
 import AuditLog from "@/pages/AuditLog";
 import IpPool from "@/pages/IpPool";
 import BandwidthDashboard from "@/pages/BandwidthDashboard";
+import Permissions from "@/pages/Permissions";
+import { PermissionsProvider } from "@/contexts/PermissionsContext";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
@@ -29,6 +31,7 @@ export default function App() {
   if (loading) return <Spin fullscreen />;
 
   return (
+    <PermissionsProvider>
     <BrowserRouter>
       <Routes>
         <Route
@@ -57,8 +60,10 @@ export default function App() {
           <Route path="audit" element={<AuditLog />} />
           <Route path="ip-pool" element={<IpPool />} />
           <Route path="bandwidth" element={<BandwidthDashboard />} />
+          <Route path="permissions" element={<Permissions />} />
         </Route>
       </Routes>
     </BrowserRouter>
+    </PermissionsProvider>
   );
 }
