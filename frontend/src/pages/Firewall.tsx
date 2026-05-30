@@ -44,7 +44,7 @@ export default function Firewall() {
   const [importModalOpen, setImportModalOpen] = useState(false);
 
   const { data: routers = [] } = useQuery({ queryKey: ["routers"], queryFn: routersApi.list });
-  const { data: plans = [] } = useQuery({ queryKey: ["plans"], queryFn: plansApi.list });
+  const { data: plans = [] } = useQuery<Plan[]>({ queryKey: ["plans"], queryFn: () => plansApi.list() });
 
   const {
     data: dhcpData,
