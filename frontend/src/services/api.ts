@@ -216,4 +216,24 @@ export const adminApi = {
   mapData: () => http.get("/admin/map-data").then((r) => r.data),
 };
 
+export interface MyPermissions {
+  role: string;
+  is_admin: boolean;
+  permissions: Record<string, { can_view: boolean; can_edit: boolean }>;
+}
+
+export interface RolePermission {
+  role: string;
+  section: string;
+  can_view: boolean;
+  can_edit: boolean;
+}
+
+export const permissionsApi = {
+  my: () => http.get<MyPermissions>("/permissions/my").then((r) => r.data),
+  list: () => http.get<RolePermission[]>("/permissions/").then((r) => r.data),
+  update: (role: string, section: string, can_view: boolean, can_edit: boolean) =>
+    http.put<RolePermission>(`/permissions/${role}/${section}`, { can_view, can_edit }).then((r) => r.data),
+};
+
 export default http;
