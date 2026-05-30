@@ -54,7 +54,27 @@ async def require_admin(current_user=Depends(get_current_user)):
     return current_user
 
 
-def add_audit_log(
+def require_permission(section: str, action: str = "view"):
+    async def _dep(current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+        if current_user.role == "admin" or current_user.is_superuser:
+            return current_user
+        from app.models.permission import RolePermission
+        from sqlalchemy import select as sa_select
+        result = await db.execute(
+            sa_select(RolePermission).where(
+                RolePermission.role == current_user.role,
+                RolePermission.section == section,
+            )
+        )
+        perm = result.scalar_one_or_none()
+        if not perm:
+            raise HTTPException(status_code=403, detail="Sin permiso")
+        if action == "view" and not perm.can_view:
+            raise HTTPException(status_code=403, detail="Sin permiso de lectura")
+        if action == "edit" and not perm.can_edit:
+            raise HTTPException(status_code=403, detail="Sin permiso de edición")
+        return current_user
+    return _dep
     db: AsyncSession,
     user,
     action: str,
