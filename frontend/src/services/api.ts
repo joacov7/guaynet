@@ -151,12 +151,28 @@ export const clientsApi = {
 };
 
 // ── Invoices ──────────────────────────────────────────────────────────────────
+export interface InvoiceItemCreate {
+  description: string;
+  quantity: number;
+  unit_price: number;
+}
+
 export const invoicesApi = {
   list: (params?: { status?: string; period?: string; client_id?: number }) =>
     http.get<Invoice[]>("/invoices/", { params }).then((r) => r.data),
   get: (id: number) => http.get<Invoice>(`/invoices/${id}`).then((r) => r.data),
-  create: (data: Partial<Invoice>) =>
+  create: (data: { client_id: number; period: string; amount?: number; issue_date: string; due_date: string; notes?: string; items?: InvoiceItemCreate[] }) =>
     http.post<Invoice>("/invoices/", data).then((r) => r.data),
+  createCharge: (data: { client_id: number; notes?: string; items: InvoiceItemCreate[] }) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const period = today.slice(0, 7);
+    return http.post<Invoice>("/invoices/", {
+      ...data,
+      period,
+      issue_date: today,
+      due_date: today,
+    }).then((r) => r.data);
+  },
   update: (id: number, data: Partial<Invoice>) =>
     http.put<Invoice>(`/invoices/${id}`, data).then((r) => r.data),
   addPayment: (invoiceId: number, data: object) =>

@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_current_user, get_db
 from app.models.client import Client
-from app.models.invoice import Invoice, InvoiceStatus, Payment
+from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus, Payment
 from app.schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceUpdate, PaymentCreate, PaymentResponse
 
 router = APIRouter()
@@ -27,7 +27,7 @@ async def list_invoices(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    q = select(Invoice).options(selectinload(Invoice.payments)).order_by(Invoice.due_date.desc())
+    q = select(Invoice).options(selectinload(Invoice.payments), selectinload(Invoice.items)).order_by(Invoice.due_date.desc())
     if status:
         q = q.where(Invoice.status == status)
     if period:
@@ -44,17 +44,44 @@ async def create_invoice(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    invoice = Invoice(**body.model_dump())
+    items_data = body.items or []
+    if items_data and body.amount is None:
+        total = sum(round(i.quantity * i.unit_price, 2) for i in items_data)
+    else:
+        total = body.amount or 0.0
+
+    invoice = Invoice(
+        client_id=body.client_id,
+        period=body.period,
+        amount=total,
+        issue_date=body.issue_date,
+        due_date=body.due_date,
+        notes=body.notes,
+    )
     db.add(invoice)
+    await db.flush()
+
+    for item in items_data:
+        subtotal = round(item.quantity * item.unit_price, 2)
+        db.add(InvoiceItem(
+            invoice_id=invoice.id,
+            description=item.description,
+            quantity=item.quantity,
+            unit_price=item.unit_price,
+            subtotal=subtotal,
+        ))
+
     await db.commit()
-    await db.refresh(invoice)
-    return invoice
+    result = await db.execute(
+        select(Invoice).options(selectinload(Invoice.payments), selectinload(Invoice.items)).where(Invoice.id == invoice.id)
+    )
+    return result.scalar_one()
 
 
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
 async def get_invoice(invoice_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
     result = await db.execute(
-        select(Invoice).options(selectinload(Invoice.payments)).where(Invoice.id == invoice_id)
+        select(Invoice).options(selectinload(Invoice.payments), selectinload(Invoice.items)).where(Invoice.id == invoice_id)
     )
     invoice = result.scalar_one_or_none()
     if not invoice:

@@ -90,6 +90,14 @@ export interface Client {
   created_at: string;
 }
 
+export interface InvoiceItem {
+  id: number;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
+}
+
 export interface Invoice {
   id: number;
   client_id: number;
@@ -103,6 +111,7 @@ export interface Invoice {
   afip_cae?: string;
   invoice_number?: number;
   payments: Payment[];
+  items: InvoiceItem[];
   created_at: string;
 }
 
