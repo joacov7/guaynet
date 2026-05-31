@@ -2,17 +2,113 @@ import ipaddress
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, EmailStr
 from sqlalchemy import asc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, require_admin
+from app.core.security import get_password_hash
 from app.models.audit import AuditLog
 from app.models.bandwidth import BandwidthSample
 from app.models.client import Client
 from app.models.user import User
 
 router = APIRouter()
+
+VALID_ROLES = {"admin", "operator", "technician"}
+
+
+# ── Users ─────────────────────────────────────────────────────────────────────
+
+class UserCreate(BaseModel):
+    username: str
+    email: EmailStr
+    full_name: str = ""
+    password: str
+    role: str = "operator"
+
+
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = None
+    role: Optional[str] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@router.get("/users")
+async def list_users(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    rows = (await db.execute(select(User).order_by(User.id))).scalars().all()
+    return [
+        {
+            "id": u.id, "username": u.username, "email": u.email,
+            "full_name": u.full_name, "role": u.role,
+            "is_active": u.is_active, "is_superuser": u.is_superuser,
+        }
+        for u in rows
+    ]
+
+
+@router.post("/users", status_code=201)
+async def create_user(
+    body: UserCreate,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    if body.role not in VALID_ROLES:
+        raise HTTPException(400, f"Rol inválido. Válidos: {sorted(VALID_ROLES)}")
+    existing = (await db.execute(select(User).where(User.username == body.username))).scalar_one_or_none()
+    if existing:
+        raise HTTPException(400, "El nombre de usuario ya existe")
+    user = User(
+        username=body.username,
+        email=body.email,
+        full_name=body.full_name,
+        hashed_password=get_password_hash(body.password),
+        role=body.role,
+        is_active=True,
+        is_superuser=(body.role == "admin"),
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return {"id": user.id, "username": user.username, "role": user.role}
+
+
+@router.put("/users/{user_id}")
+async def update_user(
+    user_id: int,
+    body: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "Usuario no encontrado")
+    if body.role is not None:
+        if body.role not in VALID_ROLES:
+            raise HTTPException(400, f"Rol inválido. Válidos: {sorted(VALID_ROLES)}")
+        user.role = body.role
+        user.is_superuser = (body.role == "admin")
+    if body.email is not None:
+        user.email = body.email
+    if body.full_name is not None:
+        user.full_name = body.full_name
+    if body.is_active is not None:
+        user.is_active = body.is_active
+    if body.password:
+        user.hashed_password = get_password_hash(body.password)
+    await db.commit()
+    await db.refresh(user)
+    return {
+        "id": user.id, "username": user.username, "email": user.email,
+        "full_name": user.full_name, "role": user.role,
+        "is_active": user.is_active, "is_superuser": user.is_superuser,
+    }
 
 
 # ── Audit log ─────────────────────────────────────────────────────────────────

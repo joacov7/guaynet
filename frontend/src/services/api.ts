@@ -64,6 +64,15 @@ export const authApi = {
   me: () => http.get<User>("/auth/me").then((r) => r.data),
 };
 
+// ── Users (admin) ─────────────────────────────────────────────────────────────
+export const usersApi = {
+  list: () => http.get<User[]>("/admin/users").then((r) => r.data),
+  create: (data: { username: string; email: string; full_name: string; password: string; role: string }) =>
+    http.post<User>("/admin/users", data).then((r) => r.data),
+  update: (id: number, data: { email?: string; full_name?: string; role?: string; password?: string; is_active?: boolean }) =>
+    http.put<User>(`/admin/users/${id}`, data).then((r) => r.data),
+};
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 export const dashboardApi = {
   stats: () => http.get<DashboardStats>("/dashboard/stats").then((r) => r.data),

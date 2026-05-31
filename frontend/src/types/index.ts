@@ -142,6 +142,7 @@ export interface User {
   username: string;
   email: string;
   full_name: string;
+  role: string;
   is_active: boolean;
   is_superuser: boolean;
 }
