@@ -4,6 +4,7 @@ import {
   Alert,
   Button,
   DatePicker,
+  Divider,
   Drawer,
   Form,
   Input,
@@ -21,14 +22,16 @@ import {
 } from "antd";
 import {
   CheckCircleOutlined,
+  DeleteOutlined,
   DownloadOutlined,
   FileTextOutlined,
   PauseCircleOutlined,
+  PlusOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { invoicesApi } from "@/services/api";
-import type { Invoice, InvoiceStatus, OverdueEntry } from "@/types";
+import { clientsApi, invoicesApi } from "@/services/api";
+import type { Invoice, InvoiceItem, InvoiceStatus, OverdueEntry } from "@/types";
 
 const { Title } = Typography;
 
@@ -53,6 +56,8 @@ export default function Invoices() {
   const [payModal, setPayModal] = useState<Invoice | null>(null);
   const [payForm] = Form.useForm();
   const [overdueDrawer, setOverdueDrawer] = useState(false);
+  const [chargeModal, setChargeModal] = useState(false);
+  const [chargeForm] = Form.useForm();
 
   const { data = [], isLoading } = useQuery({
     queryKey: ["invoices", { status: statusFilter }],
@@ -83,6 +88,22 @@ export default function Invoices() {
     queryKey: ["overdue-report"],
     queryFn: () => invoicesApi.overdueReport(0),
     enabled: overdueDrawer,
+  });
+
+  const { data: clients = [] } = useQuery({
+    queryKey: ["clients-list"],
+    queryFn: () => clientsApi.list({ limit: 500 }),
+  });
+
+  const createChargeMutation = useMutation({
+    mutationFn: invoicesApi.createCharge,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      message.success("Cobro adicional creado");
+      setChargeModal(false);
+      chargeForm.resetFields();
+    },
+    onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al crear cobro"),
   });
 
   const addPaymentMutation = useMutation({
@@ -148,6 +169,13 @@ export default function Invoices() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>Facturación</Title>
         <Space wrap>
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => { chargeForm.setFieldValue("items", [{ description: "", quantity: 1, unit_price: 0 }]); setChargeModal(true); }}
+          >
+            Cobro adicional
+          </Button>
           <Tooltip title="Ver reporte de morosidad y exportar CSV">
             <Button icon={<FileTextOutlined />} onClick={() => setOverdueDrawer(true)}>
               Reporte de morosidad
@@ -197,20 +225,35 @@ export default function Invoices() {
         size="small"
         pagination={{ pageSize: 50, showTotal: (t) => `${t} facturas` }}
         expandable={{
-          expandedRowRender: (r: Invoice) =>
-            r.payments.length > 0 ? (
-              <div style={{ paddingLeft: 24 }}>
-                {r.payments.map((p) => (
-                  <div key={p.id} style={{ marginBottom: 4, fontSize: 13 }}>
-                    {dayjs(p.payment_date).format("DD/MM/YYYY")} — {formatARS(p.amount)} —{" "}
-                    {methodLabel[p.method] ?? p.method}
-                    {p.reference ? ` — Ref: ${p.reference}` : ""}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div style={{ paddingLeft: 24, color: "#999" }}>Sin pagos registrados</div>
-            ),
+          expandedRowRender: (r: Invoice) => (
+            <div style={{ paddingLeft: 24 }}>
+              {r.items?.length > 0 && (
+                <>
+                  <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 13 }}>Ítems:</div>
+                  {r.items.map((item: InvoiceItem) => (
+                    <div key={item.id} style={{ marginBottom: 2, fontSize: 13 }}>
+                      {item.description} × {item.quantity} = {formatARS(item.subtotal)}
+                    </div>
+                  ))}
+                  <Divider style={{ margin: "8px 0" }} />
+                </>
+              )}
+              {r.payments.length > 0 ? (
+                <>
+                  <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 13 }}>Pagos:</div>
+                  {r.payments.map((p) => (
+                    <div key={p.id} style={{ marginBottom: 4, fontSize: 13 }}>
+                      {dayjs(p.payment_date).format("DD/MM/YYYY")} — {formatARS(p.amount)} —{" "}
+                      {methodLabel[p.method] ?? p.method}
+                      {p.reference ? ` — Ref: ${p.reference}` : ""}
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div style={{ color: "#999", fontSize: 13 }}>Sin pagos registrados</div>
+              )}
+            </div>
+          ),
         }}
       />
 
@@ -276,6 +319,79 @@ export default function Invoices() {
           ]}
         />
       </Drawer>
+
+      <Modal
+        title="Cobro adicional"
+        open={chargeModal}
+        onCancel={() => { setChargeModal(false); chargeForm.resetFields(); }}
+        onOk={() => chargeForm.submit()}
+        confirmLoading={createChargeMutation.isPending}
+        width={600}
+        destroyOnClose
+      >
+        <Form
+          form={chargeForm}
+          layout="vertical"
+          onFinish={(v) => createChargeMutation.mutate({ client_id: v.client_id, notes: v.notes, items: v.items })}
+          initialValues={{ items: [{ description: "", quantity: 1, unit_price: 0 }] }}
+        >
+          <Form.Item name="client_id" label="Cliente" rules={[{ required: true }]}>
+            <Select
+              showSearch
+              filterOption={(input, opt) => (opt?.label as string ?? "").toLowerCase().includes(input.toLowerCase())}
+              options={clients.map((c: any) => ({ value: c.id, label: c.full_name }))}
+              placeholder="Seleccioná un cliente"
+            />
+          </Form.Item>
+
+          <Form.List name="items">
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map(({ key, name }) => (
+                  <Space key={key} align="baseline" style={{ display: "flex", marginBottom: 4 }}>
+                    <Form.Item name={[name, "description"]} rules={[{ required: true, message: "Descripción requerida" }]} style={{ marginBottom: 0, flex: 1, minWidth: 200 }}>
+                      <Select
+                        showSearch
+                        allowClear
+                        placeholder="Descripción"
+                        style={{ width: 220 }}
+                        options={[
+                          { value: "Instalación" },
+                          { value: "Antena" },
+                          { value: "Router" },
+                          { value: "Cable UTP" },
+                          { value: "Mano de obra" },
+                          { value: "Visita técnica" },
+                          { value: "Cambio de equipo" },
+                          { value: "Otro" },
+                        ].map((o) => ({ value: o.value, label: o.value }))}
+                        onSearch={(v) => chargeForm.setFieldValue(["items", name, "description"], v)}
+                        filterOption={(input, opt) => (opt?.label as string ?? "").toLowerCase().includes(input.toLowerCase())}
+                      />
+                    </Form.Item>
+                    <Form.Item name={[name, "quantity"]} rules={[{ required: true }]} style={{ marginBottom: 0, width: 80 }}>
+                      <InputNumber min={0.01} step={1} precision={2} placeholder="Cant." style={{ width: 80 }} />
+                    </Form.Item>
+                    <Form.Item name={[name, "unit_price"]} rules={[{ required: true }]} style={{ marginBottom: 0, width: 110 }}>
+                      <InputNumber min={0} precision={2} prefix="$" placeholder="Precio" style={{ width: 110 }} />
+                    </Form.Item>
+                    {fields.length > 1 && (
+                      <Button danger icon={<DeleteOutlined />} size="small" onClick={() => remove(name)} />
+                    )}
+                  </Space>
+                ))}
+                <Button type="dashed" icon={<PlusOutlined />} size="small" onClick={() => add({ description: "", quantity: 1, unit_price: 0 })} style={{ marginTop: 4 }}>
+                  Agregar ítem
+                </Button>
+              </>
+            )}
+          </Form.List>
+
+          <Form.Item name="notes" label="Notas" style={{ marginTop: 12 }}>
+            <Input.TextArea rows={2} />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <Modal
         title="Registrar pago"
