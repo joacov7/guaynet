@@ -35,6 +35,7 @@ const ALL_ITEMS = [
   { key: "/vpn",        icon: <LockOutlined />,        label: "VPN",             section: null, adminOnly: true },
   { key: "/users",      icon: <UserOutlined />,        label: "Usuarios",        section: null, adminOnly: true },
   { key: "/permissions",icon: <SettingOutlined />,    label: "Permisos",        section: null, adminOnly: true },
+  { key: "/settings",   icon: <SettingOutlined />,    label: "Configuración",   section: null, adminOnly: true },
 ];
 
 export default function Sidebar() {

@@ -19,6 +19,7 @@ import BandwidthDashboard from "@/pages/BandwidthDashboard";
 import Permissions from "@/pages/Permissions";
 import Users from "@/pages/Users";
 import Vpn from "@/pages/Vpn";
+import Settings from "@/pages/Settings";
 import { PermissionsProvider } from "@/contexts/PermissionsContext";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -65,6 +66,7 @@ export default function App() {
           <Route path="permissions" element={<Permissions />} />
           <Route path="users" element={<Users />} />
           <Route path="vpn" element={<Vpn />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
     </BrowserRouter>

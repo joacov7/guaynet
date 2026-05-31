@@ -235,6 +235,8 @@ export const adminApi = {
       params: { router_id: routerId, hours },
     }).then((r) => r.data),
   mapData: () => http.get("/admin/map-data").then((r) => r.data),
+  getConfig: () => http.get<Record<string, string>>("/admin/config").then((r) => r.data),
+  updateConfig: (data: Record<string, string>) => http.put<Record<string, string>>("/admin/config", data).then((r) => r.data),
 };
 
 export interface MyPermissions {
