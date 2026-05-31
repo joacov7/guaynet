@@ -37,7 +37,6 @@ async def lifespan(app: FastAPI):
     # Seed default role permissions if missing
     async with AsyncSessionLocal() as db:
         from app.models.permission import DEFAULTS, RolePermission
-        from sqlalchemy import select
         for role, section, can_view, can_edit in DEFAULTS:
             exists = (await db.execute(
                 select(RolePermission).where(RolePermission.role == role, RolePermission.section == section)
