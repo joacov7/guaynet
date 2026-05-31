@@ -75,6 +75,9 @@ def require_permission(section: str, action: str = "view"):
             raise HTTPException(status_code=403, detail="Sin permiso de edición")
         return current_user
     return _dep
+
+
+def add_audit_log(
     db: AsyncSession,
     user,
     action: str,
