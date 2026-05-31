@@ -30,7 +30,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    const token = localStorage.getItem("access_token");
     if (token) load();
   }, []);
 
