@@ -17,6 +17,7 @@ import AuditLog from "@/pages/AuditLog";
 import IpPool from "@/pages/IpPool";
 import BandwidthDashboard from "@/pages/BandwidthDashboard";
 import Permissions from "@/pages/Permissions";
+import Users from "@/pages/Users";
 import { PermissionsProvider } from "@/contexts/PermissionsContext";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -61,6 +62,7 @@ export default function App() {
           <Route path="ip-pool" element={<IpPool />} />
           <Route path="bandwidth" element={<BandwidthDashboard />} />
           <Route path="permissions" element={<Permissions />} />
+          <Route path="users" element={<Users />} />
         </Route>
       </Routes>
     </BrowserRouter>
