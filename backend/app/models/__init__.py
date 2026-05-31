@@ -7,6 +7,7 @@ from app.models.invoice import Invoice, Payment, InvoiceStatus, PaymentMethod
 from app.models.audit import AuditLog
 from app.models.bandwidth import BandwidthSample
 from app.models.permission import RolePermission
+from app.models.vpn import VpnConnection
 
 __all__ = [
     "Base",

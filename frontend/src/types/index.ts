@@ -147,6 +147,30 @@ export interface User {
   is_superuser: boolean;
 }
 
+export interface VpnConnection {
+  id: number;
+  name: string;
+  vpn_type: "wireguard" | "l2tp";
+  router_id?: number;
+  router_name?: string;
+  wg_server_endpoint?: string;
+  wg_server_port?: number;
+  wg_server_public_key?: string;
+  wg_client_private_key?: string;
+  wg_client_public_key?: string;
+  wg_client_ip?: string;
+  wg_server_wg_ip?: string;
+  wg_keepalive?: number;
+  l2tp_server_host?: string;
+  l2tp_username?: string;
+  l2tp_password?: string;
+  l2tp_ipsec_secret?: string;
+  l2tp_local_ip?: string;
+  l2tp_remote_ip?: string;
+  notes?: string;
+  created_at?: string;
+}
+
 export interface DHCPLease {
   address: string;
   mac_address: string;
