@@ -8,6 +8,7 @@ from app.models.audit import AuditLog
 from app.models.bandwidth import BandwidthSample
 from app.models.permission import RolePermission
 from app.models.vpn import VpnConnection
+from app.models.config import SystemConfig
 
 __all__ = [
     "Base",
