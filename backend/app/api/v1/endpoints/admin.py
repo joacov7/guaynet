@@ -12,6 +12,7 @@ from app.core.security import get_password_hash
 from app.models.audit import AuditLog
 from app.models.bandwidth import BandwidthSample
 from app.models.client import Client
+from app.models.config import SystemConfig
 from app.models.user import User
 
 router = APIRouter()
@@ -109,6 +110,42 @@ async def update_user(
         "full_name": user.full_name, "role": user.role,
         "is_active": user.is_active, "is_superuser": user.is_superuser,
     }
+
+
+# ── System config ─────────────────────────────────────────────────────────────
+
+class ConfigUpdate(BaseModel):
+    suspension_action: Optional[str] = None   # disable | throttle
+    suspension_speed: Optional[str] = None    # e.g. 64k, 128k, 1M
+
+
+@router.get("/config")
+async def get_config(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    rows = (await db.execute(select(SystemConfig))).scalars().all()
+    return {r.key: r.value for r in rows}
+
+
+@router.put("/config")
+async def update_config(
+    body: ConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    updates = body.model_dump(exclude_none=True)
+    if "suspension_action" in updates and updates["suspension_action"] not in ("disable", "throttle"):
+        raise HTTPException(400, "suspension_action debe ser 'disable' o 'throttle'")
+    for key, value in updates.items():
+        row = await db.get(SystemConfig, key)
+        if row:
+            row.value = value
+        else:
+            db.add(SystemConfig(key=key, value=value))
+    await db.commit()
+    rows = (await db.execute(select(SystemConfig))).scalars().all()
+    return {r.key: r.value for r in rows}
 
 
 # ── Audit log ─────────────────────────────────────────────────────────────────
