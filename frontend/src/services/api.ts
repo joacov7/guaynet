@@ -26,6 +26,7 @@ import type {
   UbiquitiSurveyScan,
   UbiquitiWirelessConfig,
   User,
+  VpnConnection,
 } from "@/types";
 
 const http = axios.create({
@@ -71,6 +72,17 @@ export const usersApi = {
     http.post<User>("/admin/users", data).then((r) => r.data),
   update: (id: number, data: { email?: string; full_name?: string; role?: string; password?: string; is_active?: boolean }) =>
     http.put<User>(`/admin/users/${id}`, data).then((r) => r.data),
+};
+
+// ── VPN ───────────────────────────────────────────────────────────────────────
+export const vpnApi = {
+  list: () => http.get<VpnConnection[]>("/vpn/").then((r) => r.data),
+  create: (data: Partial<VpnConnection>) => http.post<VpnConnection>("/vpn/", data).then((r) => r.data),
+  update: (id: number, data: Partial<VpnConnection>) => http.put<VpnConnection>(`/vpn/${id}`, data).then((r) => r.data),
+  delete: (id: number) => http.delete(`/vpn/${id}`),
+  commands: (id: number) => http.get<{ mikrotik: string; server: string }>(`/vpn/${id}/commands`).then((r) => r.data),
+  generateWgKeys: () => http.get<{ private_key: string; public_key: string }>("/vpn/generate-wg-keys").then((r) => r.data),
+  generateL2tpCreds: () => http.get<{ password: string; ipsec_secret: string }>("/vpn/generate-l2tp-creds").then((r) => r.data),
 };
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
