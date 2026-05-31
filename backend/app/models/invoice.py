@@ -49,6 +49,20 @@ class Invoice(Base, TimestampMixin):
 
     client: Mapped["Client"] = relationship(back_populates="invoices")
     payments: Mapped[List["Payment"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
+    items: Mapped[List["InvoiceItem"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
+
+
+class InvoiceItem(Base):
+    __tablename__ = "invoice_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), index=True)
+    description: Mapped[str] = mapped_column(String(255))
+    quantity: Mapped[float] = mapped_column(Numeric(10, 3), default=1)
+    unit_price: Mapped[float] = mapped_column(Numeric(10, 2))
+    subtotal: Mapped[float] = mapped_column(Numeric(10, 2))
+
+    invoice: Mapped["Invoice"] = relationship(back_populates="items")
 
 
 class Payment(Base, TimestampMixin):
