@@ -41,13 +41,14 @@ http.interceptors.request.use((config) => {
   return config;
 });
 
-// Redirect to login on 401
+// Redirect to login on 401 (tech users go to /tech/login)
 http.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem("access_token");
-      window.location.href = "/login";
+      const isTech = window.location.pathname.startsWith("/tech");
+      window.location.href = isTech ? "/tech/login" : "/login";
     }
     return Promise.reject(err);
   }
