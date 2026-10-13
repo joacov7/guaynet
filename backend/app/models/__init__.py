@@ -9,6 +9,7 @@ from app.models.bandwidth import BandwidthSample
 from app.models.permission import RolePermission
 from app.models.vpn import VpnConnection
 from app.models.config import SystemConfig
+from app.models.ticket import Ticket, TicketComment, TicketStatus, TicketPriority, TicketCategory
 
 __all__ = [
     "Base",

@@ -1,3 +1,4 @@
+import calendar
 import csv
 import io
 from datetime import date
@@ -5,12 +6,13 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_current_user, get_db
-from app.models.client import Client
+from app.models.client import Client, ClientStatus
 from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus, Payment
 from app.schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceUpdate, PaymentCreate, PaymentResponse
 
@@ -164,6 +166,106 @@ async def trigger_generate_invoices(_=Depends(get_current_user)):
     from app.tasks.billing import generate_monthly_invoices
     task = generate_monthly_invoices.delay()
     return {"task_id": task.id, "status": "queued"}
+
+
+def _parse_period(period: str):
+    try:
+        year, month = int(period[:4]), int(period[5:7])
+        if not (1 <= month <= 12):
+            raise ValueError
+        return year, month
+    except (ValueError, IndexError):
+        raise HTTPException(status_code=400, detail="El período debe tener formato YYYY-MM")
+
+
+@router.get("/generate-monthly/preview")
+async def preview_monthly_generation(
+    period: Optional[str] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    if not period:
+        period = date.today().strftime("%Y-%m")
+    year, month = _parse_period(period)
+
+    clients_result = await db.execute(
+        select(Client).options(selectinload(Client.plan)).where(Client.status == ClientStatus.active)
+    )
+    clients = clients_result.scalars().all()
+
+    existing_result = await db.execute(
+        select(Invoice.client_id).where(Invoice.period == period)
+    )
+    existing_ids = set(existing_result.scalars().all())
+
+    last_day = calendar.monthrange(year, month)[1]
+    today = date.today()
+    items = []
+    for c in clients:
+        if c.id in existing_ids or not c.plan:
+            continue
+        billing_day = min(c.billing_day or 1, last_day)
+        items.append({
+            "client_id": c.id,
+            "client_name": c.full_name,
+            "plan_name": c.plan.name,
+            "amount": float(c.plan.price),
+            "due_date": date(year, month, billing_day).isoformat(),
+            "issue_date": today.isoformat(),
+        })
+
+    return {
+        "period": period,
+        "count": len(items),
+        "skipped": len(clients) - len(items),
+        "items": items,
+    }
+
+
+class GenerateMonthlyRequest(BaseModel):
+    period: str
+
+
+@router.post("/generate-monthly")
+async def generate_monthly_invoices_direct(
+    body: GenerateMonthlyRequest,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    year, month = _parse_period(body.period)
+
+    clients_result = await db.execute(
+        select(Client).options(selectinload(Client.plan)).where(Client.status == ClientStatus.active)
+    )
+    clients = clients_result.scalars().all()
+
+    existing_result = await db.execute(
+        select(Invoice.client_id).where(Invoice.period == body.period)
+    )
+    existing_ids = set(existing_result.scalars().all())
+
+    last_day = calendar.monthrange(year, month)[1]
+    today = date.today()
+    created = 0
+    skipped = 0
+
+    for c in clients:
+        if c.id in existing_ids or not c.plan:
+            skipped += 1
+            continue
+        billing_day = min(c.billing_day or 1, last_day)
+        db.add(Invoice(
+            client_id=c.id,
+            period=body.period,
+            amount=float(c.plan.price),
+            issue_date=today,
+            due_date=date(year, month, billing_day),
+            status=InvoiceStatus.pending,
+        ))
+        created += 1
+
+    await db.commit()
+    return {"period": body.period, "created": created, "skipped": skipped}
 
 
 @router.get("/overdue-report")

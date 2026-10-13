@@ -157,6 +157,22 @@ export interface InvoiceItemCreate {
   unit_price: number;
 }
 
+export interface InvoicePreviewItem {
+  client_id: number;
+  client_name: string;
+  plan_name: string;
+  amount: number;
+  due_date: string;
+  issue_date: string;
+}
+
+export interface InvoicePreviewResult {
+  period: string;
+  count: number;
+  skipped: number;
+  items: InvoicePreviewItem[];
+}
+
 export const invoicesApi = {
   list: (params?: { status?: string; period?: string; client_id?: number }) =>
     http.get<Invoice[]>("/invoices/", { params }).then((r) => r.data),
@@ -179,7 +195,10 @@ export const invoicesApi = {
     http.post(`/invoices/${invoiceId}/payments`, data).then((r) => r.data),
   markOverdue: () => http.post("/invoices/mark-overdue").then((r) => r.data),
   triggerSuspend: () => http.post("/invoices/trigger-suspend").then((r) => r.data),
-  triggerGenerate: () => http.post("/invoices/trigger-generate").then((r) => r.data),
+  previewMonthly: (period: string) =>
+    http.get<InvoicePreviewResult>("/invoices/generate-monthly/preview", { params: { period } }).then((r) => r.data),
+  generateMonthly: (period: string) =>
+    http.post<{ period: string; created: number; skipped: number }>("/invoices/generate-monthly", { period }).then((r) => r.data),
   overdueReport: (minDays = 0) =>
     http
       .get<OverdueReport>("/invoices/overdue-report", { params: { min_days_overdue: minDays } })
@@ -238,6 +257,20 @@ export const firewallApi = {
     http.post<{ added: number }>(`/firewall/${routerId}/pcq/setup`).then((r) => r.data),
   dhcpImport: (routerId: number, items: { address: string; mac_address: string; hostname?: string }[], plan_id: number) =>
     http.post<{ created: number; skipped: number }>(`/firewall/${routerId}/dhcp-import`, { items, plan_id }).then((r) => r.data),
+};
+
+// ── Tickets ───────────────────────────────────────────────────────────────────
+export const ticketsApi = {
+  list: (params?: { status?: string; priority?: string; category?: string; client_id?: number }) =>
+    http.get<import("@/types").Ticket[]>("/tickets/", { params }).then((r) => r.data),
+  get: (id: number) => http.get<import("@/types").Ticket>(`/tickets/${id}`).then((r) => r.data),
+  create: (data: { title: string; description?: string; client_id?: number; assigned_to_id?: number; priority?: string; category?: string }) =>
+    http.post<import("@/types").Ticket>("/tickets/", data).then((r) => r.data),
+  update: (id: number, data: { title?: string; description?: string; status?: string; priority?: string; category?: string; assigned_to_id?: number; client_id?: number }) =>
+    http.put<import("@/types").Ticket>(`/tickets/${id}`, data).then((r) => r.data),
+  delete: (id: number) => http.delete(`/tickets/${id}`),
+  addComment: (ticketId: number, body: string) =>
+    http.post<import("@/types").TicketComment>(`/tickets/${ticketId}/comments`, { body }).then((r) => r.data),
 };
 
 // ── Admin ─────────────────────────────────────────────────────────────────────

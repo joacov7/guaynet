@@ -28,9 +28,11 @@ import {
   PauseCircleOutlined,
   PlusOutlined,
   WarningOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { clientsApi, invoicesApi } from "@/services/api";
+import type { InvoicePreviewItem, InvoicePreviewResult } from "@/services/api";
 import type { Invoice, InvoiceItem, InvoiceStatus, OverdueEntry } from "@/types";
 
 const { Title } = Typography;
@@ -58,6 +60,10 @@ export default function Invoices() {
   const [overdueDrawer, setOverdueDrawer] = useState(false);
   const [chargeModal, setChargeModal] = useState(false);
   const [chargeForm] = Form.useForm();
+  const [generateModal, setGenerateModal] = useState(false);
+  const [generatePeriod, setGeneratePeriod] = useState(dayjs());
+  const [preview, setPreview] = useState<InvoicePreviewResult | null>(null);
+  const [previewing, setPreviewing] = useState(false);
 
   const { data = [], isLoading } = useQuery({
     queryKey: ["invoices", { status: statusFilter }],
@@ -78,11 +84,29 @@ export default function Invoices() {
     onError: () => message.error("Error al lanzar tarea"),
   });
 
-  const triggerGenerateMutation = useMutation({
-    mutationFn: invoicesApi.triggerGenerate,
-    onSuccess: () => message.success("Generación de facturas enviada a la cola"),
-    onError: () => message.error("Error al lanzar tarea"),
+  const generateMutation = useMutation({
+    mutationFn: invoicesApi.generateMonthly,
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      message.success(`${res.created} facturas creadas, ${res.skipped} omitidas`);
+      setGenerateModal(false);
+      setPreview(null);
+    },
+    onError: () => message.error("Error al generar facturas"),
   });
+
+  async function handlePreview() {
+    const period = generatePeriod.format("YYYY-MM");
+    setPreviewing(true);
+    try {
+      const result = await invoicesApi.previewMonthly(period);
+      setPreview(result);
+    } catch {
+      message.error("Error al obtener preview");
+    } finally {
+      setPreviewing(false);
+    }
+  }
 
   const { data: overdueData, isLoading: overdueLoading } = useQuery({
     queryKey: ["overdue-report"],
@@ -187,14 +211,12 @@ export default function Invoices() {
           >
             <Button icon={<WarningOutlined />}>Marcar vencidas</Button>
           </Popconfirm>
-          <Popconfirm
-            title="¿Generar facturas del mes para todos los clientes activos?"
-            onConfirm={() => triggerGenerateMutation.mutate()}
+          <Button
+            icon={<ThunderboltOutlined />}
+            onClick={() => { setPreview(null); setGeneratePeriod(dayjs()); setGenerateModal(true); }}
           >
-            <Button icon={<FileTextOutlined />} loading={triggerGenerateMutation.isPending}>
-              Generar facturas
-            </Button>
-          </Popconfirm>
+            Generar facturas
+          </Button>
           <Popconfirm
             title="¿Ejecutar auto-suspensión? Se suspenderán clientes con facturas vencidas hace más de 3 días."
             onConfirm={() => triggerSuspendMutation.mutate()}
@@ -420,6 +442,74 @@ export default function Invoices() {
             <Input.TextArea rows={2} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="Generar facturas mensuales"
+        open={generateModal}
+        onCancel={() => { setGenerateModal(false); setPreview(null); }}
+        footer={
+          <Space>
+            <Button onClick={() => { setGenerateModal(false); setPreview(null); }}>Cancelar</Button>
+            <Button onClick={handlePreview} loading={previewing}>
+              Ver preview
+            </Button>
+            <Button
+              type="primary"
+              disabled={!preview || preview.count === 0}
+              loading={generateMutation.isPending}
+              onClick={() => generateMutation.mutate(generatePeriod.format("YYYY-MM"))}
+            >
+              Confirmar generación ({preview?.count ?? 0})
+            </Button>
+          </Space>
+        }
+        width={680}
+        destroyOnClose
+      >
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <div>
+            <div style={{ marginBottom: 8, fontWeight: 500 }}>Período</div>
+            <DatePicker
+              picker="month"
+              value={generatePeriod}
+              onChange={(v) => { if (v) { setGeneratePeriod(v); setPreview(null); } }}
+              format="MM/YYYY"
+              style={{ width: 160 }}
+            />
+          </div>
+
+          {preview && (
+            <>
+              <Space style={{ marginTop: 8 }}>
+                <Statistic title="Nuevas facturas" value={preview.count} />
+                <Statistic
+                  title="Monto total"
+                  value={preview.items.reduce((s, i) => s + i.amount, 0)}
+                  prefix="$"
+                  precision={2}
+                />
+                <Statistic title="Ya tienen factura" value={preview.skipped} />
+              </Space>
+              {preview.count > 0 ? (
+                <Table
+                  dataSource={preview.items}
+                  rowKey="client_id"
+                  size="small"
+                  pagination={{ pageSize: 10 }}
+                  columns={[
+                    { title: "Cliente", dataIndex: "client_name", key: "client_name" },
+                    { title: "Plan", dataIndex: "plan_name", key: "plan_name" },
+                    { title: "Monto", dataIndex: "amount", key: "amount", render: (v: number) => formatARS(v) },
+                    { title: "Vencimiento", dataIndex: "due_date", key: "due_date", render: (v: string) => dayjs(v).format("DD/MM/YYYY") },
+                  ]}
+                />
+              ) : (
+                <Alert type="info" message="Todos los clientes activos ya tienen factura para este período." />
+              )}
+            </>
+          )}
+        </Space>
       </Modal>
     </div>
   );

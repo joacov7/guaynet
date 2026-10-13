@@ -403,6 +403,34 @@ export interface IpPoolResponse {
   ips: IpPoolEntry[];
 }
 
+export type TicketStatus = "open" | "in_progress" | "resolved" | "closed";
+export type TicketPriority = "low" | "medium" | "high";
+export type TicketCategory = "connectivity" | "speed" | "billing" | "equipment" | "installation" | "other";
+
+export interface TicketComment {
+  id: number;
+  ticket_id: number;
+  author_id?: number;
+  author_name?: string;
+  body: string;
+  created_at: string;
+}
+
+export interface Ticket {
+  id: number;
+  client_id?: number;
+  client_name?: string;
+  assigned_to_id?: number;
+  assigned_to_name?: string;
+  title: string;
+  description?: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  category: TicketCategory;
+  created_at: string;
+  comments: TicketComment[];
+}
+
 export interface MapDataPoint {
   id: number;
   name?: string;
