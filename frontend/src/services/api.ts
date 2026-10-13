@@ -314,6 +314,61 @@ export const notificationsApi = {
     http.post<{ sent: number; failed: number; skipped_no_phone: number; details: any[] }>("/notifications/whatsapp/bulk-reminder", params ?? {}).then((r) => r.data),
 };
 
+// ── Automations ───────────────────────────────────────────────────────────────
+export const automationsApi = {
+  getSettings: () => http.get<{
+    auto_suspend_enabled: boolean;
+    auto_suspend_days: number;
+    auto_invoice_enabled: boolean;
+    auto_whatsapp_enabled: boolean;
+    whatsapp_reminder_days: number;
+  }>("/automations/settings").then((r) => r.data),
+  updateSettings: (data: Partial<{
+    auto_suspend_enabled: boolean;
+    auto_suspend_days: number;
+    auto_invoice_enabled: boolean;
+    auto_whatsapp_enabled: boolean;
+    whatsapp_reminder_days: number;
+  }>) => http.put("/automations/settings", data).then((r) => r.data),
+  getLogs: (limit = 50) =>
+    http.get<Array<{ id: number; job: string; status: string; message: string; affected: number; created_at: string }>>("/automations/logs", { params: { limit } }).then((r) => r.data),
+  runJob: (job_name: string) => http.post(`/automations/run/${job_name}`).then((r) => r.data),
+};
+
+// ── Client portal ─────────────────────────────────────────────────────────────
+const portalHttp = axios.create({ baseURL: "/api/v1", headers: { "Content-Type": "application/json" } });
+portalHttp.interceptors.request.use((config) => {
+  const token = localStorage.getItem("portal_access_token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+portalHttp.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401) {
+      localStorage.removeItem("portal_access_token");
+      window.location.href = "/portal/login";
+    }
+    return Promise.reject(err);
+  }
+);
+
+type PortalClient = { id: number; full_name: string; email: string | null; phone: string | null; address: string | null; status: string; plan_name: string | null; ip_address: string };
+type PortalInvoice = { id: number; period: string | null; amount: number; status: string; issue_date: string | null; due_date: string | null; paid_date: string | null };
+type PortalTicket = { id: number; title: string; description: string | null; status: string; priority: string; category: string; created_at: string; comment_count: number };
+
+export const portalApi = {
+  login: (email: string, password: string) =>
+    http.post<{ access_token: string; token_type: string; client: PortalClient }>("/portal/login", { email, password }).then((r) => r.data),
+  me: () => portalHttp.get<PortalClient>("/portal/me").then((r) => r.data),
+  getInvoices: () => portalHttp.get<PortalInvoice[]>("/portal/invoices").then((r) => r.data),
+  getTickets: () => portalHttp.get<PortalTicket[]>("/portal/tickets").then((r) => r.data),
+  createTicket: (data: { title: string; description?: string; category?: string }) =>
+    portalHttp.post<{ id: number }>("/portal/tickets", data).then((r) => r.data),
+  setPortalPassword: (clientId: number, password: string, enabled = true) =>
+    http.put(`/portal/clients/${clientId}/portal-password`, { password, enabled }).then((r) => r.data),
+};
+
 // ── Push notifications ────────────────────────────────────────────────────────
 export const pushApi = {
   getVapidKey: () => http.get<{ public_key: string }>("/push/vapid-key").then((r) => r.data),

@@ -257,8 +257,11 @@ async def map_data(
 
     routers = (await db.execute(select(MikrotikRouter))).scalars().all()
     aps = (await db.execute(select(UbiquitiDevice))).scalars().all()
+    from sqlalchemy.orm import selectinload
     clients = (await db.execute(
-        select(Client).where(
+        select(Client)
+        .options(selectinload(Client.plan))
+        .where(
             Client.latitude.isnot(None),
             Client.longitude.isnot(None),
         )
@@ -287,6 +290,8 @@ async def map_data(
             {
                 "id": c.id, "full_name": c.full_name, "ip_address": c.ip_address,
                 "status": c.status, "latitude": c.latitude, "longitude": c.longitude,
+                "plan_name": c.plan.name if c.plan else None,
+                "address": c.address,
             }
             for c in clients
         ],

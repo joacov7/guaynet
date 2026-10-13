@@ -28,6 +28,12 @@ import TechLogin from "@/pages/tech/TechLogin";
 import TechHome from "@/pages/tech/TechHome";
 import TechHistory from "@/pages/tech/TechHistory";
 import TechTicket from "@/pages/tech/TechTicket";
+import Automations from "@/pages/Automations";
+import PortalLayout from "@/pages/portal/PortalLayout";
+import PortalLogin from "@/pages/portal/PortalLogin";
+import PortalDashboard from "@/pages/portal/PortalDashboard";
+import PortalInvoices from "@/pages/portal/PortalInvoices";
+import PortalTickets from "@/pages/portal/PortalTickets";
 import { PermissionsProvider } from "@/contexts/PermissionsContext";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -78,6 +84,15 @@ export default function App() {
           <Route path="inventory" element={<Inventory />} />
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="automations" element={<Automations />} />
+        </Route>
+
+        {/* Client portal — separate layout */}
+        <Route path="/portal" element={<PortalLayout />}>
+          <Route index element={<PortalDashboard />} />
+          <Route path="login" element={<PortalLogin />} />
+          <Route path="invoices" element={<PortalInvoices />} />
+          <Route path="tickets" element={<PortalTickets />} />
         </Route>
 
         {/* Tech PWA — separate layout, no sidebar */}

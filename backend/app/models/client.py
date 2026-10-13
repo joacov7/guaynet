@@ -52,6 +52,10 @@ class Client(Base, TimestampMixin):
     service_start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     billing_day: Mapped[int] = mapped_column(Integer, default=1)
 
+    # Client portal
+    portal_enabled: Mapped[bool] = mapped_column(default=False)
+    portal_password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
     # Relationships
     plan: Mapped["Plan"] = relationship(back_populates="clients")
     router: Mapped["MikrotikRouter"] = relationship(back_populates="clients")
