@@ -1,7 +1,9 @@
+import os
+import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +12,9 @@ from sqlalchemy.orm import selectinload
 from app.core.deps import get_current_user, get_db
 from app.models.ticket import Ticket, TicketComment, TicketCategory, TicketPriority, TicketStatus
 from app.models.user import User
+
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "../../../../uploads/tickets")
+ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
 router = APIRouter()
 
@@ -140,7 +145,17 @@ async def create_ticket(
     db.add(ticket)
     await db.commit()
     result = await db.execute(select(Ticket).options(*_ticket_options()).where(Ticket.id == ticket.id))
-    return TicketResponse.from_orm_full(result.scalar_one())
+    t = result.scalar_one()
+    if t.assigned_to_id:
+        from app.api.v1.endpoints.push import send_push_to_user
+        await send_push_to_user(
+            t.assigned_to_id,
+            "Nuevo ticket asignado",
+            f"#{t.id} {t.title}",
+            f"/tech/tickets/{t.id}",
+            db,
+        )
+    return TicketResponse.from_orm_full(t)
 
 
 @router.get("/{ticket_id}", response_model=TicketResponse)
@@ -166,12 +181,24 @@ async def update_ticket(
     ticket = await db.get(Ticket, ticket_id)
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
+    prev_assigned = ticket.assigned_to_id
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(ticket, field, value)
     db.add(ticket)
     await db.commit()
     result = await db.execute(select(Ticket).options(*_ticket_options()).where(Ticket.id == ticket_id))
-    return TicketResponse.from_orm_full(result.scalar_one())
+    t = result.scalar_one()
+    # Notify technician if newly assigned
+    if body.assigned_to_id and body.assigned_to_id != prev_assigned:
+        from app.api.v1.endpoints.push import send_push_to_user
+        await send_push_to_user(
+            body.assigned_to_id,
+            "Ticket asignado",
+            f"#{t.id} {t.title}",
+            f"/tech/tickets/{t.id}",
+            db,
+        )
+    return TicketResponse.from_orm_full(t)
 
 
 @router.delete("/{ticket_id}", status_code=204)
@@ -185,6 +212,38 @@ async def delete_ticket(
         raise HTTPException(status_code=404, detail="Ticket no encontrado")
     await db.delete(ticket)
     await db.commit()
+
+
+@router.post("/{ticket_id}/attachments")
+async def upload_attachment(
+    ticket_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    ticket = await db.get(Ticket, ticket_id)
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket no encontrado")
+    if file.content_type not in ALLOWED_TYPES:
+        raise HTTPException(status_code=415, detail="Solo se permiten imágenes (JPEG, PNG, WebP, GIF)")
+
+    ext = (file.filename or "img").rsplit(".", 1)[-1].lower()
+    if ext not in ("jpg", "jpeg", "png", "webp", "gif"):
+        ext = "jpg"
+
+    dest_dir = os.path.join(UPLOAD_DIR, str(ticket_id))
+    os.makedirs(dest_dir, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    path = os.path.join(dest_dir, filename)
+
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Imagen demasiado grande (máx 10 MB)")
+
+    with open(path, "wb") as f:
+        f.write(contents)
+
+    return {"url": f"/uploads/tickets/{ticket_id}/{filename}"}
 
 
 @router.post("/{ticket_id}/comments", response_model=CommentResponse, status_code=201)

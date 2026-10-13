@@ -272,6 +272,13 @@ export const ticketsApi = {
   delete: (id: number) => http.delete(`/tickets/${id}`),
   addComment: (ticketId: number, body: string) =>
     http.post<import("@/types").TicketComment>(`/tickets/${ticketId}/comments`, { body }).then((r) => r.data),
+  uploadAttachment: (ticketId: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return http.post<{ url: string }>(`/tickets/${ticketId}/attachments`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }).then((r) => r.data);
+  },
 };
 
 // ── Reports ───────────────────────────────────────────────────────────────────
@@ -305,6 +312,15 @@ export const notificationsApi = {
     http.post("/notifications/whatsapp/send", { client_id, message, phone }).then((r) => r.data),
   bulkReminder: (params?: { template?: string; min_days_overdue?: number; dry_run?: boolean }) =>
     http.post<{ sent: number; failed: number; skipped_no_phone: number; details: any[] }>("/notifications/whatsapp/bulk-reminder", params ?? {}).then((r) => r.data),
+};
+
+// ── Push notifications ────────────────────────────────────────────────────────
+export const pushApi = {
+  getVapidKey: () => http.get<{ public_key: string }>("/push/vapid-key").then((r) => r.data),
+  subscribe: (sub: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
+    http.post("/push/subscribe", sub),
+  unsubscribe: (sub: { endpoint: string; keys: { p256dh: string; auth: string } }) =>
+    http.delete("/push/subscribe", { data: sub }),
 };
 
 // ── Admin ─────────────────────────────────────────────────────────────────────

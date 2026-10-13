@@ -1,14 +1,58 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Spin } from "antd";
-import { authApi } from "@/services/api";
+import { authApi, pushApi } from "@/services/api";
 import type { User } from "@/types";
 
 export const TechContext = { user: null as User | null };
 
+async function registerPush(user: User) {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return;
+
+    const reg = await navigator.serviceWorker.ready;
+    const { public_key } = await pushApi.getVapidKey();
+
+    // Convert base64url to Uint8Array
+    const padding = "=".repeat((4 - (public_key.length % 4)) % 4);
+    const base64 = (public_key + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const rawKey = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) {
+      // Already subscribed — re-register in case server lost it
+      await pushApi.subscribe(existing.toJSON() as any);
+      return;
+    }
+
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: rawKey,
+    });
+    await pushApi.subscribe(sub.toJSON() as any);
+  } catch {
+    // Push is optional — never break the app
+  }
+}
+
+function useOnline() {
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
+  return online;
+}
+
 export default function TechLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+  const online = useOnline();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -19,7 +63,11 @@ export default function TechLayout() {
       return;
     }
     authApi.me()
-      .then((u) => { setUser(u); TechContext.user = u; })
+      .then((u) => {
+        setUser(u);
+        TechContext.user = u;
+        registerPush(u);
+      })
       .catch(() => { localStorage.removeItem("access_token"); })
       .finally(() => setLoading(false));
   }, []);
@@ -60,6 +108,21 @@ export default function TechLayout() {
         <span style={{ fontWeight: 700, fontSize: 17 }}>Guaynet Técnicos</span>
         <span style={{ fontSize: 13, opacity: 0.85 }}>{user?.full_name || user?.username}</span>
       </div>
+
+      {/* Offline banner */}
+      {!online && (
+        <div style={{
+          background: "#faad14",
+          color: "#000",
+          textAlign: "center",
+          padding: "6px 12px",
+          fontSize: 13,
+          fontWeight: 600,
+          flexShrink: 0,
+        }}>
+          Sin conexión — mostrando datos guardados
+        </div>
+      )}
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>

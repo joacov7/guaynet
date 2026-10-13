@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Spin, Tag, Typography, message } from "antd";
+import { Spin, Tag, Typography, message } from "antd";
 import dayjs from "dayjs";
 import { ticketsApi, clientsApi } from "@/services/api";
 import type { Ticket, User } from "@/types";
@@ -33,7 +33,8 @@ export default function TechTicket() {
   const qc = useQueryClient();
   const { user } = useOutletContext<{ user: User }>();
   const [comment, setComment] = useState("");
-  const [updating, setUpdating] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const { data: ticket, isLoading, isError, refetch } = useQuery({
     queryKey: ["tech-ticket", id],
@@ -61,6 +62,19 @@ export default function TechTicket() {
     },
     onError: () => message.error("No se pudo agregar el comentario"),
   });
+
+  async function handlePhoto(file: File) {
+    setUploading(true);
+    try {
+      const { url } = await ticketsApi.uploadAttachment(Number(id), file);
+      setComment((prev) => (prev ? prev + "\n" + url : url));
+    } catch {
+      message.error("No se pudo subir la imagen");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
 
   if (isLoading) {
     return (
@@ -219,7 +233,7 @@ export default function TechTicket() {
               <Text type="secondary" style={{ fontSize: 11 }}>
                 {c.author_name ?? "Sistema"} · {dayjs(c.created_at).format("DD/MM HH:mm")}
               </Text>
-              <div style={{ fontSize: 14, marginTop: 2 }}>{c.body}</div>
+              <CommentBody body={c.body} />
             </div>
           ))}
 
@@ -241,6 +255,35 @@ export default function TechTicket() {
                 outline: "none",
               }}
             />
+            {/* Photo button */}
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              style={{
+                background: uploading ? "#d9d9d9" : "#f0f0f0",
+                color: "#595959",
+                border: "none",
+                borderRadius: 8,
+                padding: "0 12px",
+                fontSize: 20,
+                cursor: "pointer",
+              }}
+              title="Adjuntar foto"
+            >
+              {uploading ? "⏳" : "📷"}
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handlePhoto(file);
+              }}
+            />
+            {/* Send button */}
             <button
               onClick={() => comment.trim() && commentMutation.mutate(comment.trim())}
               disabled={!comment.trim() || commentMutation.isPending}
@@ -260,6 +303,30 @@ export default function TechTicket() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+const IMAGE_RE = /^(https?:\/\/\S+|\/uploads\/\S+)\.(jpg|jpeg|png|webp|gif)(\?\S*)?$/i;
+
+function CommentBody({ body }: { body: string }) {
+  const lines = body.split("\n");
+  return (
+    <div style={{ fontSize: 14, marginTop: 2 }}>
+      {lines.map((line, i) => {
+        if (IMAGE_RE.test(line.trim())) {
+          return (
+            <a key={i} href={line.trim()} target="_blank" rel="noopener noreferrer">
+              <img
+                src={line.trim()}
+                alt="foto"
+                style={{ maxWidth: "100%", borderRadius: 8, marginTop: 4, display: "block" }}
+              />
+            </a>
+          );
+        }
+        return <div key={i}>{line || " "}</div>;
+      })}
     </div>
   );
 }
