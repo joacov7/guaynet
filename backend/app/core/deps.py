@@ -1,4 +1,4 @@
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -46,3 +46,53 @@ async def get_current_superuser(current_user=Depends(get_current_user)):
     if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Acceso denegado: se requieren permisos de administrador")
     return current_user
+
+
+async def require_admin(current_user=Depends(get_current_user)):
+    if current_user.role != "admin" and not current_user.is_superuser:
+        raise HTTPException(status_code=403, detail="Se requieren permisos de administrador")
+    return current_user
+
+
+def require_permission(section: str, action: str = "view"):
+    async def _dep(current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+        if current_user.role == "admin" or current_user.is_superuser:
+            return current_user
+        from app.models.permission import RolePermission
+        from sqlalchemy import select as sa_select
+        result = await db.execute(
+            sa_select(RolePermission).where(
+                RolePermission.role == current_user.role,
+                RolePermission.section == section,
+            )
+        )
+        perm = result.scalar_one_or_none()
+        if not perm:
+            raise HTTPException(status_code=403, detail="Sin permiso")
+        if action == "view" and not perm.can_view:
+            raise HTTPException(status_code=403, detail="Sin permiso de lectura")
+        if action == "edit" and not perm.can_edit:
+            raise HTTPException(status_code=403, detail="Sin permiso de edición")
+        return current_user
+    return _dep
+
+
+def add_audit_log(
+    db: AsyncSession,
+    user,
+    action: str,
+    entity_type: str,
+    entity_id: int,
+    entity_name: str,
+    details: Optional[str] = None,
+) -> None:
+    from app.models.audit import AuditLog
+    db.add(AuditLog(
+        user_id=user.id,
+        username=user.username,
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        entity_name=entity_name,
+        details=details,
+    ))

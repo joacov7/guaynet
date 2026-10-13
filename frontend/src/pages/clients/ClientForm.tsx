@@ -1,7 +1,8 @@
 import { useEffect } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -26,6 +27,7 @@ export default function ClientForm() {
   const { id } = useParams<{ id: string }>();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
+  const location = useLocation();
   const qc = useQueryClient();
   const [form] = Form.useForm();
 
@@ -47,6 +49,14 @@ export default function ClientForm() {
     }
   }, [client, form]);
 
+  useEffect(() => {
+    if (!isEdit && location.state) {
+      const { ip, mac } = location.state as { ip?: string; mac?: string };
+      if (ip) form.setFieldValue("ip_address", ip);
+      if (mac) form.setFieldValue("mac_address", mac);
+    }
+  }, [isEdit, location.state, form]);
+
   const createMutation = useMutation({
     mutationFn: clientsApi.create,
     onSuccess: () => {
@@ -54,7 +64,9 @@ export default function ClientForm() {
       message.success("Cliente creado y sincronizado con Mikrotik");
       navigate("/clients");
     },
-    onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al crear cliente"),
+    onError: (err: any) => {
+      message.error(err.response?.data?.detail ?? "Error al crear cliente");
+    },
   });
 
   const updateMutation = useMutation({
@@ -65,7 +77,9 @@ export default function ClientForm() {
       message.success("Cliente actualizado");
       navigate("/clients");
     },
-    onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al actualizar"),
+    onError: (err: any) => {
+      message.error(err.response?.data?.detail ?? "Error al actualizar");
+    },
   });
 
   const onFinish = (values: any) => {
@@ -94,37 +108,65 @@ export default function ClientForm() {
 
       <Form form={form} layout="vertical" onFinish={onFinish} initialValues={{ billing_day: 1, status: "active" }}>
         <Row gutter={16}>
+          {/* Personal data */}
           <Col span={24}>
             <Card title="Datos personales" size="small" style={{ marginBottom: 16 }}>
               <Row gutter={16}>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="first_name" label="Nombre" rules={[{ required: true }]}><Input /></Form.Item>
+                  <Form.Item name="first_name" label="Nombre" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
                 </Col>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="last_name" label="Apellido" rules={[{ required: true }]}><Input /></Form.Item>
+                  <Form.Item name="last_name" label="Apellido" rules={[{ required: true }]}>
+                    <Input />
+                  </Form.Item>
                 </Col>
                 <Col xs={24} sm={8}>
-                  <Form.Item name="dni" label="DNI"><Input /></Form.Item>
+                  <Form.Item name="dni" label="DNI">
+                    <Input />
+                  </Form.Item>
                 </Col>
                 <Col xs={24} sm={8}>
-                  <Form.Item name="cuit" label="CUIT"><Input /></Form.Item>
+                  <Form.Item name="cuit" label="CUIT">
+                    <Input />
+                  </Form.Item>
                 </Col>
                 <Col xs={24} sm={8}>
-                  <Form.Item name="phone" label="Teléfono"><Input /></Form.Item>
+                  <Form.Item name="phone" label="Teléfono">
+                    <Input />
+                  </Form.Item>
                 </Col>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="email" label="Email"><Input type="email" /></Form.Item>
+                  <Form.Item name="email" label="Email">
+                    <Input type="email" />
+                  </Form.Item>
                 </Col>
                 <Col xs={24} sm={12}>
-                  <Form.Item name="address" label="Dirección"><Input /></Form.Item>
+                  <Form.Item name="address" label="Dirección">
+                    <Input />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={6}>
+                  <Form.Item name="latitude" label="Latitud">
+                    <InputNumber style={{ width: "100%" }} placeholder="-34.6037" step={0.0001} />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={6}>
+                  <Form.Item name="longitude" label="Longitud">
+                    <InputNumber style={{ width: "100%" }} placeholder="-58.3816" step={0.0001} />
+                  </Form.Item>
                 </Col>
                 <Col span={24}>
-                  <Form.Item name="notes" label="Notas"><Input.TextArea rows={2} /></Form.Item>
+                  <Form.Item name="notes" label="Notas">
+                    <Input.TextArea rows={2} />
+                  </Form.Item>
                 </Col>
               </Row>
             </Card>
           </Col>
 
+          {/* Network data */}
           <Col span={24}>
             <Card title="Configuración de red" size="small" style={{ marginBottom: 16 }}>
               <Row gutter={16}>
@@ -180,6 +222,7 @@ export default function ClientForm() {
             </Card>
           </Col>
 
+          {/* Billing */}
           <Col span={24}>
             <Card title="Facturación" size="small" style={{ marginBottom: 16 }}>
               <Row gutter={16}>

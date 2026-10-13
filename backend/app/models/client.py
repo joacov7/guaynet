@@ -2,7 +2,7 @@ import enum
 from datetime import date
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Date, Enum as SAEnum, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -24,6 +24,7 @@ class Client(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
+    # Personal data
     first_name: Mapped[str] = mapped_column(String(100))
     last_name: Mapped[str] = mapped_column(String(100))
     dni: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
@@ -33,6 +34,7 @@ class Client(Base, TimestampMixin):
     address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Network
     ip_address: Mapped[str] = mapped_column(String(45), unique=True, index=True)
     mac_address: Mapped[Optional[str]] = mapped_column(String(17), nullable=True)
     plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"))
@@ -41,10 +43,16 @@ class Client(Base, TimestampMixin):
         ForeignKey("ubiquiti_devices.id", ondelete="SET NULL"), nullable=True
     )
 
+    # Location
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Billing
     status: Mapped[ClientStatus] = mapped_column(SAEnum(ClientStatus), default=ClientStatus.active)
     service_start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     billing_day: Mapped[int] = mapped_column(Integer, default=1)
 
+    # Relationships
     plan: Mapped["Plan"] = relationship(back_populates="clients")
     router: Mapped["MikrotikRouter"] = relationship(back_populates="clients")
     ubiquiti_device: Mapped[Optional["UbiquitiDevice"]] = relationship(back_populates="clients")

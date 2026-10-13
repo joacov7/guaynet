@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -106,12 +107,21 @@ export default function Routers() {
 
   const handleTest = async () => {
     const values = form.getFieldsValue();
-    if (!values.host || !values.username) { message.warning("Completá host y usuario antes de probar"); return; }
-    if (!editRouter && !values.password) { message.warning("Ingresá la contraseña"); return; }
+    if (!values.host || !values.username) {
+      message.warning("Completá host y usuario antes de probar");
+      return;
+    }
+    if (!editRouter && !values.password) {
+      message.warning("Ingresá la contraseña");
+      return;
+    }
     setTestLoading(true);
     setTestResult(null);
     try {
-      const saved = editRouter ? await routersApi.update(editRouter.id, values) : await routersApi.create(values);
+      // Save first to get an ID, then test
+      const saved = editRouter
+        ? await routersApi.update(editRouter.id, values)
+        : await routersApi.create(values);
       const stats = await routersApi.test(saved.id);
       setTestResult(stats);
       qc.invalidateQueries({ queryKey: ["routers"] });
@@ -128,7 +138,12 @@ export default function Routers() {
     { title: "Host", dataIndex: "host", key: "host" },
     { title: "Puerto", dataIndex: "port", key: "port" },
     { title: "Ubicación", dataIndex: "location", key: "location", render: (v: string) => v ?? "—" },
-    { title: "Estado", dataIndex: "status", key: "status", render: (s: string) => statusTag[s] ?? <Badge status="default" text={s} /> },
+    {
+      title: "Estado",
+      dataIndex: "status",
+      key: "status",
+      render: (s: string) => statusTag[s] ?? <Badge status="default" text={s} />,
+    },
     { title: "Clientes", dataIndex: "client_count", key: "client_count", align: "right" as const },
     {
       title: "",
@@ -159,11 +174,14 @@ export default function Routers() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>Routers Mikrotik</Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Nuevo router</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          Nuevo router
+        </Button>
       </div>
 
       <Table loading={isLoading} dataSource={data} rowKey="id" columns={columns} size="small" pagination={false} />
 
+      {/* Create / Edit Modal */}
       <Modal
         title={editRouter ? "Editar router" : "Nuevo router"}
         open={modalOpen}
@@ -173,7 +191,9 @@ export default function Routers() {
         width={560}
         footer={[
           <Button key="cancel" onClick={closeModal}>Cancelar</Button>,
-          <Button key="test" icon={<ApiOutlined />} onClick={handleTest} loading={testLoading}>Probar conexión</Button>,
+          <Button key="test" icon={<ApiOutlined />} onClick={handleTest} loading={testLoading}>
+            Probar conexión
+          </Button>,
           <Button key="save" type="primary" onClick={() => form.submit()} loading={saveMutation.isPending}>
             {editRouter ? "Guardar" : "Crear"}
           </Button>,
@@ -197,10 +217,16 @@ export default function Routers() {
           </Row>
           <Row gutter={12}>
             <Col span={12}>
-              <Form.Item name="username" label="Usuario" rules={[{ required: true }]}><Input /></Form.Item>
+              <Form.Item name="username" label="Usuario" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="password" label="Contraseña" rules={editRouter ? [] : [{ required: true }]}>
+              <Form.Item
+                name="password"
+                label="Contraseña"
+                rules={editRouter ? [] : [{ required: true }]}
+              >
                 <Input.Password placeholder={editRouter ? "(sin cambios)" : ""} />
               </Form.Item>
             </Col>
@@ -208,8 +234,23 @@ export default function Routers() {
           <Form.Item name="location" label="Ubicación / Zona">
             <Input placeholder="Ej: Zona Norte" />
           </Form.Item>
-          <Form.Item name="notes" label="Notas"><Input.TextArea rows={2} /></Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="latitude" label="Latitud">
+                <InputNumber style={{ width: "100%" }} placeholder="-34.6037" step={0.0001} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="longitude" label="Longitud">
+                <InputNumber style={{ width: "100%" }} placeholder="-58.3816" step={0.0001} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="notes" label="Notas">
+            <Input.TextArea rows={2} />
+          </Form.Item>
         </Form>
+
         {testResult && (
           <Card size="small" style={{ marginTop: 12, background: "#f6ffed", border: "1px solid #b7eb8f" }}>
             <Descriptions size="small" column={2} title="Conexión exitosa">
@@ -223,13 +264,16 @@ export default function Routers() {
         )}
       </Modal>
 
+      {/* Queues Drawer */}
       <Drawer
         title="Simple Queues"
         open={queuesDrawer.open}
         onClose={() => setQueuesDrawer({ open: false, routerId: null })}
         width={600}
       >
-        {queuesLoading ? <Spin /> : (
+        {queuesLoading ? (
+          <Spin />
+        ) : (
           <Table
             dataSource={queues}
             rowKey="id"
@@ -239,8 +283,18 @@ export default function Routers() {
               { title: "Nombre", dataIndex: "name", key: "name" },
               { title: "Target", dataIndex: "target", key: "target" },
               { title: "Límite", dataIndex: "max_limit", key: "max_limit" },
-              { title: "Estado", dataIndex: "disabled", key: "disabled", render: (v: boolean) => <Tag color={v ? "orange" : "green"}>{v ? "Deshabilitada" : "Activa"}</Tag> },
-              { title: "Comentario", dataIndex: "comment", key: "comment", render: (v: string) => v ?? "—" },
+              {
+                title: "Estado",
+                dataIndex: "disabled",
+                key: "disabled",
+                render: (v: boolean) => <Tag color={v ? "orange" : "green"}>{v ? "Deshabilitada" : "Activa"}</Tag>,
+              },
+              {
+                title: "Comentario",
+                dataIndex: "comment",
+                key: "comment",
+                render: (v: string) => v ?? "—",
+              },
             ]}
           />
         )}

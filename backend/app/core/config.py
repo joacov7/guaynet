@@ -10,21 +10,29 @@ class Settings(BaseSettings):
 
     SECRET_KEY: str = "dev-secret-key-change-in-production"
     ENCRYPTION_KEY: str = ""
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
 
     DATABASE_URL: str = "postgresql+asyncpg://guaynet:guaynet@localhost:5432/guaynet"
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # Comma-separated origins, e.g.: http://localhost:3000,http://localhost:5173
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
 
     FIRST_SUPERUSER: str = "admin"
     FIRST_SUPERUSER_PASSWORD: str = "changeme"
     FIRST_SUPERUSER_EMAIL: str = "admin@guaynet.local"
 
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_ALLOWED_CHAT_IDS: str = ""
+
     @property
     def allowed_origins_list(self) -> List[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def telegram_allowed_ids_list(self) -> List[int]:
+        if not self.TELEGRAM_ALLOWED_CHAT_IDS:
+            return []
+        return [int(x.strip()) for x in self.TELEGRAM_ALLOWED_CHAT_IDS.split(",") if x.strip()]
 
 
 settings = Settings()

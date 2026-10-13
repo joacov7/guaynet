@@ -1,0 +1,18 @@
+{
+  "name": "Guaynet Técnicos",
+  "short_name": "GW Tech",
+  "description": "App de soporte para técnicos de campo",
+  "start_url": "/tech",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#1677ff",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

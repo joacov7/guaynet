@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   db:
     image: postgres:16-alpine
@@ -76,6 +78,29 @@ services:
     depends_on:
       - redis
     command: celery -A app.tasks.celery_app beat --loglevel=info
+
+  bot:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+    command: python bot.py
+
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:latest
+    restart: unless-stopped
+    environment:
+      - SUBDOMAINS=TU_SUBDOMINIO
+      - TOKEN=TU_TOKEN
+      - TZ=America/Argentina/Buenos_Aires
+      - LOG_FILE=false
 
   frontend:
     build:

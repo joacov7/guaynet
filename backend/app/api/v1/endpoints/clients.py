@@ -6,8 +6,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import add_audit_log, get_current_user, get_db
 from app.models.client import Client, ClientStatus
+from app.models.config import SystemConfig
 from app.models.invoice import Invoice
 from app.models.plan import Plan
 from app.models.router import MikrotikRouter
@@ -18,12 +19,30 @@ from app.services.mikrotik import MikrotikError, build_service_from_router
 router = APIRouter()
 
 
+async def _get_suspension_config(db: AsyncSession) -> tuple[str, str]:
+    """Returns (action, speed): action='disable'|'throttle', speed='64k'"""
+    rows = (await db.execute(
+        select(SystemConfig).where(SystemConfig.key.in_(["suspension_action", "suspension_speed"]))
+    )).scalars().all()
+    cfg = {r.key: r.value for r in rows}
+    return cfg.get("suspension_action", "disable"), cfg.get("suspension_speed", "64k")
+
+
 async def _push_to_mikrotik(client: Client, router_obj: MikrotikRouter, db):
+    """Sync a single client's queue to its Mikrotik router."""
     plan = await db.get(Plan, client.plan_id)
     if not plan:
         return
 
-    disabled = client.status == ClientStatus.suspended
+    is_suspended = client.status == ClientStatus.suspended
+    suspension_action, suspension_speed = await _get_suspension_config(db)
+
+    if is_suspended and suspension_action == "throttle":
+        effective_max_limit = f"{suspension_speed}/{suspension_speed}"
+        effective_disabled = False
+    else:
+        effective_max_limit = plan.mikrotik_max_limit
+        effective_disabled = is_suspended
 
     def _sync():
         svc = build_service_from_router(router_obj)
@@ -32,12 +51,12 @@ async def _push_to_mikrotik(client: Client, router_obj: MikrotikRouter, db):
             params = dict(
                 name=client.mikrotik_queue_name,
                 target=client.mikrotik_target,
-                max_limit=plan.mikrotik_max_limit,
-                burst_limit=plan.mikrotik_burst_limit,
-                burst_threshold=plan.mikrotik_burst_threshold,
-                burst_time=plan.mikrotik_burst_time if plan.mikrotik_burst_limit else None,
+                max_limit=effective_max_limit,
+                burst_limit=plan.mikrotik_burst_limit if not is_suspended else None,
+                burst_threshold=plan.mikrotik_burst_threshold if not is_suspended else None,
+                burst_time=plan.mikrotik_burst_time if (plan.mikrotik_burst_limit and not is_suspended) else None,
                 comment=f"guaynet:{client.id}|{client.full_name}",
-                disabled=disabled,
+                disabled=effective_disabled,
             )
             if existing:
                 svc.update_simple_queue(existing["id"], **{
@@ -93,10 +112,12 @@ async def create_client(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
+    # Check IP uniqueness
     existing_ip = await db.execute(select(Client).where(Client.ip_address == body.ip_address))
     if existing_ip.scalar_one_or_none():
         raise HTTPException(status_code=400, detail=f"La IP {body.ip_address} ya está en uso")
 
+    # Validate plan and router exist
     plan = await db.get(Plan, body.plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan no encontrado")
@@ -109,6 +130,7 @@ async def create_client(
     await db.commit()
     await db.refresh(client)
 
+    # Push to Mikrotik (best-effort, don't fail the creation)
     try:
         await _push_to_mikrotik(client, rt, db)
     except MikrotikError:
@@ -143,7 +165,7 @@ async def update_client(
     client_id: int,
     body: ClientUpdate,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     result = await db.execute(
         select(Client)
@@ -161,8 +183,13 @@ async def update_client(
         if dup.scalar_one_or_none():
             raise HTTPException(status_code=400, detail=f"La IP {updates['ip_address']} ya está en uso")
 
+    old_plan_id = client.plan_id
     for field, value in updates.items():
         setattr(client, field, value)
+
+    if "plan_id" in updates and updates["plan_id"] != old_plan_id:
+        add_audit_log(db, current_user, "plan_change", "client", client.id, client.full_name,
+                      details=f"plan {old_plan_id} → {updates['plan_id']}")
 
     db.add(client)
     await db.commit()
@@ -210,7 +237,7 @@ async def delete_client(
 async def suspend_client(
     client_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     result = await db.execute(
         select(Client).options(selectinload(Client.plan), selectinload(Client.router)).where(Client.id == client_id)
@@ -220,19 +247,14 @@ async def suspend_client(
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
     client.status = ClientStatus.suspended
+    add_audit_log(db, current_user, "suspend", "client", client.id, client.full_name)
     db.add(client)
     await db.commit()
 
     rt = await db.get(MikrotikRouter, client.router_id)
     if rt:
-        def _disable():
-            svc = build_service_from_router(rt)
-            with svc:
-                q = svc.get_queue_by_name(client.mikrotik_queue_name)
-                if q:
-                    svc.disable_queue(q["id"])
         try:
-            await asyncio.to_thread(_disable)
+            await _push_to_mikrotik(client, rt, db)
         except MikrotikError:
             pass
 
@@ -244,7 +266,7 @@ async def suspend_client(
 async def activate_client(
     client_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     result = await db.execute(
         select(Client).options(selectinload(Client.plan), selectinload(Client.router)).where(Client.id == client_id)
@@ -254,6 +276,7 @@ async def activate_client(
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
     client.status = ClientStatus.active
+    add_audit_log(db, current_user, "activate", "client", client.id, client.full_name)
     db.add(client)
     await db.commit()
 
@@ -274,6 +297,7 @@ async def sync_client_mikrotik(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
+    """Force-push this client's queue config to its router."""
     client = await db.get(Client, client_id)
     if not client:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
