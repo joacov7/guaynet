@@ -261,7 +261,7 @@ export const firewallApi = {
 
 // ── Tickets ───────────────────────────────────────────────────────────────────
 export const ticketsApi = {
-  list: (params?: { status?: string; priority?: string; category?: string; client_id?: number }) =>
+  list: (params?: { status?: string; priority?: string; category?: string; client_id?: number; assigned_to_id?: number }) =>
     http.get<import("@/types").Ticket[]>("/tickets/", { params }).then((r) => r.data),
   get: (id: number) => http.get<import("@/types").Ticket>(`/tickets/${id}`).then((r) => r.data),
   create: (data: { title: string; description?: string; client_id?: number; assigned_to_id?: number; priority?: string; category?: string }) =>

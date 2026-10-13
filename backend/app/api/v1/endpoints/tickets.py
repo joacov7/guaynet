@@ -109,6 +109,7 @@ async def list_tickets(
     priority: Optional[TicketPriority] = None,
     category: Optional[TicketCategory] = None,
     client_id: Optional[int] = None,
+    assigned_to_id: Optional[int] = None,
     skip: int = 0,
     limit: int = Query(default=100, le=500),
     db: AsyncSession = Depends(get_db),
@@ -123,6 +124,8 @@ async def list_tickets(
         q = q.where(Ticket.category == category)
     if client_id:
         q = q.where(Ticket.client_id == client_id)
+    if assigned_to_id is not None:
+        q = q.where(Ticket.assigned_to_id == assigned_to_id)
     result = await db.execute(q.offset(skip).limit(limit))
     return [TicketResponse.from_orm_full(t) for t in result.scalars().all()]
 

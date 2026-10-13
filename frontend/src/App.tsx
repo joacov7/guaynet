@@ -23,6 +23,11 @@ import Settings from "@/pages/Settings";
 import Tickets from "@/pages/Tickets";
 import Inventory from "@/pages/Inventory";
 import Reports from "@/pages/Reports";
+import TechLayout from "@/pages/tech/TechLayout";
+import TechLogin from "@/pages/tech/TechLogin";
+import TechHome from "@/pages/tech/TechHome";
+import TechHistory from "@/pages/tech/TechHistory";
+import TechTicket from "@/pages/tech/TechTicket";
 import { PermissionsProvider } from "@/contexts/PermissionsContext";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -73,6 +78,15 @@ export default function App() {
           <Route path="inventory" element={<Inventory />} />
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<Settings />} />
+        </Route>
+
+        {/* Tech PWA — separate layout, no sidebar */}
+        <Route path="/tech" element={<TechLayout />}>
+          <Route index element={<Navigate to="/tech/tickets" replace />} />
+          <Route path="login" element={<TechLogin />} />
+          <Route path="tickets" element={<TechHome />} />
+          <Route path="tickets/:id" element={<TechTicket />} />
+          <Route path="history" element={<TechHistory />} />
         </Route>
       </Routes>
     </BrowserRouter>
