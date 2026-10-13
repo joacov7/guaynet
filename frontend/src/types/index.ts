@@ -403,6 +403,25 @@ export interface IpPoolResponse {
   ips: IpPoolEntry[];
 }
 
+export type EquipmentCondition = "new" | "good" | "damaged" | "scrapped";
+export type EquipmentStatus = "in_stock" | "assigned" | "returned" | "lost";
+
+export interface InventoryItem {
+  id: number;
+  name: string;
+  category: string;
+  brand?: string;
+  model?: string;
+  serial_number?: string;
+  quantity: number;
+  unit_cost?: number;
+  condition: EquipmentCondition;
+  status: EquipmentStatus;
+  client_id?: number;
+  notes?: string;
+  created_at: string;
+}
+
 export type TicketStatus = "open" | "in_progress" | "resolved" | "closed";
 export type TicketPriority = "low" | "medium" | "high";
 export type TicketCategory = "connectivity" | "speed" | "billing" | "equipment" | "installation" | "other";

@@ -21,6 +21,8 @@ import Users from "@/pages/Users";
 import Vpn from "@/pages/Vpn";
 import Settings from "@/pages/Settings";
 import Tickets from "@/pages/Tickets";
+import Inventory from "@/pages/Inventory";
+import Reports from "@/pages/Reports";
 import { PermissionsProvider } from "@/contexts/PermissionsContext";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -68,6 +70,8 @@ export default function App() {
           <Route path="users" element={<Users />} />
           <Route path="vpn" element={<Vpn />} />
           <Route path="tickets" element={<Tickets />} />
+          <Route path="inventory" element={<Inventory />} />
+          <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

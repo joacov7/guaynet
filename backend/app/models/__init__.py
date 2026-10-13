@@ -10,6 +10,7 @@ from app.models.permission import RolePermission
 from app.models.vpn import VpnConnection
 from app.models.config import SystemConfig
 from app.models.ticket import Ticket, TicketComment, TicketStatus, TicketPriority, TicketCategory
+from app.models.inventory import InventoryItem, EquipmentCondition, EquipmentStatus
 
 __all__ = [
     "Base",

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Alert,
@@ -11,13 +11,18 @@ import {
   Typography,
   message,
 } from "antd";
-import { adminApi } from "@/services/api";
+import { adminApi, notificationsApi } from "@/services/api";
 
 const { Title, Text } = Typography;
+const { TextArea } = Input;
 
 export default function Settings() {
   const qc = useQueryClient();
   const [form] = Form.useForm();
+  const [waForm] = Form.useForm();
+  const [testPhone, setTestPhone] = useState("");
+  const [testMsg, setTestMsg] = useState("");
+  const [testing, setTesting] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["system-config"],
@@ -25,8 +30,17 @@ export default function Settings() {
   });
 
   useEffect(() => {
-    if (data) form.setFieldsValue(data);
-  }, [data, form]);
+    if (data) {
+      form.setFieldsValue(data);
+      waForm.setFieldsValue({
+        twilio_account_sid: data.twilio_account_sid ?? "",
+        twilio_auth_token: data.twilio_auth_token ?? "",
+        twilio_whatsapp_from: data.twilio_whatsapp_from ?? "whatsapp:+14155238886",
+        whatsapp_reminder_template: data.whatsapp_reminder_template ??
+          "Hola {nombre}, te recordamos que tenés una factura de ${monto} con vencimiento {vencimiento} pendiente de pago.",
+      });
+    }
+  }, [data, form, waForm]);
 
   const mutation = useMutation({
     mutationFn: adminApi.updateConfig,
@@ -39,11 +53,24 @@ export default function Settings() {
 
   const suspensionAction = Form.useWatch("suspension_action", form);
 
+  async function handleTestWhatsapp() {
+    if (!testPhone || !testMsg) return;
+    setTesting(true);
+    try {
+      await notificationsApi.sendOne(0, testMsg, testPhone);
+      message.success("Mensaje enviado");
+    } catch (e: any) {
+      message.error(e.response?.data?.detail ?? "Error al enviar");
+    } finally {
+      setTesting(false);
+    }
+  }
+
   return (
-    <div style={{ padding: 24, maxWidth: 600 }}>
+    <div style={{ padding: 24, maxWidth: 640 }}>
       <Title level={4}>Configuración del sistema</Title>
 
-      <Card title="Suspensión de clientes" loading={isLoading}>
+      <Card title="Suspensión de clientes" loading={isLoading} style={{ marginBottom: 16 }}>
         <Alert
           type="info"
           showIcon
@@ -90,6 +117,65 @@ export default function Settings() {
             </Button>
           </Form.Item>
         </Form>
+      </Card>
+
+      <Card title="WhatsApp (Twilio)" loading={isLoading}>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 20 }}
+          message={
+            <>
+              Necesitás una cuenta de Twilio con WhatsApp habilitado.{" "}
+              Variables disponibles en el template: <Text code>{"{nombre}"}</Text>,{" "}
+              <Text code>{"{monto}"}</Text>, <Text code>{"{vencimiento}"}</Text>.
+            </>
+          }
+        />
+        <Form
+          form={waForm}
+          layout="vertical"
+          onFinish={(values) => mutation.mutate(values)}
+        >
+          <Form.Item name="twilio_account_sid" label="Account SID">
+            <Input placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+          </Form.Item>
+          <Form.Item name="twilio_auth_token" label="Auth Token">
+            <Input.Password placeholder="Tu auth token de Twilio" />
+          </Form.Item>
+          <Form.Item name="twilio_whatsapp_from" label="Número WhatsApp sender" extra="Ej: whatsapp:+14155238886 (sandbox de Twilio)">
+            <Input placeholder="whatsapp:+14155238886" />
+          </Form.Item>
+          <Form.Item name="whatsapp_reminder_template" label="Template de recordatorio">
+            <TextArea rows={3} placeholder="Hola {nombre}, te recordamos..." />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={mutation.isPending}>
+              Guardar configuración WhatsApp
+            </Button>
+          </Form.Item>
+        </Form>
+
+        <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 16, marginTop: 8 }}>
+          <Text strong>Envío de prueba</Text>
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <Input
+              placeholder="+5491112345678"
+              value={testPhone}
+              onChange={(e) => setTestPhone(e.target.value)}
+              style={{ width: 200 }}
+            />
+            <Input
+              placeholder="Mensaje de prueba"
+              value={testMsg}
+              onChange={(e) => setTestMsg(e.target.value)}
+              style={{ flex: 1 }}
+            />
+            <Button loading={testing} onClick={handleTestWhatsapp} disabled={!testPhone || !testMsg}>
+              Enviar prueba
+            </Button>
+          </div>
+        </div>
       </Card>
     </div>
   );

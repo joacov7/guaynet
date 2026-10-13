@@ -17,6 +17,8 @@ import {
   UserOutlined,
   LockOutlined,
   CustomerServiceOutlined,
+  DatabaseOutlined,
+  BarChartOutlined,
 } from "@ant-design/icons";
 import { usePermissions } from "@/contexts/PermissionsContext";
 
@@ -34,6 +36,8 @@ const ALL_ITEMS = [
   { key: "/bandwidth", icon: <AreaChartOutlined />,   label: "Ancho de Banda",  section: "bandwidth" },
   { key: "/audit",     icon: <AuditOutlined />,       label: "Auditoría",       section: "audit" },
   { key: "/tickets",    icon: <CustomerServiceOutlined />, label: "Soporte",       section: null, adminOnly: false },
+  { key: "/inventory",  icon: <DatabaseOutlined />,      label: "Inventario",      section: null, adminOnly: false },
+  { key: "/reports",    icon: <BarChartOutlined />,      label: "Reportes",        section: null, adminOnly: false },
   { key: "/vpn",        icon: <LockOutlined />,        label: "VPN",             section: null, adminOnly: true },
   { key: "/users",      icon: <UserOutlined />,        label: "Usuarios",        section: null, adminOnly: true },
   { key: "/permissions",icon: <SettingOutlined />,    label: "Permisos",        section: null, adminOnly: true },

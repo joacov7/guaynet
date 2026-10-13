@@ -31,7 +31,7 @@ import {
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { clientsApi, invoicesApi } from "@/services/api";
+import { clientsApi, invoicesApi, notificationsApi } from "@/services/api";
 import type { InvoicePreviewItem, InvoicePreviewResult } from "@/services/api";
 import type { Invoice, InvoiceItem, InvoiceStatus, OverdueEntry } from "@/types";
 
@@ -82,6 +82,12 @@ export default function Invoices() {
     mutationFn: invoicesApi.triggerSuspend,
     onSuccess: () => message.success("Tarea de auto-suspensión enviada a la cola"),
     onError: () => message.error("Error al lanzar tarea"),
+  });
+
+  const waMutation = useMutation({
+    mutationFn: () => notificationsApi.bulkReminder({ min_days_overdue: 0 }),
+    onSuccess: (res) => message.success(`WhatsApp enviados: ${res.sent} ok, ${res.failed} fallidos, ${res.skipped_no_phone} sin teléfono`),
+    onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al enviar recordatorios"),
   });
 
   const generateMutation = useMutation({
@@ -285,12 +291,22 @@ export default function Invoices() {
         onClose={() => setOverdueDrawer(false)}
         width={800}
         extra={
-          <Button
-            icon={<DownloadOutlined />}
-            onClick={() => invoicesApi.overdueReportCsv(0)}
-          >
-            Exportar CSV
-          </Button>
+          <Space>
+            <Popconfirm
+              title="¿Enviar recordatorio por WhatsApp a todos los clientes con facturas vencidas?"
+              onConfirm={() => waMutation.mutate()}
+              okText="Enviar"
+              cancelText="Cancelar"
+            >
+              <Button loading={waMutation.isPending}>WhatsApp</Button>
+            </Popconfirm>
+            <Button
+              icon={<DownloadOutlined />}
+              onClick={() => invoicesApi.overdueReportCsv(0)}
+            >
+              CSV
+            </Button>
+          </Space>
         }
       >
         {overdueData && (

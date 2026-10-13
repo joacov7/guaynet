@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import admin, auth, clients, dashboard, firewall, invoices, permissions, plans, routers, tickets, ubiquiti, vpn
+from app.api.v1.endpoints import admin, auth, clients, dashboard, firewall, inventory, invoices, notifications, permissions, plans, reports, routers, tickets, ubiquiti, vpn
 
 api_router = APIRouter()
 
@@ -16,3 +16,6 @@ api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(permissions.router, prefix="/permissions", tags=["permissions"])
 api_router.include_router(vpn.router, prefix="/vpn", tags=["vpn"])
 api_router.include_router(tickets.router, prefix="/tickets", tags=["tickets"])
+api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
+api_router.include_router(inventory.router, prefix="/inventory", tags=["inventory"])
+api_router.include_router(reports.router, prefix="/reports", tags=["reports"])

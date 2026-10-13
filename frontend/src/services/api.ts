@@ -273,6 +273,39 @@ export const ticketsApi = {
     http.post<import("@/types").TicketComment>(`/tickets/${ticketId}/comments`, { body }).then((r) => r.data),
 };
 
+// ── Reports ───────────────────────────────────────────────────────────────────
+export const reportsApi = {
+  monthlyRevenue: (months = 12) =>
+    http.get<Array<{ period: string; revenue: number; count: number }>>("/reports/monthly-revenue", { params: { months } }).then((r) => r.data),
+  invoiceStatusBreakdown: () =>
+    http.get<Array<{ status: string; count: number; total: number }>>("/reports/invoice-status-breakdown").then((r) => r.data),
+  clientsByPlan: () =>
+    http.get<Array<{ plan: string; count: number }>>("/reports/clients-by-plan").then((r) => r.data),
+  paymentMethods: () =>
+    http.get<Array<{ method: string; count: number; total: number }>>("/reports/payment-methods").then((r) => r.data),
+};
+
+// ── Inventory ─────────────────────────────────────────────────────────────────
+export const inventoryApi = {
+  list: (params?: { status?: string; category?: string; search?: string }) =>
+    http.get<import("@/types").InventoryItem[]>("/inventory/", { params }).then((r) => r.data),
+  summary: () =>
+    http.get<Array<{ category: string; status: string; count: number; qty: number }>>("/inventory/summary").then((r) => r.data),
+  create: (data: Partial<import("@/types").InventoryItem>) =>
+    http.post<import("@/types").InventoryItem>("/inventory/", data).then((r) => r.data),
+  update: (id: number, data: Partial<import("@/types").InventoryItem>) =>
+    http.put<import("@/types").InventoryItem>(`/inventory/${id}`, data).then((r) => r.data),
+  delete: (id: number) => http.delete(`/inventory/${id}`),
+};
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+export const notificationsApi = {
+  sendOne: (client_id: number, message: string, phone?: string) =>
+    http.post("/notifications/whatsapp/send", { client_id, message, phone }).then((r) => r.data),
+  bulkReminder: (params?: { template?: string; min_days_overdue?: number; dry_run?: boolean }) =>
+    http.post<{ sent: number; failed: number; skipped_no_phone: number; details: any[] }>("/notifications/whatsapp/bulk-reminder", params ?? {}).then((r) => r.data),
+};
+
 // ── Admin ─────────────────────────────────────────────────────────────────────
 export const adminApi = {
   auditLogs: (params?: { entity_type?: string; entity_id?: number; limit?: number }) =>
