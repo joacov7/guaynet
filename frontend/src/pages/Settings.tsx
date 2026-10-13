@@ -20,6 +20,7 @@ export default function Settings() {
   const qc = useQueryClient();
   const [form] = Form.useForm();
   const [waForm] = Form.useForm();
+  const [mpForm] = Form.useForm();
   const [testPhone, setTestPhone] = useState("");
   const [testMsg, setTestMsg] = useState("");
   const [testing, setTesting] = useState(false);
@@ -39,8 +40,15 @@ export default function Settings() {
         whatsapp_reminder_template: data.whatsapp_reminder_template ??
           "Hola {nombre}, te recordamos que tenés una factura de ${monto} con vencimiento {vencimiento} pendiente de pago.",
       });
+      mpForm.setFieldsValue({
+        mp_access_token: data.mp_access_token ?? "",
+        mp_public_key: data.mp_public_key ?? "",
+        company_name: data.company_name ?? "",
+        company_address: data.company_address ?? "",
+        company_cuit: data.company_cuit ?? "",
+      });
     }
-  }, [data, form, waForm]);
+  }, [data, form, waForm, mpForm]);
 
   const mutation = useMutation({
     mutationFn: adminApi.updateConfig,
@@ -176,6 +184,67 @@ export default function Settings() {
             </Button>
           </div>
         </div>
+      </Card>
+
+      <Card title="MercadoPago" loading={isLoading} style={{ marginTop: 16 }}>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 20 }}
+          message={
+            <>
+              Credenciales de MercadoPago para cobros online.{" "}
+              Obtené tu Access Token desde{" "}
+              <Text strong>mercadopago.com → Tu negocio → Credenciales</Text>.
+            </>
+          }
+        />
+        <Form
+          form={mpForm}
+          layout="vertical"
+          onFinish={(values) => mutation.mutate(values)}
+        >
+          <Form.Item name="mp_access_token" label="Access Token (producción o sandbox)">
+            <Input.Password placeholder="APP_USR-..." />
+          </Form.Item>
+          <Form.Item name="mp_public_key" label="Public Key">
+            <Input placeholder="APP_USR-..." />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 0 }}>
+            <Button type="primary" htmlType="submit" loading={mutation.isPending}>
+              Guardar credenciales MP
+            </Button>
+          </Form.Item>
+        </Form>
+      </Card>
+
+      <Card title="Empresa / Datos para PDF" loading={isLoading} style={{ marginTop: 16 }}>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 20 }}
+          message="Estos datos aparecen en el encabezado de los PDFs de facturas."
+        />
+        <Form
+          form={mpForm}
+          layout="vertical"
+          onFinish={(values) => mutation.mutate(values)}
+        >
+          <Form.Item name="company_name" label="Nombre de la empresa">
+            <Input placeholder="Mi ISP S.A." />
+          </Form.Item>
+          <Form.Item name="company_address" label="Dirección">
+            <Input placeholder="Calle 123, Ciudad, Provincia" />
+          </Form.Item>
+          <Form.Item name="company_cuit" label="CUIT">
+            <Input placeholder="20-12345678-9" />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={mutation.isPending}>
+              Guardar datos empresa
+            </Button>
+          </Form.Item>
+        </Form>
       </Card>
     </div>
   );

@@ -208,6 +208,9 @@ export const invoicesApi = {
     const params = new URLSearchParams({ format: "csv", min_days_overdue: String(minDays) });
     window.open(`/api/v1/invoices/overdue-report?${params}`, "_blank");
   },
+  downloadPdf: (id: number) => {
+    window.open(`/api/v1/invoices/${id}/pdf`, "_blank");
+  },
 };
 
 // ── Ubiquiti ──────────────────────────────────────────────────────────────────
@@ -367,6 +370,17 @@ export const portalApi = {
     portalHttp.post<{ id: number }>("/portal/tickets", data).then((r) => r.data),
   setPortalPassword: (clientId: number, password: string, enabled = true) =>
     http.put(`/portal/clients/${clientId}/portal-password`, { password, enabled }).then((r) => r.data),
+  getMpPreference: (invoiceId: number) =>
+    portalHttp.post<{ init_point: string; sandbox_init_point: string; preference_id: string }>(`/payments/portal/mp-preference/${invoiceId}`).then((r) => r.data),
+  downloadInvoicePdf: async (invoiceId: number) => {
+    const res = await portalHttp.get(`/portal/invoices/${invoiceId}/pdf`, { responseType: "blob" });
+    const url = URL.createObjectURL(res.data as Blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `factura_${invoiceId}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 };
 
 // ── Push notifications ────────────────────────────────────────────────────────

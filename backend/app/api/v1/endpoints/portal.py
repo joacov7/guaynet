@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
@@ -221,6 +222,24 @@ async def portal_create_ticket(
 class SetPortalPassword(BaseModel):
     password: str
     enabled: bool = True
+
+
+@router.get("/invoices/{invoice_id}/pdf")
+async def portal_invoice_pdf(
+    invoice_id: int,
+    client: Client = Depends(get_current_portal_client),
+    db: AsyncSession = Depends(get_db),
+):
+    invoice = await db.get(Invoice, invoice_id)
+    if not invoice or invoice.client_id != client.id:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    from app.api.v1.endpoints.invoices import _build_invoice_pdf
+    pdf_bytes = await _build_invoice_pdf(invoice_id, db)
+    return Response(
+        content=bytes(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=factura_{invoice_id}.pdf"},
+    )
 
 
 @router.put("/clients/{client_id}/portal-password")
