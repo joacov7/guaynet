@@ -35,10 +35,11 @@ export default function TechTicket() {
   const [comment, setComment] = useState("");
   const [updating, setUpdating] = useState(false);
 
-  const { data: ticket, isLoading } = useQuery({
+  const { data: ticket, isLoading, isError, refetch } = useQuery({
     queryKey: ["tech-ticket", id],
     queryFn: () => ticketsApi.get(Number(id)),
     enabled: !!id,
+    retry: 2,
   });
 
   const updateMutation = useMutation({
@@ -58,13 +59,43 @@ export default function TechTicket() {
       setComment("");
       message.success("Comentario agregado");
     },
-    onError: () => message.error("Error"),
+    onError: () => message.error("No se pudo agregar el comentario"),
   });
 
-  if (isLoading || !ticket) {
+  if (isLoading) {
     return (
       <div style={{ display: "flex", justifyContent: "center", padding: 60 }}>
         <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (isError || !ticket) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 60, gap: 12 }}>
+        <div style={{ fontSize: 36 }}>⚠️</div>
+        <Text type="secondary" style={{ textAlign: "center" }}>No se pudo cargar el ticket.</Text>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            onClick={() => refetch()}
+            style={{
+              background: "#1677ff", color: "#fff", border: "none",
+              borderRadius: 8, padding: "10px 20px", fontSize: 14,
+              fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            Reintentar
+          </button>
+          <button
+            onClick={() => navigate(-1)}
+            style={{
+              background: "none", color: "#595959", border: "1px solid #d9d9d9",
+              borderRadius: 8, padding: "10px 20px", fontSize: 14, cursor: "pointer",
+            }}
+          >
+            Volver
+          </button>
+        </div>
       </div>
     );
   }
@@ -234,15 +265,19 @@ export default function TechTicket() {
 }
 
 function ClientInfo({ clientId, clientName }: { clientId: number; clientName: string }) {
-  const { data: client } = useQuery({
+  const { data: client, isError } = useQuery({
     queryKey: ["client-brief", clientId],
     queryFn: () => clientsApi.get(clientId),
     staleTime: 300_000,
+    retry: 1,
   });
 
   return (
     <div style={{ marginTop: 6 }}>
       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>{clientName}</div>
+      {isError && (
+        <Text type="secondary" style={{ fontSize: 12 }}>No se pudieron cargar los datos de contacto.</Text>
+      )}
       {client?.phone && (
         <a
           href={`tel:${client.phone}`}

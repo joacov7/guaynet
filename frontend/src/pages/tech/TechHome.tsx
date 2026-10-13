@@ -25,11 +25,12 @@ export default function TechHome() {
   const navigate = useNavigate();
   const { user } = useOutletContext<{ user: User }>();
 
-  const { data: myTickets = [], isLoading, refetch } = useQuery({
+  const { data: myTickets = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["tech-tickets", user?.id],
     queryFn: () => ticketsApi.list({ assigned_to_id: user?.id }),
     enabled: !!user?.id,
     refetchInterval: 30000,
+    retry: 2,
   });
 
   const active = myTickets.filter((t) => t.status === "open" || t.status === "in_progress");
@@ -39,6 +40,25 @@ export default function TechHome() {
     return (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 60 }}>
         <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 60, gap: 12 }}>
+        <div style={{ fontSize: 36 }}>⚠️</div>
+        <Text type="secondary" style={{ textAlign: "center" }}>No se pudieron cargar los tickets.</Text>
+        <button
+          onClick={() => refetch()}
+          style={{
+            background: "#1677ff", color: "#fff", border: "none",
+            borderRadius: 8, padding: "10px 24px", fontSize: 14,
+            fontWeight: 600, cursor: "pointer",
+          }}
+        >
+          Reintentar
+        </button>
       </div>
     );
   }

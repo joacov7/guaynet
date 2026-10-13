@@ -21,10 +21,11 @@ export default function TechHistory() {
   const { user } = useOutletContext<{ user: User }>();
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
 
-  const { data: tickets = [], isLoading } = useQuery({
+  const { data: tickets = [], isLoading, isError, refetch } = useQuery({
     queryKey: ["tech-history", user?.id, statusFilter],
     queryFn: () => ticketsApi.list({ assigned_to_id: user?.id, status: statusFilter as any }),
     enabled: !!user?.id,
+    retry: 2,
   });
 
   return (
@@ -48,7 +49,24 @@ export default function TechHistory() {
         </div>
       )}
 
-      {!isLoading && tickets.length === 0 && (
+      {isError && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: 40, gap: 12 }}>
+          <div style={{ fontSize: 36 }}>⚠️</div>
+          <Text type="secondary" style={{ textAlign: "center" }}>No se pudieron cargar los tickets.</Text>
+          <button
+            onClick={() => refetch()}
+            style={{
+              background: "#1677ff", color: "#fff", border: "none",
+              borderRadius: 8, padding: "10px 24px", fontSize: 14,
+              fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
+      {!isLoading && !isError && tickets.length === 0 && (
         <div style={{ textAlign: "center", padding: 40 }}>
           <Text type="secondary">No hay tickets.</Text>
         </div>
