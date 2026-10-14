@@ -37,10 +37,13 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
-    network_mode: host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@localhost:5432/guaynet
-      REDIS_URL: redis://localhost:6379/0
+      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -55,10 +58,11 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
-    network_mode: host
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@localhost:5432/guaynet
-      REDIS_URL: redis://localhost:6379/0
+      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       db:
         condition: service_healthy
@@ -85,10 +89,9 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
-    network_mode: host
     environment:
-      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@localhost:5432/guaynet
-      REDIS_URL: redis://localhost:6379/0
+      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       db:
         condition: service_healthy
