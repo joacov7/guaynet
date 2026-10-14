@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Col, Divider, Form, InputNumber, Row, Space, Switch, Table, Tag, Typography, message } from "antd";
 import dayjs from "dayjs";
@@ -24,8 +25,11 @@ export default function Automations() {
   const { data: settings, isLoading } = useQuery({
     queryKey: ["automation-settings"],
     queryFn: automationsApi.getSettings,
-    onSuccess: (d) => form.setFieldsValue(d),
   });
+
+  useEffect(() => {
+    if (settings) form.setFieldsValue(settings);
+  }, [settings, form]);
 
   const { data: logs = [] } = useQuery({
     queryKey: ["automation-logs"],
