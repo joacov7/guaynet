@@ -383,22 +383,78 @@ class UbiquitiAirOSService:
         raise UbiquitiError("Este dispositivo no soporta actualización remota de firmware")
 
 
+_PROBE_AUTH_ATTEMPTS = [
+    ("/api/auth",      True,  {}),
+    ("/api/1.0/login", False, {}),
+]
+
+
 def quick_probe(host: str, username: str, password: str) -> Optional[Dict]:
-    """Try to connect to a host with a short timeout. Returns info dict or None."""
-    svc = UbiquitiAirOSService(host=host, username=username, password=password, timeout=3.0)
+    """Lightweight probe for subnet discovery. Uses a 2.5s timeout and only
+    tries the two most common Ubiquiti auth endpoints to keep scans fast."""
+    creds = {"username": username, "password": password}
+    client = None
+
+    for scheme in ("https", "http"):
+        base_url = f"{scheme}://{host}"
+        for path, use_json, extra in _PROBE_AUTH_ATTEMPTS:
+            payload = {**creds, **extra}
+            c = httpx.Client(base_url=base_url, verify=False, timeout=2.5, follow_redirects=True)
+            try:
+                if use_json:
+                    res = c.post(path, json=payload)
+                else:
+                    res = c.post(path, data=payload)
+            except httpx.ConnectError:
+                c.close()
+                break  # scheme unreachable — skip to next scheme
+            except Exception:
+                c.close()
+                continue
+
+            if res.status_code in (200, 201, 302):
+                try:
+                    data = res.json()
+                    token = data.get("authToken") or data.get("token", "")
+                    if token:
+                        c.headers.update({"X-Auth-Token": token})
+                except Exception:
+                    pass
+                client = c
+                break
+            c.close()
+
+        if client:
+            break
+
+    if not client:
+        return None
+
     try:
-        with svc:
+        svc = UbiquitiAirOSService.__new__(UbiquitiAirOSService)
+        svc.host = host
+        svc.username = username
+        svc.password = password
+        svc._timeout = 2.5
+        svc._client = client
+        try:
             info = svc.get_device_info()
             wireless = svc.get_wireless()
-            return {
-                "host": host,
-                "model": info.get("model", ""),
-                "firmware": info.get("firmware", ""),
-                "hostname": info.get("hostname", ""),
-                "mode": wireless.get("mode", ""),
-                "ssid": wireless.get("ssid", ""),
-                "frequency_mhz": wireless.get("frequency_mhz"),
-            }
+        finally:
+            try:
+                client.post("/api/auth/logout")
+            except Exception:
+                pass
+            client.close()
+        return {
+            "host": host,
+            "model": info.get("model", ""),
+            "firmware": info.get("firmware", ""),
+            "hostname": info.get("hostname", ""),
+            "mode": wireless.get("mode", ""),
+            "ssid": wireless.get("ssid", ""),
+            "frequency_mhz": wireless.get("frequency_mhz"),
+        }
     except Exception:
         return None
 
