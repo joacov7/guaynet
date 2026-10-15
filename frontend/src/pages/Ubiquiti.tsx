@@ -46,8 +46,10 @@ import type {
 const { Title, Text } = Typography;
 
 const deviceTypeLabel: Record<string, string> = {
-  airmax_ap: "AirMax AP",
-  airmax_station: "AirMax Station",
+  airmax_ap: "AirMax AP (M)",
+  airmax_station: "AirMax Station (M)",
+  airmax_ac_ap: "AirMax AC AP",
+  airmax_ac_station: "AirMax AC Station",
   unifi_ap: "UniFi AP",
   unifi_switch: "UniFi Switch",
   unifi_gateway: "UniFi Gateway",
@@ -112,7 +114,7 @@ function DeviceDrawer({
     queryKey: ["ubiquiti-link", device.id],
     queryFn: () => ubiquitiApi.getLink(device.id),
     retry: false,
-    enabled: device.device_type === "airmax_station",
+    enabled: device.device_type === "airmax_station" || device.device_type === "airmax_ac_station",
   });
 
   const { data: stations = [], isLoading: stationsLoading, refetch: refetchStations } = useQuery({
@@ -158,8 +160,8 @@ function DeviceDrawer({
     setTimeout(() => { refetchSurvey(); refetchRec(); }, 100);
   };
 
-  const isAP = device.device_type === "airmax_ap" || device.device_type === "unifi_ap";
-  const isStation = device.device_type === "airmax_station";
+  const isAP = device.device_type === "airmax_ap" || device.device_type === "airmax_ac_ap" || device.device_type === "unifi_ap";
+  const isStation = device.device_type === "airmax_station" || device.device_type === "airmax_ac_station";
 
   // Build lookup maps to cross-reference live stations with registered clients
   const clientByIp = Object.fromEntries(dbClients.map((c: any) => [c.ip_address, c]));
