@@ -302,7 +302,10 @@ class UbiquitiAirOSService:
     # ── Site survey ───────────────────────────────────────────────────────────
 
     def site_survey(self) -> List[Dict]:
-        data = self._get("/api/v1.0/wireless/survey")
+        try:
+            data = self._get("/api/v1.0/wireless/survey")
+        except UbiquitiError:
+            return []  # Not supported on this firmware/mode (e.g. station mode)
         networks = (
             data.get("results") or data.get("networks") or []
             if isinstance(data, dict) else data or []
