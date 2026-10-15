@@ -1,5 +1,5 @@
-from typing import List, Optional
-from pydantic import BaseModel
+from typing import List, Optional, Union
+from pydantic import BaseModel, field_validator
 
 
 class DHCPLease(BaseModel):
@@ -27,14 +27,14 @@ class FirewallRule(BaseModel):
     src_address: Optional[str] = None
     dst_address: Optional[str] = None
     protocol: Optional[str] = None
-    src_port: Optional[str] = None
-    dst_port: Optional[str] = None
+    src_port: Optional[Union[str, int]] = None
+    dst_port: Optional[Union[str, int]] = None
     in_interface: Optional[str] = None
     out_interface: Optional[str] = None
     comment: Optional[str] = None
     disabled: bool = False
-    bytes: Optional[str] = None
-    packets: Optional[str] = None
+    bytes: Optional[Union[str, int]] = None
+    packets: Optional[Union[str, int]] = None
 
 
 class MangleRule(BaseModel):
@@ -46,7 +46,7 @@ class MangleRule(BaseModel):
     src_address: Optional[str] = None
     dst_address: Optional[str] = None
     protocol: Optional[str] = None
-    dst_port: Optional[str] = None
+    dst_port: Optional[Union[str, int]] = None
     comment: Optional[str] = None
     disabled: bool = False
     passthrough: bool = True
@@ -57,7 +57,7 @@ class PCQQueue(BaseModel):
     name: str
     kind: str
     pcq_rate: Optional[str] = None
-    pcq_limit: Optional[str] = None
+    pcq_limit: Optional[Union[str, int]] = None
     pcq_classifier: Optional[str] = None
 
 
