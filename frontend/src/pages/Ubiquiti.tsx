@@ -595,7 +595,7 @@ export default function Ubiquiti() {
   const [detailDevice, setDetailDevice] = useState<UbiquitiDevice | null>(null);
   const [form] = Form.useForm();
 
-  const { data: devices = [], isLoading } = useQuery({
+  const { data: devices = [], isLoading, refetch } = useQuery({
     queryKey: ["ubiquiti"],
     queryFn: ubiquitiApi.list,
   });
@@ -640,6 +640,35 @@ export default function Ubiquiti() {
   };
 
   const closeModal = () => { setModalOpen(false); setEditDevice(null); form.resetFields(); };
+
+  // ── CSV import state ───────────────────────────────────────────────────────
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importFileList, setImportFileList] = useState<any[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importResult, setImportResult] = useState<{ created: number; errors: { row: number; error: string }[] } | null>(null);
+
+  const closeImportModal = () => {
+    if (importLoading) return;
+    setImportModalOpen(false);
+    setImportFile(null);
+    setImportFileList([]);
+    setImportResult(null);
+  };
+
+  const handleImport = async () => {
+    if (!importFile) return;
+    setImportLoading(true);
+    try {
+      const result = await ubiquitiApi.importCsv(importFile);
+      setImportResult(result);
+      if (result.created > 0) refetch();
+    } catch (e: any) {
+      message.error(e.response?.data?.detail ?? "Error al importar");
+    } finally {
+      setImportLoading(false);
+    }
+  };
 
   // ── Firmware update state ──────────────────────────────────────────────────
   const [firmwareModalOpen, setFirmwareModalOpen] = useState(false);
@@ -783,6 +812,9 @@ export default function Ubiquiti() {
           <Badge count={devices.length} style={{ marginLeft: 8, backgroundColor: "#1677ff" }} />
         </Title>
         <Space>
+          <Button onClick={() => setImportModalOpen(true)}>
+            Importar CSV
+          </Button>
           <Button icon={<CloudUploadOutlined />} onClick={() => setFirmwareModalOpen(true)}>
             Actualizar firmware
           </Button>
@@ -876,6 +908,93 @@ export default function Ubiquiti() {
             <Input.TextArea rows={2} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Import CSV modal */}
+      <Modal
+        title="Importar dispositivos desde CSV"
+        open={importModalOpen}
+        onCancel={closeImportModal}
+        closable={!importLoading}
+        maskClosable={!importLoading}
+        width={600}
+        footer={[
+          <Button key="close" onClick={closeImportModal} disabled={importLoading}>
+            Cerrar
+          </Button>,
+          <Button
+            key="import"
+            type="primary"
+            disabled={!importFile || importLoading}
+            loading={importLoading}
+            onClick={handleImport}
+          >
+            Importar
+          </Button>,
+        ]}
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <div>
+            <Text>Formato esperado del CSV:</Text>
+            <pre style={{ background: "#f5f5f5", padding: 12, borderRadius: 4, fontSize: 12, marginTop: 8, overflowX: "auto" }}>
+              {`nombre,host,tipo,usuario,contraseña\nTorre Norte AP,192.168.1.1,airmax_ac_ap,ubnt,mipassword\nCliente Juan,192.168.1.50,airmax_ac_station,ubnt,mipassword`}
+            </pre>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              Tipos válidos: airmax_ap, airmax_station, airmax_ac_ap, airmax_ac_station, unifi_ap, unifi_switch, unifi_gateway
+            </Text>
+            <div style={{ marginTop: 8 }}>
+              <Typography.Link
+                href={`data:text/csv;charset=utf-8,${encodeURIComponent("nombre,host,tipo,usuario,contraseña\nEjemplo AP,192.168.1.1,airmax_ac_ap,ubnt,ubnt\n")}`}
+                download="plantilla_ubiquiti.csv"
+              >
+                Descargar plantilla
+              </Typography.Link>
+            </div>
+          </div>
+
+          <Upload.Dragger
+            multiple={false}
+            accept=".csv"
+            fileList={importFileList}
+            beforeUpload={(file) => {
+              setImportFile(file);
+              setImportFileList([{ uid: file.uid, name: file.name, status: "done", originFileObj: file }]);
+              return false;
+            }}
+            onRemove={() => {
+              setImportFile(null);
+              setImportFileList([]);
+            }}
+          >
+            <p>Hacé clic o arrastrá el archivo CSV aquí</p>
+            {importFile && <Text type="secondary">{importFile.name}</Text>}
+          </Upload.Dragger>
+
+          {importResult && (
+            <div>
+              <Alert
+                type="success"
+                showIcon
+                message={`Se crearon ${importResult.created} dispositivos`}
+                style={{ marginBottom: importResult.errors.length > 0 ? 8 : 0 }}
+              />
+              {importResult.errors.length > 0 && (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message="Errores en algunas filas"
+                  description={
+                    <ul style={{ margin: 0, paddingLeft: 20 }}>
+                      {importResult.errors.map((e, i) => (
+                        <li key={i}>Fila {e.row}: {e.error}</li>
+                      ))}
+                    </ul>
+                  }
+                />
+              )}
+            </div>
+          )}
+        </Space>
       </Modal>
 
       {/* Firmware update modal */}

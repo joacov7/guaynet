@@ -244,6 +244,12 @@ export const ubiquitiApi = {
       timeout: 120000,
     }).then((r) => r.data);
   },
+  importCsv: (file: File) =>
+    http.post<{ created: number; errors: { row: number; error: string }[] }>(
+      "/ubiquiti/import",
+      (() => { const fd = new FormData(); fd.append("file", file); return fd; })(),
+      { headers: { "Content-Type": "multipart/form-data" } }
+    ).then(r => r.data),
 };
 
 // ── Firewall & QoS ────────────────────────────────────────────────────────────
