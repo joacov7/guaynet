@@ -13,17 +13,7 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-async def _send_telegram(text: str):
-    from app.core.config import settings
-    if not settings.TELEGRAM_BOT_TOKEN or not settings.telegram_allowed_ids_list:
-        return
-    from telegram import Bot
-    async with Bot(settings.TELEGRAM_BOT_TOKEN) as bot:
-        for chat_id in settings.telegram_allowed_ids_list:
-            try:
-                await bot.send_message(chat_id=chat_id, text=text)
-            except Exception:
-                pass
+from app.services.telegram import send_telegram as _send_telegram
 
 
 @celery_app.task(name="app.tasks.monitoring.check_routers_health")

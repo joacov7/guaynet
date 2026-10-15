@@ -258,6 +258,9 @@ async def suspend_client(
         except MikrotikError:
             pass
 
+    from app.services.telegram import send_telegram
+    await send_telegram(f"⛔ *Servicio suspendido*\n{client.full_name} ({client.ip_address})")
+
     await db.refresh(client)
     return client
 
@@ -286,6 +289,9 @@ async def activate_client(
             await _push_to_mikrotik(client, rt, db)
         except MikrotikError:
             pass
+
+    from app.services.telegram import send_telegram
+    await send_telegram(f"✅ *Servicio activado*\n{client.full_name} ({client.ip_address})")
 
     await db.refresh(client)
     return client

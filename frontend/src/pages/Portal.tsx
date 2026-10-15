@@ -1,0 +1,455 @@
+/**
+ * Client self-service portal.
+ * Accessed at /portal — clients are identified by their IP address.
+ * Shows plan info, invoices, and a speed test comparing measured vs contracted speed.
+ */
+import { useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  Col,
+  Descriptions,
+  Progress,
+  Result,
+  Row,
+  Space,
+  Spin,
+  Statistic,
+  Table,
+  Tag,
+  Typography,
+} from "antd";
+import {
+  ArrowDownOutlined,
+  ArrowUpOutlined,
+  CheckCircleOutlined,
+  ThunderboltOutlined,
+} from "@ant-design/icons";
+import axios from "axios";
+
+const { Title, Text, Paragraph } = Typography;
+
+interface PortalData {
+  client: {
+    id: number;
+    full_name: string;
+    ip_address: string;
+    status: string;
+  };
+  plan: {
+    name: string;
+    download_mbps: number;
+    upload_mbps: number;
+    burst_download_mbps?: number;
+    burst_upload_mbps?: number;
+  } | null;
+  invoices: {
+    id: number;
+    amount: number;
+    status: string;
+    due_date: string | null;
+    period: string | null;
+  }[];
+}
+
+interface SpeedResult {
+  download_mbps: number | null;
+  upload_mbps: number | null;
+  ping_ms: number | null;
+}
+
+const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  active: { label: "Activo", color: "green" },
+  suspended: { label: "Suspendido", color: "orange" },
+  cancelled: { label: "Cancelado", color: "red" },
+};
+
+const INVOICE_STATUS: Record<string, { label: string; color: string }> = {
+  pending: { label: "Pendiente", color: "gold" },
+  paid: { label: "Pagado", color: "green" },
+  overdue: { label: "Vencida", color: "red" },
+  cancelled: { label: "Cancelada", color: "default" },
+};
+
+// ── Speed test engine ─────────────────────────────────────────────────────────
+
+const DOWNLOAD_URL = "/api/v1/portal/speedtest/download";
+const UPLOAD_URL = "/api/v1/portal/speedtest/upload";
+const UPLOAD_SIZE_MB = 3;
+
+async function measureDownload(onProgress: (mbps: number) => void): Promise<number> {
+  const start = performance.now();
+  const res = await fetch(DOWNLOAD_URL, { cache: "no-store" });
+  const reader = res.body!.getReader();
+  let bytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    const elapsed = (performance.now() - start) / 1000;
+    onProgress(Math.round((bytes * 8) / elapsed / 1_000_000));
+  }
+  const elapsed = (performance.now() - start) / 1000;
+  return Math.round((bytes * 8) / elapsed / 1_000_000);
+}
+
+async function measureUpload(onProgress: (mbps: number) => void): Promise<number> {
+  const payload = new Uint8Array(UPLOAD_SIZE_MB * 1024 * 1024);
+  crypto.getRandomValues(payload);
+  const start = performance.now();
+  await fetch(UPLOAD_URL, {
+    method: "POST",
+    body: payload,
+    cache: "no-store",
+  });
+  const elapsed = (performance.now() - start) / 1000;
+  const mbps = Math.round((payload.byteLength * 8) / elapsed / 1_000_000);
+  onProgress(mbps);
+  return mbps;
+}
+
+async function measurePing(): Promise<number> {
+  const times: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    const t0 = performance.now();
+    await fetch(DOWNLOAD_URL + "?ping=1", { cache: "no-store", method: "HEAD" }).catch(() => {});
+    times.push(performance.now() - t0);
+  }
+  times.sort((a, b) => a - b);
+  return Math.round(times.slice(1, 3).reduce((a, b) => a + b, 0) / 2);
+}
+
+// ── Gauge ─────────────────────────────────────────────────────────────────────
+
+function SpeedGauge({
+  label,
+  measured,
+  contracted,
+  icon,
+  color,
+}: {
+  label: string;
+  measured: number | null;
+  contracted: number;
+  icon: React.ReactNode;
+  color: string;
+}) {
+  const pct = measured != null ? Math.min(100, Math.round((measured / contracted) * 100)) : 0;
+  const gaugeColor =
+    pct >= 80 ? "#52c41a" : pct >= 50 ? "#faad14" : "#f5222d";
+
+  return (
+    <Card size="small" style={{ textAlign: "center" }}>
+      <div style={{ fontSize: 13, color: "#8c8c8c", marginBottom: 4 }}>
+        {icon} {label}
+      </div>
+      <div style={{ fontSize: 36, fontWeight: 700, color: gaugeColor, lineHeight: 1.1 }}>
+        {measured != null ? measured : "—"}
+      </div>
+      <div style={{ fontSize: 12, color: "#8c8c8c" }}>Mbps medidos</div>
+      <Progress
+        percent={pct}
+        strokeColor={gaugeColor}
+        size="small"
+        style={{ marginTop: 8 }}
+        format={() => `${pct}%`}
+      />
+      <div style={{ marginTop: 4, fontSize: 12 }}>
+        <Text type="secondary">Contratado: </Text>
+        <Text strong>{contracted} Mbps</Text>
+      </div>
+      {measured != null && (
+        <div style={{ marginTop: 4 }}>
+          {pct >= 80 ? (
+            <Tag color="green">Velocidad correcta</Tag>
+          ) : pct >= 50 ? (
+            <Tag color="orange">Por debajo de lo esperado</Tag>
+          ) : (
+            <Tag color="red">Muy por debajo</Tag>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+export default function Portal() {
+  const [data, setData] = useState<PortalData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState<string | null>(null);
+
+  const [testing, setTesting] = useState(false);
+  const [phase, setPhase] = useState<"idle" | "ping" | "download" | "upload" | "done">("idle");
+  const [liveDown, setLiveDown] = useState<number | null>(null);
+  const [liveUp, setLiveUp] = useState<number | null>(null);
+  const [result, setResult] = useState<SpeedResult>({
+    download_mbps: null,
+    upload_mbps: null,
+    ping_ms: null,
+  });
+
+  useEffect(() => {
+    axios
+      .get<PortalData>("/api/v1/portal/me")
+      .then((r) => setData(r.data))
+      .catch((e) => setNotFound(e.response?.data?.detail ?? "Error al cargar datos"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function runSpeedTest() {
+    setTesting(true);
+    setPhase("ping");
+    setLiveDown(null);
+    setLiveUp(null);
+    setResult({ download_mbps: null, upload_mbps: null, ping_ms: null });
+
+    try {
+      const ping = await measurePing();
+      setResult((r) => ({ ...r, ping_ms: ping }));
+
+      setPhase("download");
+      const dl = await measureDownload(setLiveDown);
+      setResult((r) => ({ ...r, download_mbps: dl }));
+      setLiveDown(dl);
+
+      setPhase("upload");
+      const ul = await measureUpload(setLiveUp);
+      setResult((r) => ({ ...r, upload_mbps: ul }));
+      setLiveUp(ul);
+
+      setPhase("done");
+    } catch {
+      setPhase("idle");
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh" }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (notFound) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh", padding: 24 }}>
+        <Result
+          status="404"
+          title="No encontrado"
+          subTitle={notFound}
+        />
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const plan = data.plan;
+  const statusInfo = STATUS_LABELS[data.client.status] ?? { label: data.client.status, color: "default" };
+  const pendingInvoices = data.invoices.filter((i) => i.status === "pending" || i.status === "overdue");
+
+  return (
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 16px" }}>
+      {/* Header */}
+      <div style={{ marginBottom: 24, textAlign: "center" }}>
+        <Title level={3} style={{ margin: 0 }}>Portal de clientes</Title>
+        <Text type="secondary">Guaynet WISP</Text>
+      </div>
+
+      {/* Client info */}
+      <Card style={{ marginBottom: 16 }}>
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="Nombre">{data.client.full_name}</Descriptions.Item>
+          <Descriptions.Item label="Estado">
+            <Tag color={statusInfo.color}>{statusInfo.label}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="IP">{data.client.ip_address}</Descriptions.Item>
+          {plan && (
+            <Descriptions.Item label="Plan">
+              <Text strong>{plan.name}</Text>
+            </Descriptions.Item>
+          )}
+        </Descriptions>
+      </Card>
+
+      {/* Suspended alert */}
+      {data.client.status === "suspended" && (
+        <Alert
+          type="warning"
+          showIcon
+          message="Servicio suspendido"
+          description="Tu servicio está temporalmente suspendido. Contactá a tu proveedor para regularizar tu situación."
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
+      {/* Pending invoices */}
+      {pendingInvoices.length > 0 && (
+        <Alert
+          type="error"
+          showIcon
+          message={`Tenés ${pendingInvoices.length} factura(s) pendiente(s) de pago`}
+          description="Contactá a tu proveedor para abonar y mantener el servicio activo."
+          style={{ marginBottom: 16 }}
+        />
+      )}
+
+      {/* Plan contracted speeds */}
+      {plan && (
+        <Card title="Plan contratado" style={{ marginBottom: 16 }}>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Statistic
+                title="Bajada contratada"
+                value={plan.download_mbps}
+                suffix="Mbps"
+                prefix={<ArrowDownOutlined style={{ color: "#1677ff" }} />}
+              />
+            </Col>
+            <Col span={12}>
+              <Statistic
+                title="Subida contratada"
+                value={plan.upload_mbps}
+                suffix="Mbps"
+                prefix={<ArrowUpOutlined style={{ color: "#52c41a" }} />}
+              />
+            </Col>
+          </Row>
+          {(plan.burst_download_mbps || plan.burst_upload_mbps) && (
+            <div style={{ marginTop: 8 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Ráfaga: {plan.burst_download_mbps} Mbps bajada / {plan.burst_upload_mbps} Mbps subida
+              </Text>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Speed test */}
+      {plan && (
+        <Card
+          title={<span><ThunderboltOutlined /> Test de velocidad</span>}
+          style={{ marginBottom: 16 }}
+          extra={
+            <Button
+              type="primary"
+              onClick={runSpeedTest}
+              loading={testing}
+              disabled={testing}
+            >
+              {phase === "idle" || phase === "done" ? "Medir velocidad" : "Midiendo..."}
+            </Button>
+          }
+        >
+          {phase === "idle" && !result.download_mbps && (
+            <Paragraph type="secondary" style={{ margin: 0 }}>
+              Presioná "Medir velocidad" para comparar tu conexión actual con lo que contrataste.
+            </Paragraph>
+          )}
+
+          {testing && (
+            <div style={{ textAlign: "center", padding: "12px 0" }}>
+              <Spin />
+              <div style={{ marginTop: 8, color: "#8c8c8c" }}>
+                {phase === "ping" && "Midiendo latencia..."}
+                {phase === "download" && `Midiendo bajada... ${liveDown != null ? liveDown + " Mbps" : ""}`}
+                {phase === "upload" && `Midiendo subida... ${liveUp != null ? liveUp + " Mbps" : ""}`}
+              </div>
+            </div>
+          )}
+
+          {(phase === "done" || result.download_mbps != null) && !testing && (
+            <div>
+              {result.ping_ms != null && (
+                <div style={{ textAlign: "center", marginBottom: 12 }}>
+                  <Text type="secondary">Latencia: </Text>
+                  <Text strong>{result.ping_ms} ms</Text>
+                  {"  "}
+                  <Tag color={result.ping_ms < 30 ? "green" : result.ping_ms < 80 ? "orange" : "red"}>
+                    {result.ping_ms < 30 ? "Excelente" : result.ping_ms < 80 ? "Normal" : "Alta"}
+                  </Tag>
+                </div>
+              )}
+              <Row gutter={16}>
+                <Col xs={24} sm={12}>
+                  <SpeedGauge
+                    label="Bajada"
+                    measured={result.download_mbps}
+                    contracted={plan.download_mbps}
+                    icon={<ArrowDownOutlined />}
+                    color="#1677ff"
+                  />
+                </Col>
+                <Col xs={24} sm={12} style={{ marginTop: 16 }}>
+                  <SpeedGauge
+                    label="Subida"
+                    measured={result.upload_mbps}
+                    contracted={plan.upload_mbps}
+                    icon={<ArrowUpOutlined />}
+                    color="#52c41a"
+                  />
+                </Col>
+              </Row>
+              <Paragraph type="secondary" style={{ marginTop: 12, fontSize: 12 }}>
+                Si la velocidad medida está consistentemente por debajo del 80% de lo contratado,
+                contactá a tu proveedor.
+              </Paragraph>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Invoices */}
+      {data.invoices.length > 0 && (
+        <Card title="Últimas facturas">
+          <Table
+            dataSource={data.invoices}
+            rowKey="id"
+            size="small"
+            pagination={false}
+            columns={[
+              {
+                title: "Período",
+                dataIndex: "period",
+                key: "period",
+                render: (v: string) => v || "—",
+              },
+              {
+                title: "Vencimiento",
+                dataIndex: "due_date",
+                key: "due_date",
+                render: (v: string) => v ? new Date(v).toLocaleDateString("es-AR") : "—",
+              },
+              {
+                title: "Monto",
+                dataIndex: "amount",
+                key: "amount",
+                render: (v: number) => `$${v.toFixed(2)}`,
+              },
+              {
+                title: "Estado",
+                dataIndex: "status",
+                key: "status",
+                render: (v: string) => {
+                  const s = INVOICE_STATUS[v] ?? { label: v, color: "default" };
+                  return <Tag color={s.color}>{s.label}</Tag>;
+                },
+              },
+            ]}
+          />
+        </Card>
+      )}
+
+      <div style={{ textAlign: "center", marginTop: 24 }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>Guaynet WISP — Portal del cliente</Text>
+      </div>
+    </div>
+  );
+}

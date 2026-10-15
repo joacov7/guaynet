@@ -155,6 +155,15 @@ async def create_ticket(
             f"/tech/tickets/{t.id}",
             db,
         )
+    from app.services.telegram import send_telegram
+    client_label = f"Cliente #{t.client_id}" if t.client_id else "Sin cliente"
+    priority_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(t.priority, "⚪")
+    await send_telegram(
+        f"{priority_emoji} *Nuevo ticket #{t.id}*\n"
+        f"Título: {t.title}\n"
+        f"Categoría: {t.category}\n"
+        f"{client_label}"
+    )
     return TicketResponse.from_orm_full(t)
 
 

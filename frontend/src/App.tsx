@@ -28,6 +28,7 @@ import TechLogin from "@/pages/tech/TechLogin";
 import TechHome from "@/pages/tech/TechHome";
 import TechHistory from "@/pages/tech/TechHistory";
 import TechTicket from "@/pages/tech/TechTicket";
+import Portal from "@/pages/Portal";
 import { PermissionsProvider } from "@/contexts/PermissionsContext";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -79,6 +80,9 @@ export default function App() {
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<Settings />} />
         </Route>
+
+        {/* Client self-service portal — public, no auth */}
+        <Route path="/portal" element={<Portal />} />
 
         {/* Tech PWA — separate layout, no sidebar */}
         <Route path="/tech" element={<TechLayout />}>
