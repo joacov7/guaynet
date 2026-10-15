@@ -20,6 +20,8 @@ class DeviceStatus(str, enum.Enum):
 class UbiquitiDeviceType(str, enum.Enum):
     airmax_ap = "airmax_ap"
     airmax_station = "airmax_station"
+    airmax_ac_ap = "airmax_ac_ap"
+    airmax_ac_station = "airmax_ac_station"
     unifi_ap = "unifi_ap"
     unifi_switch = "unifi_switch"
     unifi_gateway = "unifi_gateway"
