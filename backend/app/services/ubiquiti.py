@@ -48,6 +48,13 @@ class UbiquitiAirOSService:
                 follow_redirects=True,
             )
             try:
+                # AirOS 5.x /login.cgi requires a prior GET to obtain AIROS_SESSIONID cookie
+                if path == "/login.cgi":
+                    try:
+                        client.get("/")
+                    except Exception:
+                        pass
+
                 if use_json:
                     res = client.post(path, json=payload)
                 else:
@@ -63,12 +70,18 @@ class UbiquitiAirOSService:
                 continue
 
             if res.status_code in (401, 403):
-                # This method says bad credentials — try the next one before giving up
                 client.close()
                 got_credentials_error = True
                 continue
 
             if res.status_code in (200, 201, 302):
+                # Check the body isn't a failed login message
+                body = res.text.lower()
+                if "missing session" in body or "invalid" in body or "failed" in body:
+                    client.close()
+                    got_credentials_error = True
+                    continue
+
                 try:
                     data = res.json()
                     token = data.get("authToken") or data.get("token", "")
@@ -76,6 +89,17 @@ class UbiquitiAirOSService:
                         client.headers.update({"X-Auth-Token": token})
                 except Exception:
                     pass  # cookie-based session, no token needed
+
+                # Verify session works by hitting a lightweight endpoint
+                try:
+                    check = client.get("/api/v1.0/device/info")
+                    if check.status_code == 403:
+                        client.close()
+                        got_credentials_error = True
+                        continue
+                except Exception:
+                    pass
+
                 return client
 
             # 404, 415, other — try next strategy
