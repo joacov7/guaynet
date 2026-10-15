@@ -1,4 +1,6 @@
 import asyncio
+import csv
+import io
 from datetime import datetime, timezone
 from typing import List
 
@@ -49,6 +51,73 @@ async def _get_or_404(device_id: int, db: AsyncSession) -> UbiquitiDevice:
 async def list_devices(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
     result = await db.execute(select(UbiquitiDevice).order_by(UbiquitiDevice.name))
     return [await _device_response(d, db) for d in result.scalars().all()]
+
+
+@router.post("/import")
+async def import_devices_csv(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Bulk import Ubiquiti devices from a CSV file.
+    Expected columns: nombre, host, tipo, usuario, contraseña
+    Optional columns: ubicacion, router_id, latitud, longitud
+    """
+    content = (await file.read()).decode("utf-8-sig")  # utf-8-sig strips BOM
+    reader = csv.DictReader(io.StringIO(content))
+
+    VALID_TYPES = {"airmax_ap", "airmax_station", "airmax_ac_ap", "airmax_ac_station",
+                   "unifi_ap", "unifi_switch", "unifi_gateway"}
+
+    created = 0
+    errors = []
+
+    for i, row in enumerate(reader, start=2):  # row 1 = header
+        nombre = (row.get("nombre") or row.get("name") or "").strip()
+        host = (row.get("host") or row.get("ip") or "").strip()
+        tipo = (row.get("tipo") or row.get("type") or "airmax_ac_ap").strip()
+        usuario = (row.get("usuario") or row.get("username") or "ubnt").strip()
+        password = (row.get("contraseña") or row.get("password") or "ubnt").strip()
+        ubicacion = (row.get("ubicacion") or row.get("location") or "").strip() or None
+        router_id_s = (row.get("router_id") or "").strip()
+
+        if not nombre:
+            errors.append({"row": i, "error": "Falta el nombre"})
+            continue
+        if not host:
+            errors.append({"row": i, "error": "Falta el host/IP"})
+            continue
+        if tipo not in VALID_TYPES:
+            errors.append({"row": i, "error": f"Tipo inválido: {tipo}"})
+            continue
+
+        router_id = None
+        if router_id_s:
+            try:
+                router_id = int(router_id_s)
+            except ValueError:
+                errors.append({"row": i, "error": f"router_id inválido: {router_id_s}"})
+                continue
+
+        try:
+            dev = UbiquitiDevice(
+                name=nombre,
+                host=host,
+                device_type=tipo,
+                username=usuario,
+                password_encrypted=encrypt_value(password) if password else None,
+                location=ubicacion,
+                router_id=router_id,
+                status=DeviceStatus.unknown,
+            )
+            db.add(dev)
+            await db.flush()
+            created += 1
+        except Exception as e:
+            errors.append({"row": i, "error": str(e)})
+
+    await db.commit()
+    return {"created": created, "errors": errors}
 
 
 @router.post("/", response_model=UbiquitiDeviceResponse, status_code=201)
