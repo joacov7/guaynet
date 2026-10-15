@@ -24,10 +24,11 @@ _AUTH_ATTEMPTS = [
 
 
 class UbiquitiAirOSService:
-    def __init__(self, host: str, username: str = "ubnt", password: str = "ubnt"):
+    def __init__(self, host: str, username: str = "ubnt", password: str = "ubnt", timeout: float = 15.0):
         self.host = host
         self.username = username
         self.password = password
+        self._timeout = timeout
         self._client: Optional[httpx.Client] = None
 
     def _try_auth(self, base_url: str) -> Optional[httpx.Client]:
@@ -44,7 +45,7 @@ class UbiquitiAirOSService:
             client = httpx.Client(
                 base_url=base_url,
                 verify=False,
-                timeout=15.0,
+                timeout=self._timeout,
                 follow_redirects=True,
             )
             try:
@@ -380,6 +381,26 @@ class UbiquitiAirOSService:
                 continue
 
         raise UbiquitiError("Este dispositivo no soporta actualización remota de firmware")
+
+
+def quick_probe(host: str, username: str, password: str) -> Optional[Dict]:
+    """Try to connect to a host with a short timeout. Returns info dict or None."""
+    svc = UbiquitiAirOSService(host=host, username=username, password=password, timeout=3.0)
+    try:
+        with svc:
+            info = svc.get_device_info()
+            wireless = svc.get_wireless()
+            return {
+                "host": host,
+                "model": info.get("model", ""),
+                "firmware": info.get("firmware", ""),
+                "hostname": info.get("hostname", ""),
+                "mode": wireless.get("mode", ""),
+                "ssid": wireless.get("ssid", ""),
+                "frequency_mhz": wireless.get("frequency_mhz"),
+            }
+    except Exception:
+        return None
 
 
 def build_service_from_device(device) -> UbiquitiAirOSService:

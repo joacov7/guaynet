@@ -6,6 +6,7 @@ import type {
   Client,
   DashboardStats,
   DHCPScanResponse,
+  DiscoveredUbiquitiDevice,
   FirewallRule,
   FrequencyRecommendation,
   Invoice,
@@ -250,6 +251,13 @@ export const ubiquitiApi = {
       (() => { const fd = new FormData(); fd.append("file", file); return fd; })(),
       { headers: { "Content-Type": "multipart/form-data" } }
     ).then(r => r.data),
+  discover: (subnet: string, username: string, password: string, deviceType = "airmax_ac_ap") =>
+    http.post<DiscoveredUbiquitiDevice[]>("/ubiquiti/discover", {
+      subnet,
+      username,
+      password,
+      device_type: deviceType,
+    }, { timeout: 300000 }).then(r => r.data),
 };
 
 // ── Firewall & QoS ────────────────────────────────────────────────────────────

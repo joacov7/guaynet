@@ -286,6 +286,16 @@ export interface OverdueReport {
   items: OverdueEntry[];
 }
 
+export interface DiscoveredUbiquitiDevice {
+  host: string;
+  model: string;
+  firmware: string;
+  hostname: string;
+  mode: string;
+  ssid: string;
+  frequency_mhz?: number;
+}
+
 export interface UbiquitiDevice {
   id: number;
   name: string;

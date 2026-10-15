@@ -41,7 +41,11 @@ import {
   WifiOutlined,
 } from "@ant-design/icons";
 import { routersApi, ubiquitiApi } from "@/services/api";
+import {
+  RadarChartOutlined,
+} from "@ant-design/icons";
 import type {
+  DiscoveredUbiquitiDevice,
   FrequencyRecommendation,
   UbiquitiDevice,
   UbiquitiStation,
@@ -706,6 +710,70 @@ export default function Ubiquiti() {
     setIsUpdating(false);
   };
 
+  // ── Auto-discovery state ───────────────────────────────────────────────────
+  const [discoverOpen, setDiscoverOpen] = useState(false);
+  const [discoverForm] = Form.useForm();
+  const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [discovered, setDiscovered] = useState<DiscoveredUbiquitiDevice[]>([]);
+  const [discoverSelectedHosts, setDiscoverSelectedHosts] = useState<string[]>([]);
+  const [addingDiscovered, setAddingDiscovered] = useState(false);
+
+  const closeDiscoverModal = () => {
+    if (discoverLoading || addingDiscovered) return;
+    setDiscoverOpen(false);
+    setDiscovered([]);
+    setDiscoverSelectedHosts([]);
+    discoverForm.resetFields();
+  };
+
+  const handleDiscover = async () => {
+    let values: any;
+    try { values = await discoverForm.validateFields(); } catch { return; }
+    setDiscoverLoading(true);
+    setDiscovered([]);
+    setDiscoverSelectedHosts([]);
+    try {
+      const results = await ubiquitiApi.discover(values.subnet, values.username, values.password, values.device_type);
+      setDiscovered(results);
+      if (results.length === 0) message.info("No se encontraron dispositivos Ubiquiti en la subred");
+    } catch (e: any) {
+      message.error(e.response?.data?.detail ?? "Error al escanear");
+    } finally {
+      setDiscoverLoading(false);
+    }
+  };
+
+  const handleAddDiscovered = async () => {
+    if (discoverSelectedHosts.length === 0) return;
+    let values: any;
+    try { values = await discoverForm.validateFields(); } catch { return; }
+    setAddingDiscovered(true);
+    let added = 0;
+    let errors = 0;
+    for (const host of discoverSelectedHosts) {
+      const dev = discovered.find((d) => d.host === host)!;
+      try {
+        await ubiquitiApi.create({
+          name: dev.hostname || dev.model || host,
+          host: dev.host,
+          device_type: values.device_type,
+          username: values.username,
+          password: values.password,
+        });
+        added++;
+      } catch {
+        errors++;
+      }
+    }
+    setAddingDiscovered(false);
+    if (added > 0) {
+      refetch();
+      message.success(`${added} dispositivo${added !== 1 ? "s" : ""} agregado${added !== 1 ? "s" : ""}`);
+    }
+    if (errors > 0) message.warning(`${errors} dispositivo${errors !== 1 ? "s" : ""} no se pudo${errors !== 1 ? "ron" : ""} agregar`);
+    if (added > 0) closeDiscoverModal();
+  };
+
   const firmwareDeviceColumns = [
     { title: "Nombre", dataIndex: "name", key: "name" },
     {
@@ -812,6 +880,9 @@ export default function Ubiquiti() {
           <Badge count={devices.length} style={{ marginLeft: 8, backgroundColor: "#1677ff" }} />
         </Title>
         <Space>
+          <Button icon={<RadarChartOutlined />} onClick={() => setDiscoverOpen(true)}>
+            Descubrir
+          </Button>
           <Button onClick={() => setImportModalOpen(true)}>
             Importar CSV
           </Button>
@@ -1093,6 +1164,119 @@ export default function Ubiquiti() {
                 })}
               </div>
             </div>
+          )}
+        </Space>
+      </Modal>
+
+      {/* Auto-discovery modal */}
+      <Modal
+        title={<Space><RadarChartOutlined /> Descubrir dispositivos Ubiquiti</Space>}
+        open={discoverOpen}
+        onCancel={closeDiscoverModal}
+        closable={!discoverLoading && !addingDiscovered}
+        maskClosable={!discoverLoading && !addingDiscovered}
+        width={700}
+        footer={
+          discovered.length > 0 ? [
+            <Button key="cancel" onClick={closeDiscoverModal} disabled={addingDiscovered}>
+              Cerrar
+            </Button>,
+            <Button
+              key="add"
+              type="primary"
+              icon={<PlusOutlined />}
+              disabled={discoverSelectedHosts.length === 0 || addingDiscovered}
+              loading={addingDiscovered}
+              onClick={handleAddDiscovered}
+            >
+              Agregar seleccionados ({discoverSelectedHosts.length})
+            </Button>,
+          ] : [
+            <Button key="cancel" onClick={closeDiscoverModal} disabled={discoverLoading}>
+              Cancelar
+            </Button>,
+            <Button
+              key="scan"
+              type="primary"
+              icon={<RadarChartOutlined />}
+              loading={discoverLoading}
+              onClick={handleDiscover}
+            >
+              Escanear
+            </Button>,
+          ]
+        }
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <Form form={discoverForm} layout="vertical" initialValues={{ username: "ubnt", password: "ubnt", device_type: "airmax_ac_ap" }}>
+            <Row gutter={12}>
+              <Col span={10}>
+                <Form.Item name="subnet" label="Subred (CIDR)" rules={[{ required: true, message: "Requerido" }]}>
+                  <Input placeholder="192.168.1.0/24" disabled={discoverLoading} />
+                </Form.Item>
+              </Col>
+              <Col span={6}>
+                <Form.Item name="username" label="Usuario" rules={[{ required: true }]}>
+                  <Input disabled={discoverLoading} />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item name="password" label="Contraseña" rules={[{ required: true }]}>
+                  <Input.Password disabled={discoverLoading} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Form.Item name="device_type" label="Tipo de dispositivo a asignar">
+              <Select
+                options={Object.entries(deviceTypeLabel).map(([k, v]) => ({ value: k, label: v }))}
+                disabled={discoverLoading}
+              />
+            </Form.Item>
+          </Form>
+
+          {discoverLoading && (
+            <Alert
+              type="info"
+              showIcon
+              message="Escaneando subred..."
+              description="Probando conectividad con cada host. Esto puede tardar hasta 2 minutos para una /24."
+            />
+          )}
+
+          {!discoverLoading && discovered.length > 0 && (
+            <>
+              <Alert
+                type="success"
+                showIcon
+                message={`Se encontraron ${discovered.length} dispositivo${discovered.length !== 1 ? "s" : ""} Ubiquiti`}
+              />
+              <Table
+                dataSource={discovered}
+                rowKey="host"
+                size="small"
+                pagination={false}
+                rowSelection={{
+                  type: "checkbox",
+                  selectedRowKeys: discoverSelectedHosts,
+                  onChange: (keys) => setDiscoverSelectedHosts(keys as string[]),
+                  getCheckboxProps: () => ({ disabled: addingDiscovered }),
+                }}
+                columns={[
+                  { title: "Host", dataIndex: "host", key: "host", width: 130 },
+                  { title: "Hostname", dataIndex: "hostname", key: "hostname", render: (v: string) => v || "—" },
+                  { title: "Modelo", dataIndex: "model", key: "model", render: (v: string) => v || "—" },
+                  { title: "Firmware", dataIndex: "firmware", key: "firmware", render: (v: string) => v || "—" },
+                  { title: "Modo", dataIndex: "mode", key: "mode", render: (v: string) => v ? <Tag color="blue">{v}</Tag> : "—" },
+                  { title: "SSID", dataIndex: "ssid", key: "ssid", render: (v: string) => v || "—" },
+                  {
+                    title: "Frecuencia",
+                    dataIndex: "frequency_mhz",
+                    key: "freq",
+                    render: (v: number) => v ? `${v} MHz` : "—",
+                  },
+                ]}
+              />
+            </>
           )}
         </Space>
       </Modal>

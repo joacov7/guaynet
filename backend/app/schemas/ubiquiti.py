@@ -124,3 +124,20 @@ class FrequencyRecommendation(BaseModel):
     congestion_score: float
     recommendation: str
     networks: List[str] = []
+
+
+class DiscoverRequest(BaseModel):
+    subnet: str
+    username: str = "ubnt"
+    password: str = "ubnt"
+    device_type: UbiquitiDeviceType = UbiquitiDeviceType.airmax_ac_ap
+
+
+class DiscoveredDevice(BaseModel):
+    host: str
+    model: str = ""
+    firmware: str = ""
+    hostname: str = ""
+    mode: str = ""
+    ssid: str = ""
+    frequency_mhz: Optional[int] = None

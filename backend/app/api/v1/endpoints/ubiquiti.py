@@ -1,6 +1,7 @@
 import asyncio
 import csv
 import io
+import ipaddress
 from datetime import datetime, timezone
 from typing import List
 
@@ -14,6 +15,8 @@ from app.models.client import Client
 from app.models.router import DeviceStatus, MikrotikRouter, UbiquitiDevice
 from app.schemas.ubiquiti import (
     DeviceInfo,
+    DiscoverRequest,
+    DiscoveredDevice,
     FrequencyRecommendation,
     LinkInfo,
     StationInfo,
@@ -24,7 +27,7 @@ from app.schemas.ubiquiti import (
     WirelessConfig,
     WirelessUpdate,
 )
-from app.services.ubiquiti import UbiquitiError, build_service_from_device
+from app.services.ubiquiti import UbiquitiError, build_service_from_device, quick_probe
 
 router = APIRouter()
 
@@ -43,6 +46,33 @@ async def _get_or_404(device_id: int, db: AsyncSession) -> UbiquitiDevice:
     if not dev:
         raise HTTPException(404, "Dispositivo no encontrado")
     return dev
+
+
+# ── Discovery ─────────────────────────────────────────────────────────────────
+
+@router.post("/discover", response_model=List[DiscoveredDevice])
+async def discover_devices(
+    body: DiscoverRequest,
+    _=Depends(get_current_user),
+):
+    """Scan a subnet for Ubiquiti devices. Max /22 (1022 hosts)."""
+    try:
+        network = ipaddress.ip_network(body.subnet, strict=False)
+    except ValueError:
+        raise HTTPException(400, "Subred inválida. Usá formato CIDR como 192.168.1.0/24")
+
+    if network.num_addresses > 1024:
+        raise HTTPException(400, "Subred demasiado grande. Máximo /22 (1022 hosts)")
+
+    hosts = list(network.hosts())
+    sem = asyncio.Semaphore(20)
+
+    async def probe(ip: str):
+        async with sem:
+            return await asyncio.to_thread(quick_probe, ip, body.username, body.password)
+
+    results = await asyncio.gather(*[probe(str(ip)) for ip in hosts])
+    return [DiscoveredDevice(**r) for r in results if r is not None]
 
 
 # ── CRUD ──────────────────────────────────────────────────────────────────────
