@@ -5,6 +5,8 @@ export type PaymentMethod = "cash" | "transfer" | "mercadopago" | "other";
 export type UbiquitiDeviceType =
   | "airmax_ap"
   | "airmax_station"
+  | "airmax_ac_ap"
+  | "airmax_ac_station"
   | "unifi_ap"
   | "unifi_switch"
   | "unifi_gateway";
