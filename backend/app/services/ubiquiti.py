@@ -75,9 +75,8 @@ class UbiquitiAirOSService:
                 continue
 
             if res.status_code in (200, 201, 302):
-                # Check the body isn't a failed login message
-                body = res.text.lower()
-                if "missing session" in body or "invalid" in body or "failed" in body:
+                # /login.cgi returns 200 even on failure — detect by specific message
+                if path == "/login.cgi" and "missing session" in res.text.lower():
                     client.close()
                     got_credentials_error = True
                     continue
@@ -89,16 +88,6 @@ class UbiquitiAirOSService:
                         client.headers.update({"X-Auth-Token": token})
                 except Exception:
                     pass  # cookie-based session, no token needed
-
-                # Verify session works by hitting a lightweight endpoint
-                try:
-                    check = client.get("/api/v1.0/device/info")
-                    if check.status_code == 403:
-                        client.close()
-                        got_credentials_error = True
-                        continue
-                except Exception:
-                    pass
 
                 return client
 
