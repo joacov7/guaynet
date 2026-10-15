@@ -31,9 +31,12 @@ class UbiquitiAirOSService:
         self._client: Optional[httpx.Client] = None
 
     def _try_auth(self, base_url: str) -> Optional[httpx.Client]:
-        """Try every auth strategy against base_url. Returns authenticated client or None."""
+        """Try every auth strategy against base_url.
+        Returns authenticated client on success.
+        Returns None if the scheme can't connect (caller should try http fallback).
+        Raises UbiquitiError only for definitive failures (bad credentials, timeout).
+        """
         creds_form = {"username": self.username, "password": self.password}
-        last_err = ""
         for path, use_json in _AUTH_ATTEMPTS:
             client = httpx.Client(
                 base_url=base_url,
@@ -42,19 +45,17 @@ class UbiquitiAirOSService:
                 follow_redirects=True,
             )
             try:
-                if use_json:
-                    res = client.post(path, json=creds_form)
-                else:
-                    res = client.post(path, data=creds_form)
-            except httpx.ConnectError as e:
+                res = client.post(path, json=creds_form if use_json else None,
+                                  data=None if use_json else creds_form)
+            except httpx.ConnectError:
+                # This scheme can't reach the device — let connect() try http
                 client.close()
-                raise UbiquitiError(f"No se pudo conectar a {self.host}: {e}")
+                return None
             except httpx.TimeoutException:
                 client.close()
                 raise UbiquitiError(f"Timeout al conectar a {self.host}")
             except httpx.RequestError as e:
                 client.close()
-                last_err = str(e)
                 continue
 
             if res.status_code in (401, 403):
@@ -62,38 +63,30 @@ class UbiquitiAirOSService:
                 raise UbiquitiError(f"Credenciales incorrectas en {self.host}")
 
             if res.status_code in (200, 201, 302):
-                # Extract token if present (AirOS 8.x)
                 try:
                     data = res.json()
                     token = data.get("authToken") or data.get("token", "")
                     if token:
                         client.headers.update({"X-Auth-Token": token})
                 except Exception:
-                    pass  # Cookie-based auth is fine too
+                    pass  # cookie-based auth, no token needed
                 return client
 
-            # 415 or other error — try next strategy
+            # 415 or other status — try next auth strategy
             client.close()
-            last_err = f"HTTP {res.status_code} en {path}"
 
-        return None  # all strategies failed non-fatally
+        return None
 
     def connect(self) -> "UbiquitiAirOSService":
-        # Try HTTPS first, fall back to HTTP
         for scheme in ("https", "http"):
-            base_url = f"{scheme}://{self.host}"
-            try:
-                client = self._try_auth(base_url)
-            except UbiquitiError:
-                raise  # fatal errors (credentials, connect, timeout) propagate immediately
-
+            client = self._try_auth(f"{scheme}://{self.host}")
             if client is not None:
                 self._client = client
                 return self
 
         raise UbiquitiError(
-            f"No se pudo autenticar en {self.host}. "
-            "Verificá host, usuario y contraseña, y que la API esté habilitada en el dispositivo."
+            f"No se pudo conectar a {self.host}. "
+            "Verificá host, usuario, contraseña y que la API esté habilitada."
         )
 
     def disconnect(self):
