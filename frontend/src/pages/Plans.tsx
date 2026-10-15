@@ -15,7 +15,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, DeleteOutlined, SyncOutlined } from "@ant-design/icons";
 import { plansApi } from "@/services/api";
 import type { Plan } from "@/types";
 
@@ -46,6 +46,12 @@ export default function Plans() {
     onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al eliminar"),
   });
 
+  const syncAllMutation = useMutation({
+    mutationFn: plansApi.syncAll,
+    onSuccess: (res) => message.success(`${res.synced} queues sincronizados (plan: ${res.plan})`),
+    onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al sincronizar"),
+  });
+
   const openCreate = () => {
     setEditPlan(null);
     form.resetFields();
@@ -70,13 +76,21 @@ export default function Plans() {
     {
       title: "Velocidad (Down/Up)",
       key: "speed",
-      render: (_: unknown, r: Plan) => <Tag color="blue">{r.download_mbps}/{r.upload_mbps} Mbps</Tag>,
+      render: (_: unknown, r: Plan) => (
+        <Tag color="blue">
+          {r.download_mbps}/{r.upload_mbps} Mbps
+        </Tag>
+      ),
     },
     {
       title: "Burst",
       key: "burst",
       render: (_: unknown, r: Plan) =>
-        r.mikrotik_burst_limit ? <Tag color="geekblue">{r.mikrotik_burst_limit}</Tag> : <Tag>Sin burst</Tag>,
+        r.mikrotik_burst_limit ? (
+          <Tag color="geekblue">{r.mikrotik_burst_limit}</Tag>
+        ) : (
+          <Tag>Sin burst</Tag>
+        ),
     },
     {
       title: "Precio",
@@ -85,7 +99,12 @@ export default function Plans() {
       render: (v: number) =>
         new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(v),
     },
-    { title: "Clientes", dataIndex: "client_count", key: "client_count", align: "right" as const },
+    {
+      title: "Clientes",
+      dataIndex: "client_count",
+      key: "client_count",
+      align: "right" as const,
+    },
     {
       title: "Activo",
       dataIndex: "is_active",
@@ -99,6 +118,12 @@ export default function Plans() {
       render: (_: unknown, r: Plan) => (
         <Space>
           <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
+          <Popconfirm
+            title="¿Re-sincronizar todos los queues de este plan en Mikrotik?"
+            onConfirm={() => syncAllMutation.mutate(r.id)}
+          >
+            <Button size="small" icon={<SyncOutlined />} loading={syncAllMutation.isPending} />
+          </Popconfirm>
           <Popconfirm title="¿Eliminar plan?" onConfirm={() => deleteMutation.mutate(r.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
@@ -111,7 +136,9 @@ export default function Plans() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>Planes</Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Nuevo plan</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          Nuevo plan
+        </Button>
       </div>
 
       <Table loading={isLoading} dataSource={data} rowKey="id" columns={columns} size="small" pagination={false} />
@@ -125,8 +152,13 @@ export default function Plans() {
         width={560}
       >
         <Form form={form} layout="vertical" onFinish={(v) => saveMutation.mutate(v)}>
-          <Form.Item name="name" label="Nombre" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="description" label="Descripción"><Input.TextArea rows={2} /></Form.Item>
+          <Form.Item name="name" label="Nombre" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label="Descripción">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+
           <Space style={{ width: "100%" }} size={16}>
             <Form.Item name="download_mbps" label="Descarga (Mbps)" rules={[{ required: true }]}>
               <InputNumber min={1} style={{ width: "100%" }} />
@@ -135,6 +167,7 @@ export default function Plans() {
               <InputNumber min={1} style={{ width: "100%" }} />
             </Form.Item>
           </Space>
+
           <Title level={5} style={{ marginBottom: 8 }}>Burst (opcional)</Title>
           <Space style={{ width: "100%" }} size={16}>
             <Form.Item name="burst_download_mbps" label="Burst descarga (Mbps)">
@@ -152,10 +185,14 @@ export default function Plans() {
               <InputNumber min={1} max={120} style={{ width: "100%" }} />
             </Form.Item>
           </Space>
+
           <Form.Item name="price" label="Precio (ARS)" rules={[{ required: true }]}>
             <InputNumber min={0} precision={2} style={{ width: "100%" }} prefix="$" />
           </Form.Item>
-          <Form.Item name="is_active" label="Activo" valuePropName="checked"><Switch /></Form.Item>
+
+          <Form.Item name="is_active" label="Activo" valuePropName="checked">
+            <Switch />
+          </Form.Item>
         </Form>
       </Modal>
     </div>

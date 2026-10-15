@@ -85,12 +85,18 @@ export default function ClientList() {
       render: (_: unknown, r: Client) =>
         r.plan ? `${r.plan.name} (${r.plan.download_mbps}/${r.plan.upload_mbps} Mbps)` : "—",
     },
-    { title: "Router", key: "router", render: (_: unknown, r: Client) => r.router?.name ?? "—" },
+    {
+      title: "Router",
+      key: "router",
+      render: (_: unknown, r: Client) => r.router?.name ?? "—",
+    },
     {
       title: "Estado",
       dataIndex: "status",
       key: "status",
-      render: (s: ClientStatus) => <Tag color={statusConfig[s].color}>{statusConfig[s].label}</Tag>,
+      render: (s: ClientStatus) => (
+        <Tag color={statusConfig[s].color}>{statusConfig[s].label}</Tag>
+      ),
     },
     {
       title: "Acciones",

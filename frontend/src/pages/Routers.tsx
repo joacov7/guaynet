@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Alert,
   Badge,
   Button,
   Card,
@@ -21,6 +22,7 @@ import {
   Typography,
   message,
 } from "antd";
+import { CheckCircleOutlined, ExclamationCircleOutlined, WarningOutlined } from "@ant-design/icons";
 import {
   PlusOutlined,
   EditOutlined,
@@ -79,8 +81,47 @@ export default function Routers() {
 
   const syncMutation = useMutation({
     mutationFn: (id: number) => routersApi.syncClients(id),
-    onSuccess: (data) => message.success(`Sincronizados: ${data.synced} clientes. Errores: ${data.errors.length}`),
-    onError: (err: any) => message.error(err.response?.data?.detail ?? "Error de conexión"),
+    onSuccess: (data) => {
+      const hasProblems = data.errors.length > 0 || data.skipped > 0 || !!data.warning;
+      if (!hasProblems && data.synced > 0) {
+        message.success(`Sincronizados ${data.synced} clientes correctamente`);
+        return;
+      }
+      Modal.info({
+        title: "Resultado de sincronización",
+        width: 520,
+        icon: hasProblems ? <ExclamationCircleOutlined style={{ color: data.synced === 0 ? "#faad14" : "#1677ff" }} /> : <CheckCircleOutlined style={{ color: "#52c41a" }} />,
+        content: (
+          <div style={{ marginTop: 12 }}>
+            <Descriptions size="small" column={2} bordered style={{ marginBottom: 12 }}>
+              <Descriptions.Item label="Clientes encontrados">{data.clients_found ?? 0}</Descriptions.Item>
+              <Descriptions.Item label="Sincronizados">{data.synced}</Descriptions.Item>
+              <Descriptions.Item label="Salteados (sin plan)">{data.skipped ?? 0}</Descriptions.Item>
+              <Descriptions.Item label="Con error">{data.errors.length}</Descriptions.Item>
+            </Descriptions>
+            {data.warning && (
+              <Alert type="warning" icon={<WarningOutlined />} showIcon message={data.warning} style={{ marginBottom: 8 }} />
+            )}
+            {data.errors.length > 0 && (
+              <>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Errores por cliente:</div>
+                <Table
+                  size="small"
+                  pagination={false}
+                  dataSource={data.errors.map((e) => ({ ...e, key: e.client_id }))}
+                  columns={[
+                    { title: "ID", dataIndex: "client_id", width: 60 },
+                    { title: "Nombre", dataIndex: "name" },
+                    { title: "Error", dataIndex: "error", render: (v: string) => <span style={{ color: "#cf1322", fontSize: 12 }}>{v}</span> },
+                  ]}
+                />
+              </>
+            )}
+          </div>
+        ),
+      });
+    },
+    onError: (err: any) => message.error(err.response?.data?.detail ?? "Error de conexión al router"),
   });
 
   const openCreate = () => {
@@ -106,12 +147,21 @@ export default function Routers() {
 
   const handleTest = async () => {
     const values = form.getFieldsValue();
-    if (!values.host || !values.username) { message.warning("Completá host y usuario antes de probar"); return; }
-    if (!editRouter && !values.password) { message.warning("Ingresá la contraseña"); return; }
+    if (!values.host || !values.username) {
+      message.warning("Completá host y usuario antes de probar");
+      return;
+    }
+    if (!editRouter && !values.password) {
+      message.warning("Ingresá la contraseña");
+      return;
+    }
     setTestLoading(true);
     setTestResult(null);
     try {
-      const saved = editRouter ? await routersApi.update(editRouter.id, values) : await routersApi.create(values);
+      // Save first to get an ID, then test
+      const saved = editRouter
+        ? await routersApi.update(editRouter.id, values)
+        : await routersApi.create(values);
       const stats = await routersApi.test(saved.id);
       setTestResult(stats);
       qc.invalidateQueries({ queryKey: ["routers"] });
@@ -128,7 +178,12 @@ export default function Routers() {
     { title: "Host", dataIndex: "host", key: "host" },
     { title: "Puerto", dataIndex: "port", key: "port" },
     { title: "Ubicación", dataIndex: "location", key: "location", render: (v: string) => v ?? "—" },
-    { title: "Estado", dataIndex: "status", key: "status", render: (s: string) => statusTag[s] ?? <Badge status="default" text={s} /> },
+    {
+      title: "Estado",
+      dataIndex: "status",
+      key: "status",
+      render: (s: string) => statusTag[s] ?? <Badge status="default" text={s} />,
+    },
     { title: "Clientes", dataIndex: "client_count", key: "client_count", align: "right" as const },
     {
       title: "",
@@ -159,11 +214,14 @@ export default function Routers() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>Routers Mikrotik</Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Nuevo router</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          Nuevo router
+        </Button>
       </div>
 
       <Table loading={isLoading} dataSource={data} rowKey="id" columns={columns} size="small" pagination={false} />
 
+      {/* Create / Edit Modal */}
       <Modal
         title={editRouter ? "Editar router" : "Nuevo router"}
         open={modalOpen}
@@ -173,7 +231,9 @@ export default function Routers() {
         width={560}
         footer={[
           <Button key="cancel" onClick={closeModal}>Cancelar</Button>,
-          <Button key="test" icon={<ApiOutlined />} onClick={handleTest} loading={testLoading}>Probar conexión</Button>,
+          <Button key="test" icon={<ApiOutlined />} onClick={handleTest} loading={testLoading}>
+            Probar conexión
+          </Button>,
           <Button key="save" type="primary" onClick={() => form.submit()} loading={saveMutation.isPending}>
             {editRouter ? "Guardar" : "Crear"}
           </Button>,
@@ -197,10 +257,16 @@ export default function Routers() {
           </Row>
           <Row gutter={12}>
             <Col span={12}>
-              <Form.Item name="username" label="Usuario" rules={[{ required: true }]}><Input /></Form.Item>
+              <Form.Item name="username" label="Usuario" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="password" label="Contraseña" rules={editRouter ? [] : [{ required: true }]}>
+              <Form.Item
+                name="password"
+                label="Contraseña"
+                rules={editRouter ? [] : [{ required: true }]}
+              >
                 <Input.Password placeholder={editRouter ? "(sin cambios)" : ""} />
               </Form.Item>
             </Col>
@@ -208,8 +274,23 @@ export default function Routers() {
           <Form.Item name="location" label="Ubicación / Zona">
             <Input placeholder="Ej: Zona Norte" />
           </Form.Item>
-          <Form.Item name="notes" label="Notas"><Input.TextArea rows={2} /></Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="latitude" label="Latitud">
+                <InputNumber style={{ width: "100%" }} placeholder="-34.6037" step={0.0001} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="longitude" label="Longitud">
+                <InputNumber style={{ width: "100%" }} placeholder="-58.3816" step={0.0001} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="notes" label="Notas">
+            <Input.TextArea rows={2} />
+          </Form.Item>
         </Form>
+
         {testResult && (
           <Card size="small" style={{ marginTop: 12, background: "#f6ffed", border: "1px solid #b7eb8f" }}>
             <Descriptions size="small" column={2} title="Conexión exitosa">
@@ -223,13 +304,16 @@ export default function Routers() {
         )}
       </Modal>
 
+      {/* Queues Drawer */}
       <Drawer
         title="Simple Queues"
         open={queuesDrawer.open}
         onClose={() => setQueuesDrawer({ open: false, routerId: null })}
         width={600}
       >
-        {queuesLoading ? <Spin /> : (
+        {queuesLoading ? (
+          <Spin />
+        ) : (
           <Table
             dataSource={queues}
             rowKey="id"
@@ -239,8 +323,18 @@ export default function Routers() {
               { title: "Nombre", dataIndex: "name", key: "name" },
               { title: "Target", dataIndex: "target", key: "target" },
               { title: "Límite", dataIndex: "max_limit", key: "max_limit" },
-              { title: "Estado", dataIndex: "disabled", key: "disabled", render: (v: boolean) => <Tag color={v ? "orange" : "green"}>{v ? "Deshabilitada" : "Activa"}</Tag> },
-              { title: "Comentario", dataIndex: "comment", key: "comment", render: (v: string) => v ?? "—" },
+              {
+                title: "Estado",
+                dataIndex: "disabled",
+                key: "disabled",
+                render: (v: boolean) => <Tag color={v ? "orange" : "green"}>{v ? "Deshabilitada" : "Activa"}</Tag>,
+              },
+              {
+                title: "Comentario",
+                dataIndex: "comment",
+                key: "comment",
+                render: (v: string) => v ?? "—",
+              },
             ]}
           />
         )}

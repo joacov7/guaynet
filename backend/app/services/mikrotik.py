@@ -23,6 +23,8 @@ class MikrotikService:
         self.timeout = timeout
         self._api = None
 
+    # ── Connection ────────────────────────────────────────────────────────────
+
     def connect(self) -> "MikrotikService":
         try:
             self._api = librouteros.connect(
@@ -62,6 +64,8 @@ class MikrotikService:
         except FatalError as e:
             raise MikrotikError(f"Error de API: {e}")
 
+    # ── System info ───────────────────────────────────────────────────────────
+
     def get_system_info(self) -> Dict[str, Any]:
         identity = self._call("/system/identity/print")
         resource = self._call("/system/resource/print")
@@ -75,6 +79,8 @@ class MikrotikService:
             "total_memory": r.get("total-memory", "0"),
             "board_name": r.get("board-name", ""),
         }
+
+    # ── Simple Queues ─────────────────────────────────────────────────────────
 
     def get_simple_queues(self) -> List[Dict]:
         raw = self._call("/queue/simple/print")
@@ -98,6 +104,25 @@ class MikrotikService:
     def get_queue_by_name(self, name: str) -> Optional[Dict]:
         queues = self.get_simple_queues()
         return next((q for q in queues if q["name"] == name), None)
+
+    def get_queues_with_bytes(self) -> List[Dict]:
+        """Return queues with parsed upload/download byte counters."""
+        result = []
+        for q in self.get_simple_queues():
+            raw_bytes = q.get("bytes", "0/0")
+            parts = raw_bytes.split("/") if "/" in str(raw_bytes) else ["0", "0"]
+            try:
+                upload = int(parts[0])
+                download = int(parts[1]) if len(parts) > 1 else 0
+            except (ValueError, IndexError):
+                upload = download = 0
+            result.append({
+                "name": q["name"],
+                "target": q["target"],
+                "upload_bytes": upload,
+                "download_bytes": download,
+            })
+        return result
 
     def add_simple_queue(
         self,
@@ -160,6 +185,8 @@ class MikrotikService:
     def remove_queue(self, queue_id: str) -> None:
         self._call("/queue/simple/remove", **{".id": queue_id})
 
+    # ── DHCP ──────────────────────────────────────────────────────────────────
+
     def get_dhcp_leases(self) -> List[Dict]:
         return self._call("/ip/dhcp-server/lease/print")
 
@@ -169,11 +196,168 @@ class MikrotikService:
             params["comment"] = comment
         self._call("/ip/dhcp-server/lease/add", **params)
 
+    # ── ARP ───────────────────────────────────────────────────────────────────
+
     def get_arp_table(self) -> List[Dict]:
         return self._call("/ip/arp/print")
 
+    # ── Interfaces ────────────────────────────────────────────────────────────
+
     def get_interfaces(self) -> List[Dict]:
         return self._call("/interface/print")
+
+    # ── Firewall Filter ───────────────────────────────────────────────────────
+
+    def get_firewall_filter_rules(self) -> List[Dict]:
+        raw = self._call("/ip/firewall/filter/print")
+        rules = []
+        for r in raw:
+            rules.append({
+                "id": r.get(".id", ""),
+                "chain": r.get("chain", ""),
+                "action": r.get("action", ""),
+                "src_address": r.get("src-address", "") or None,
+                "dst_address": r.get("dst-address", "") or None,
+                "protocol": r.get("protocol", "") or None,
+                "src_port": str(v) if (v := r.get("src-port")) else None,
+                "dst_port": str(v) if (v := r.get("dst-port")) else None,
+                "in_interface": r.get("in-interface", "") or None,
+                "out_interface": r.get("out-interface", "") or None,
+                "comment": r.get("comment", "") or None,
+                "disabled": r.get("disabled", "false") in ("true", "yes"),
+                "bytes": str(v) if (v := r.get("bytes")) is not None else None,
+                "packets": str(v) if (v := r.get("packets")) is not None else None,
+            })
+        return rules
+
+    def remove_firewall_filter_rule(self, rule_id: str) -> None:
+        self._call("/ip/firewall/filter/remove", **{".id": rule_id})
+
+    def disable_firewall_filter_rule(self, rule_id: str) -> None:
+        self._call("/ip/firewall/filter/set", **{".id": rule_id, "disabled": "yes"})
+
+    def enable_firewall_filter_rule(self, rule_id: str) -> None:
+        self._call("/ip/firewall/filter/set", **{".id": rule_id, "disabled": "no"})
+
+    # ── Mangle ────────────────────────────────────────────────────────────────
+
+    def get_mangle_rules(self) -> List[Dict]:
+        raw = self._call("/ip/firewall/mangle/print")
+        rules = []
+        for r in raw:
+            rules.append({
+                "id": r.get(".id", ""),
+                "chain": r.get("chain", ""),
+                "action": r.get("action", ""),
+                "new_packet_mark": r.get("new-packet-mark", "") or None,
+                "new_connection_mark": r.get("new-connection-mark", "") or None,
+                "src_address": r.get("src-address", "") or None,
+                "dst_address": r.get("dst-address", "") or None,
+                "protocol": r.get("protocol", "") or None,
+                "dst_port": str(v) if (v := r.get("dst-port")) else None,
+                "comment": r.get("comment", "") or None,
+                "disabled": r.get("disabled", "false") in ("true", "yes"),
+                "passthrough": r.get("passthrough", "true") in ("true", "yes"),
+            })
+        return rules
+
+    def remove_mangle_rule(self, rule_id: str) -> None:
+        self._call("/ip/firewall/mangle/remove", **{".id": rule_id})
+
+    # ── PCQ / Queue Types ─────────────────────────────────────────────────────
+
+    def get_pcq_queues(self) -> List[Dict]:
+        raw = self._call("/queue/type/print")
+        return [
+            {
+                "id": r.get(".id", ""),
+                "name": r.get("name", ""),
+                "kind": r.get("kind", ""),
+                "pcq_rate": str(v) if (v := r.get("pcq-rate")) else None,
+                "pcq_limit": str(v) if (v := r.get("pcq-limit")) is not None else None,
+                "pcq_classifier": r.get("pcq-classifier", "") or None,
+            }
+            for r in raw
+            if r.get("kind", "") == "pcq"
+        ]
+
+    def setup_pcq(self) -> int:
+        existing = {r["name"] for r in self.get_pcq_queues()}
+        added = 0
+        if "pcq-download" not in existing:
+            self._call(
+                "/queue/type/add",
+                name="pcq-download",
+                kind="pcq",
+                **{"pcq-classifier": "dst-address", "pcq-rate": "0", "pcq-limit": "50", "pcq-total-limit": "2000"},
+            )
+            added += 1
+        if "pcq-upload" not in existing:
+            self._call(
+                "/queue/type/add",
+                name="pcq-upload",
+                kind="pcq",
+                **{"pcq-classifier": "src-address", "pcq-rate": "0", "pcq-limit": "50", "pcq-total-limit": "2000"},
+            )
+            added += 1
+        return added
+
+    # ── Security / QoS Templates ──────────────────────────────────────────────
+
+    def apply_template(self, template: str) -> int:
+        if template == "basic_security":
+            return self._apply_basic_security()
+        if template == "icmp_limit":
+            return self._apply_icmp_limit()
+        if template == "qos_prioritization":
+            return self._apply_qos_prioritization()
+        if template == "drop_invalid":
+            return self._apply_drop_invalid()
+        raise MikrotikError(f"Template desconocido: {template}")
+
+    def _apply_basic_security(self) -> int:
+        rules = [
+            {"chain": "input", "action": "accept", "connection-state": "established,related", "comment": "guaynet: accept established"},
+            {"chain": "input", "action": "drop", "connection-state": "invalid", "comment": "guaynet: drop invalid input"},
+            {"chain": "input", "action": "accept", "protocol": "icmp", "comment": "guaynet: accept icmp"},
+            {"chain": "input", "action": "accept", "dst-port": "8728,8729,22", "protocol": "tcp", "src-address": "192.168.0.0/16", "comment": "guaynet: allow mgmt LAN"},
+            {"chain": "input", "action": "drop", "in-interface": "ether1", "comment": "guaynet: drop all from WAN"},
+            {"chain": "forward", "action": "accept", "connection-state": "established,related", "comment": "guaynet: forward established"},
+            {"chain": "forward", "action": "drop", "connection-state": "invalid", "comment": "guaynet: drop invalid forward"},
+        ]
+        for r in rules:
+            self._call("/ip/firewall/filter/add", **r)
+        return len(rules)
+
+    def _apply_icmp_limit(self) -> int:
+        rules = [
+            {"chain": "input", "action": "accept", "protocol": "icmp", "limit": "10,20:packet", "comment": "guaynet: icmp rate accept"},
+            {"chain": "input", "action": "drop", "protocol": "icmp", "comment": "guaynet: icmp rate drop excess"},
+        ]
+        for r in rules:
+            self._call("/ip/firewall/filter/add", **r)
+        return len(rules)
+
+    def _apply_drop_invalid(self) -> int:
+        rules = [
+            {"chain": "input", "action": "drop", "connection-state": "invalid", "comment": "guaynet: drop invalid conn"},
+            {"chain": "forward", "action": "drop", "connection-state": "invalid", "comment": "guaynet: drop invalid fwd"},
+        ]
+        for r in rules:
+            self._call("/ip/firewall/filter/add", **r)
+        return len(rules)
+
+    def _apply_qos_prioritization(self) -> int:
+        self.setup_pcq()
+        rules = [
+            {"chain": "prerouting", "action": "mark-packet", "protocol": "udp", "dst-port": "5060,5061,10000-20000", "new-packet-mark": "voip", "passthrough": "yes", "comment": "guaynet: mark VoIP"},
+            {"chain": "prerouting", "action": "mark-packet", "protocol": "udp", "dst-port": "53", "new-packet-mark": "dns", "passthrough": "yes", "comment": "guaynet: mark DNS"},
+            {"chain": "prerouting", "action": "mark-packet", "protocol": "tcp", "dst-port": "443", "new-packet-mark": "https", "passthrough": "yes", "comment": "guaynet: mark HTTPS"},
+            {"chain": "prerouting", "action": "mark-packet", "protocol": "tcp", "dst-port": "80", "new-packet-mark": "http", "passthrough": "yes", "comment": "guaynet: mark HTTP"},
+        ]
+        for r in rules:
+            self._call("/ip/firewall/mangle/add", **r)
+        return len(rules)
 
 
 def build_service_from_router(router) -> MikrotikService:

@@ -13,6 +13,8 @@ class RouterBase(BaseModel):
     username: str
     location: Optional[str] = None
     notes: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class RouterCreate(RouterBase):
@@ -27,6 +29,8 @@ class RouterUpdate(BaseModel):
     password: Optional[str] = None
     location: Optional[str] = None
     notes: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class RouterResponse(RouterBase):
@@ -42,9 +46,9 @@ class RouterStats(BaseModel):
     identity: str
     version: str
     uptime: str
-    cpu_load: str
-    free_memory: str
-    total_memory: str
+    cpu_load: str | int
+    free_memory: str | int
+    total_memory: str | int
     board_name: str = ""
 
 
@@ -60,6 +64,7 @@ class MikrotikQueueItem(BaseModel):
     packets: Optional[str]
 
 
+# Ubiquiti
 class UbiquitiDeviceCreate(BaseModel):
     name: str
     host: str

@@ -20,6 +20,7 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db), _=Depends(get_
     last_month_date = date(today.year, today.month - 1, 1) if today.month > 1 else date(today.year - 1, 12, 1)
     last_month = last_month_date.strftime("%Y-%m")
 
+    # ── Clients ───────────────────────────────────────────────────────────────
     async def count_clients(status: ClientStatus) -> int:
         r = await db.execute(select(func.count()).where(Client.status == status))
         return r.scalar_one()
@@ -30,6 +31,7 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db), _=Depends(get_
     suspended_clients = await count_clients(ClientStatus.suspended)
     cancelled_clients = await count_clients(ClientStatus.cancelled)
 
+    # ── Invoices ──────────────────────────────────────────────────────────────
     pending_r = await db.execute(select(func.count()).where(Invoice.status == InvoiceStatus.pending))
     overdue_r = await db.execute(select(func.count()).where(Invoice.status == InvoiceStatus.overdue))
 
@@ -44,6 +46,7 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db), _=Depends(get_
         )
     )
 
+    # ── Routers ───────────────────────────────────────────────────────────────
     routers_r = await db.execute(select(MikrotikRouter).order_by(MikrotikRouter.name))
     routers = routers_r.scalars().all()
 

@@ -31,6 +31,7 @@ class Invoice(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), index=True)
+    # Billing period e.g. "2024-01"
     period: Mapped[str] = mapped_column(String(7))
     amount: Mapped[float] = mapped_column(Numeric(10, 2))
     issue_date: Mapped[date] = mapped_column(Date)
@@ -39,6 +40,10 @@ class Invoice(Base, TimestampMixin):
     status: Mapped[InvoiceStatus] = mapped_column(SAEnum(InvoiceStatus), default=InvoiceStatus.pending)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # MercadoPago
+    mp_payment_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # AFIP (Argentina electronic invoicing)
     afip_cae: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     afip_cae_expiry: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     invoice_type: Mapped[Optional[str]] = mapped_column(String(1), nullable=True)
@@ -47,6 +52,20 @@ class Invoice(Base, TimestampMixin):
 
     client: Mapped["Client"] = relationship(back_populates="invoices")
     payments: Mapped[List["Payment"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
+    items: Mapped[List["InvoiceItem"]] = relationship(back_populates="invoice", cascade="all, delete-orphan")
+
+
+class InvoiceItem(Base):
+    __tablename__ = "invoice_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), index=True)
+    description: Mapped[str] = mapped_column(String(255))
+    quantity: Mapped[float] = mapped_column(Numeric(10, 3), default=1)
+    unit_price: Mapped[float] = mapped_column(Numeric(10, 2))
+    subtotal: Mapped[float] = mapped_column(Numeric(10, 2))
+
+    invoice: Mapped["Invoice"] = relationship(back_populates="items")
 
 
 class Payment(Base, TimestampMixin):

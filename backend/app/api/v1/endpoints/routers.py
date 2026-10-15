@@ -1,6 +1,9 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -31,6 +34,8 @@ async def _router_response(rt: MikrotikRouter, db: AsyncSession) -> RouterRespon
     data.client_count = count
     return data
 
+
+# ── Mikrotik Routers ──────────────────────────────────────────────────────────
 
 @router.get("/", response_model=List[RouterResponse])
 async def list_routers(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
@@ -179,6 +184,7 @@ async def sync_clients_to_router(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
+    """Push all active clients assigned to this router into Mikrotik Simple Queues."""
     rt = await db.get(MikrotikRouter, router_id)
     if not rt:
         raise HTTPException(status_code=404, detail="Router no encontrado")
@@ -188,20 +194,34 @@ async def sync_clients_to_router(
     )
     clients = result.scalars().all()
 
+    if not clients:
+        logger.warning("sync router=%d: no clients assigned to this router", router_id)
+        return {"synced": 0, "skipped": 0, "errors": [], "clients_found": 0,
+                "warning": "No hay clientes asignados a este router"}
+
+    # Pre-load plans
     plan_ids = {c.plan_id for c in clients}
     from app.models.plan import Plan
     plan_result = await db.execute(select(Plan).where(Plan.id.in_(plan_ids)))
     plans = {p.id: p for p in plan_result.scalars().all()}
+
+    logger.info("sync router=%d: found %d clients, %d plans", router_id, len(clients), len(plans))
 
     def _sync():
         svc = build_service_from_router(rt)
         with svc:
             existing = {q["name"]: q for q in svc.get_simple_queues()}
             synced = 0
+            skipped = 0
             errors = []
             for client in clients:
                 plan = plans.get(client.plan_id)
                 if not plan:
+                    logger.warning(
+                        "sync router=%d client=%d: plan_id=%d not found, skipping",
+                        router_id, client.id, client.plan_id,
+                    )
+                    skipped += 1
                     continue
                 qname = client.mikrotik_queue_name
                 disabled = client.status == "suspended"
@@ -221,19 +241,137 @@ async def sync_clients_to_router(
                             k: v for k, v in params.items()
                             if k not in ("name", "target") and v is not None
                         })
+                        action = "updated"
                     else:
                         svc.add_simple_queue(**params)
+                        action = "created"
+                    logger.info("sync router=%d client=%d queue=%s %s", router_id, client.id, qname, action)
                     synced += 1
                 except Exception as e:
-                    errors.append({"client_id": client.id, "error": str(e)})
-            return {"synced": synced, "errors": errors}
+                    logger.error("sync router=%d client=%d queue=%s error: %s", router_id, client.id, qname, e)
+                    errors.append({"client_id": client.id, "name": client.full_name, "error": str(e)})
+            return {"synced": synced, "skipped": skipped, "errors": errors,
+                    "clients_found": len(clients)}
 
     try:
         result = await asyncio.to_thread(_sync)
+        logger.info("sync router=%d result: %s", router_id, result)
         return result
+    except MikrotikError as e:
+        logger.error("sync router=%d connection error: %s", router_id, e)
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.get("/{router_id}/bandwidth")
+async def get_router_bandwidth(
+    router_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Queue byte/packet stats crossed with registered clients."""
+    rt = await db.get(MikrotikRouter, router_id)
+    if not rt:
+        raise HTTPException(status_code=404, detail="Router no encontrado")
+
+    result = await db.execute(
+        select(Client).where(Client.router_id == router_id, Client.status != "cancelled")
+    )
+    client_map = {c.mikrotik_queue_name: c for c in result.scalars().all()}
+
+    def _get():
+        svc = build_service_from_router(rt)
+        with svc:
+            return svc.get_simple_queues()
+
+    try:
+        queues = await asyncio.to_thread(_get)
     except MikrotikError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
+    items = []
+    for q in queues:
+        client = client_map.get(q["name"])
+        parts = (q.get("bytes") or "0/0").split("/")
+        upload_bytes = int(parts[0]) if parts[0].isdigit() else 0
+        download_bytes = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        items.append({
+            "queue_name": q["name"],
+            "client_id": client.id if client else None,
+            "client_name": client.full_name if client else None,
+            "ip_address": client.ip_address if client else q.get("target", ""),
+            "max_limit": q["max_limit"],
+            "disabled": q["disabled"],
+            "upload_bytes": upload_bytes,
+            "download_bytes": download_bytes,
+        })
+
+    items.sort(key=lambda x: x["download_bytes"] + x["upload_bytes"], reverse=True)
+    return items
+
+
+@router.get("/{router_id}/online-clients")
+async def get_online_clients(
+    router_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Cross ARP table with registered clients to show who is currently online."""
+    rt = await db.get(MikrotikRouter, router_id)
+    if not rt:
+        raise HTTPException(status_code=404, detail="Router no encontrado")
+
+    result = await db.execute(
+        select(Client).where(Client.router_id == router_id, Client.status != "cancelled")
+    )
+    client_map = {c.ip_address: c for c in result.scalars().all()}
+
+    def _get_arp():
+        svc = build_service_from_router(rt)
+        with svc:
+            return svc.get_arp_table()
+
+    try:
+        arp_table = await asyncio.to_thread(_get_arp)
+    except MikrotikError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    online_ips = {
+        e.get("address"): e.get("mac-address", "")
+        for e in arp_table
+        if e.get("address") and e.get("complete", "true") != "false"
+    }
+
+    items = []
+    seen_ips = set()
+
+    for ip, client in client_map.items():
+        seen_ips.add(ip)
+        items.append({
+            "client_id": client.id,
+            "client_name": client.full_name,
+            "ip_address": ip,
+            "mac_address": online_ips.get(ip) or client.mac_address or "",
+            "status": client.status,
+            "online": ip in online_ips,
+        })
+
+    # IPs in ARP not registered as clients
+    for ip, mac in online_ips.items():
+        if ip not in seen_ips:
+            items.append({
+                "client_id": None,
+                "client_name": None,
+                "ip_address": ip,
+                "mac_address": mac,
+                "status": None,
+                "online": True,
+            })
+
+    items.sort(key=lambda x: (not x["online"], x["ip_address"]))
+    return items
+
+
+# ── Ubiquiti Devices ──────────────────────────────────────────────────────────
 
 @router.get("/ubiquiti/", response_model=List[UbiquitiDeviceResponse])
 async def list_ubiquiti_devices(
