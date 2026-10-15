@@ -1,9 +1,15 @@
 version: "3.9"
 
+networks:
+  guaynet_net:
+    driver: bridge
+
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    networks:
+      - guaynet_net
     environment:
       POSTGRES_USER: guaynet
       POSTGRES_PASSWORD: guaynet
@@ -21,6 +27,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    networks:
+      - guaynet_net
     volumes:
       - redis_data:/data
     ports:
@@ -36,6 +44,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - guaynet_net
     env_file: .env
     ports:
       - "8000:8000"
@@ -47,6 +57,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     command: >
       sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
@@ -55,6 +71,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - guaynet_net
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
@@ -71,6 +89,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - guaynet_net
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
@@ -84,6 +104,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - guaynet_net
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
@@ -107,12 +129,13 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    networks:
+      - guaynet_net
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:
