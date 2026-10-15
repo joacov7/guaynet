@@ -236,6 +236,14 @@ export const ubiquitiApi = {
     http.get<FrequencyRecommendation[]>(`/ubiquiti/${id}/recommendations`).then((r) => r.data),
   clients: (id: number) =>
     http.get<Array<{ id: number; full_name: string; ip_address: string; mac_address?: string; status: string }>>(`/ubiquiti/${id}/clients`).then((r) => r.data),
+  uploadFirmware: (deviceId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("firmware", file);
+    return http.post<{ status: string; message: string }>(`/ubiquiti/${deviceId}/firmware`, fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 120000,
+    }).then((r) => r.data);
+  },
 };
 
 // ── Firewall & QoS ────────────────────────────────────────────────────────────

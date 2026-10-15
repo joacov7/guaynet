@@ -356,6 +356,32 @@ class UbiquitiAirOSService:
         return result
 
 
+    # ── Firmware update ───────────────────────────────────────────────────────
+
+    def upload_firmware(self, firmware_bytes: bytes, filename: str = "firmware.bin") -> Dict:
+        """Upload firmware binary to the device. Device will flash and reboot."""
+        if not self._client:
+            raise UbiquitiError("No hay conexión activa")
+
+        for path in ("/fwupdate.cgi", "/api/v1.0/fwupdate"):
+            try:
+                res = self._client.post(
+                    path,
+                    files={"fwupdate": (filename, firmware_bytes, "application/octet-stream")},
+                    timeout=120.0,
+                )
+                if res.status_code in (200, 201, 302):
+                    return {"status": "updating", "message": "Firmware enviado. El dispositivo se reiniciará."}
+                if res.status_code == 404:
+                    continue
+            except httpx.TimeoutException:
+                return {"status": "updating", "message": "Firmware enviado (timeout esperado durante flash)."}
+            except httpx.RequestError:
+                continue
+
+        raise UbiquitiError("Este dispositivo no soporta actualización remota de firmware")
+
+
 def build_service_from_device(device) -> UbiquitiAirOSService:
     from app.core.security import decrypt_value
     password = decrypt_value(device.password_encrypted) if device.password_encrypted else "ubnt"

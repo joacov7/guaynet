@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -291,6 +291,28 @@ async def get_recommendations(
 
     try:
         return [FrequencyRecommendation(**r) for r in await asyncio.to_thread(_get)]
+    except UbiquitiError as e:
+        raise HTTPException(503, str(e))
+
+
+@router.post("/{device_id}/firmware")
+async def upload_firmware(
+    device_id: int,
+    firmware: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    dev = await _get_or_404(device_id, db)
+    svc = build_service_from_device(dev)
+    firmware_bytes = await firmware.read()
+    filename = firmware.filename or "firmware.bin"
+
+    def _upload():
+        with svc:
+            return svc.upload_firmware(firmware_bytes, filename)
+
+    try:
+        return await asyncio.to_thread(_upload)
     except UbiquitiError as e:
         raise HTTPException(503, str(e))
 

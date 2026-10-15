@@ -24,10 +24,15 @@ import {
   Tag,
   Tooltip,
   Typography,
+  Upload,
   message,
 } from "antd";
 import {
   ApiOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  CloseCircleOutlined,
+  CloudUploadOutlined,
   DeleteOutlined,
   EditOutlined,
   PlusOutlined,
@@ -636,6 +641,64 @@ export default function Ubiquiti() {
 
   const closeModal = () => { setModalOpen(false); setEditDevice(null); form.resetFields(); };
 
+  // ── Firmware update state ──────────────────────────────────────────────────
+  const [firmwareModalOpen, setFirmwareModalOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [firmwareFileList, setFirmwareFileList] = useState<any[]>([]);
+  const [selectedDeviceIds, setSelectedDeviceIds] = useState<number[]>([]);
+  const [updateProgress, setUpdateProgress] = useState<Record<number, { status: "pending" | "updating" | "done" | "error"; message?: string }>>({});
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const closeFirmwareModal = () => {
+    if (isUpdating) return;
+    setFirmwareModalOpen(false);
+    setSelectedFile(null);
+    setFirmwareFileList([]);
+    setSelectedDeviceIds([]);
+    setUpdateProgress({});
+  };
+
+  const startFirmwareUpdate = async () => {
+    if (!selectedFile || selectedDeviceIds.length === 0) return;
+    setIsUpdating(true);
+    const initial: Record<number, { status: "pending" | "updating" | "done" | "error"; message?: string }> = {};
+    for (const id of selectedDeviceIds) initial[id] = { status: "pending" };
+    setUpdateProgress(initial);
+    for (const id of selectedDeviceIds) {
+      setUpdateProgress((prev) => ({ ...prev, [id]: { status: "updating" } }));
+      try {
+        await ubiquitiApi.uploadFirmware(id, selectedFile);
+        setUpdateProgress((prev) => ({ ...prev, [id]: { status: "done" } }));
+      } catch (e: any) {
+        const msg = e.response?.data?.detail ?? e.message ?? "Error desconocido";
+        setUpdateProgress((prev) => ({ ...prev, [id]: { status: "error", message: msg } }));
+      }
+    }
+    setIsUpdating(false);
+  };
+
+  const firmwareDeviceColumns = [
+    { title: "Nombre", dataIndex: "name", key: "name" },
+    {
+      title: "Tipo",
+      dataIndex: "device_type",
+      key: "type",
+      render: (v: string) => <Tag>{deviceTypeLabel[v]}</Tag>,
+    },
+    { title: "Host", dataIndex: "host", key: "host" },
+    {
+      title: "Estado actual",
+      dataIndex: "status",
+      key: "status",
+      render: (v: string) => (
+        <Badge
+          status={v === "online" ? "success" : v === "offline" ? "error" : "default"}
+          text={v}
+        />
+      ),
+    },
+  ];
+
   const columns = [
     {
       title: "Nombre",
@@ -719,9 +782,14 @@ export default function Ubiquiti() {
           Ubiquiti
           <Badge count={devices.length} style={{ marginLeft: 8, backgroundColor: "#1677ff" }} />
         </Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-          Nuevo dispositivo
-        </Button>
+        <Space>
+          <Button icon={<CloudUploadOutlined />} onClick={() => setFirmwareModalOpen(true)}>
+            Actualizar firmware
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+            Nuevo dispositivo
+          </Button>
+        </Space>
       </div>
 
       <Table
@@ -808,6 +876,106 @@ export default function Ubiquiti() {
             <Input.TextArea rows={2} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Firmware update modal */}
+      <Modal
+        title={<Space><CloudUploadOutlined /> Actualizar firmware</Space>}
+        open={firmwareModalOpen}
+        onCancel={closeFirmwareModal}
+        closable={!isUpdating}
+        maskClosable={!isUpdating}
+        width={700}
+        footer={[
+          <Button key="cancel" onClick={closeFirmwareModal} disabled={isUpdating}>
+            Cancelar
+          </Button>,
+          <Button
+            key="start"
+            type="primary"
+            icon={<CloudUploadOutlined />}
+            disabled={!selectedFile || selectedDeviceIds.length === 0 || isUpdating}
+            loading={isUpdating}
+            onClick={startFirmwareUpdate}
+          >
+            Iniciar actualización
+          </Button>,
+        ]}
+      >
+        <Space direction="vertical" style={{ width: "100%" }} size="middle">
+          <Upload.Dragger
+            multiple={false}
+            fileList={firmwareFileList}
+            beforeUpload={(file) => {
+              setSelectedFile(file);
+              setFirmwareFileList([{ uid: file.uid, name: file.name, status: "done", originFileObj: file }]);
+              return false;
+            }}
+            onRemove={() => {
+              setSelectedFile(null);
+              setFirmwareFileList([]);
+            }}
+          >
+            <p className="ant-upload-drag-icon"><CloudUploadOutlined style={{ fontSize: 32 }} /></p>
+            <p>Hacé clic o arrastrá el archivo de firmware aquí</p>
+            <p><Text type="secondary">Cualquier archivo binario de firmware (.bin, .img, etc.)</Text></p>
+          </Upload.Dragger>
+
+          <div>
+            <Text strong>Seleccioná los dispositivos a actualizar</Text>
+            <Table
+              dataSource={devices}
+              rowKey="id"
+              size="small"
+              pagination={false}
+              style={{ marginTop: 8 }}
+              rowSelection={{
+                type: "checkbox",
+                selectedRowKeys: selectedDeviceIds,
+                onChange: (keys) => setSelectedDeviceIds(keys as number[]),
+                getCheckboxProps: () => ({ disabled: isUpdating }),
+              }}
+              columns={firmwareDeviceColumns}
+            />
+          </div>
+
+          {isUpdating && (
+            <Alert
+              type="info"
+              showIcon
+              message="Actualización en progreso — no cierre esta ventana. No es posible cancelar una vez iniciada."
+            />
+          )}
+
+          {Object.keys(updateProgress).length > 0 && (
+            <div>
+              <Text strong>Progreso</Text>
+              <div style={{ marginTop: 8 }}>
+                {selectedDeviceIds.map((id) => {
+                  const dev = devices.find((d) => d.id === id);
+                  const prog = updateProgress[id];
+                  return (
+                    <div key={id} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 6 }}>
+                      {prog?.status === "pending" && <ClockCircleOutlined style={{ color: "#8c8c8c", marginTop: 3 }} />}
+                      {prog?.status === "updating" && <Spin size="small" style={{ marginTop: 1 }} />}
+                      {prog?.status === "done" && <CheckCircleOutlined style={{ color: "#52c41a", marginTop: 3 }} />}
+                      {prog?.status === "error" && <CloseCircleOutlined style={{ color: "#f5222d", marginTop: 3 }} />}
+                      <div>
+                        <Text>{dev?.name ?? `Dispositivo ${id}`}</Text>
+                        {prog?.status === "done" && (
+                          <div><Text type="success" style={{ fontSize: 12 }}>Firmware subido correctamente</Text></div>
+                        )}
+                        {prog?.status === "error" && prog.message && (
+                          <div><Text type="danger" style={{ fontSize: 12 }}>{prog.message}</Text></div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </Space>
       </Modal>
 
       {/* Detail drawer */}
