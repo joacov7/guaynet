@@ -3,6 +3,9 @@ version: "3.9"
 networks:
   guaynet_net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
 
 services:
   db:
@@ -45,7 +48,8 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     networks:
-      - guaynet_net
+      guaynet_net:
+        ipv4_address: 172.28.0.10
     env_file: .env
     ports:
       - "8000:8000"
