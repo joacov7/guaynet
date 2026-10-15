@@ -161,20 +161,41 @@ function DeviceDrawer({
   const isAP = device.device_type === "airmax_ap" || device.device_type === "unifi_ap";
   const isStation = device.device_type === "airmax_station";
 
+  // Build lookup maps to cross-reference live stations with registered clients
+  const clientByIp = Object.fromEntries(dbClients.map((c: any) => [c.ip_address, c]));
+  const clientByMac = Object.fromEntries(
+    dbClients.filter((c: any) => c.mac_address).map((c: any) => [c.mac_address?.toLowerCase(), c])
+  );
+  const enrichedStations = stations.map((s) => ({
+    ...s,
+    _client: clientByIp[s.ip] || clientByMac[s.mac?.toLowerCase()] || null,
+  }));
+
   const stationColumns = [
-    { title: "MAC", dataIndex: "mac", key: "mac" },
+    {
+      title: "Cliente",
+      key: "client",
+      render: (_: unknown, r: any) =>
+        r._client ? (
+          <a onClick={() => navigate(`/clients/${r._client.id}`)}>{r._client.full_name}</a>
+        ) : (
+          <Text type="secondary">{r.name || "Desconocido"}</Text>
+        ),
+    },
     { title: "IP", dataIndex: "ip", key: "ip", render: (v: string) => v || "—" },
-    { title: "Nombre", dataIndex: "name", key: "name", render: (v: string) => v || "—" },
+    { title: "MAC", dataIndex: "mac", key: "mac" },
     {
       title: "Señal",
       dataIndex: "signal_dbm",
       key: "signal",
+      sorter: (a: any, b: any) => (a.signal_dbm ?? -999) - (b.signal_dbm ?? -999),
       render: (v: number) => v ? <Tag color={signalColor(v)}>{v} dBm</Tag> : "—",
     },
     {
       title: "CCQ",
       dataIndex: "ccq",
       key: "ccq",
+      sorter: (a: any, b: any) => (a.ccq ?? 0) - (b.ccq ?? 0),
       render: (v: number) => v != null ? (
         <Progress percent={v} size="small" strokeColor={ccqColor(v) === "green" ? "#52c41a" : ccqColor(v) === "orange" ? "#faad14" : "#f5222d"} />
       ) : "—",
@@ -406,6 +427,75 @@ function DeviceDrawer({
               </div>
             ),
           },
+          ...(isAP
+            ? [
+                {
+                  key: "mejoras",
+                  label: (() => {
+                    const badSignalCount = enrichedStations.filter((s) => s.signal_dbm && s.signal_dbm < -75).length;
+                    const lowCcqCount = enrichedStations.filter((s) => s.ccq != null && s.ccq < 50).length;
+                    const issues = badSignalCount + lowCcqCount;
+                    return (
+                      <span>
+                        Mejoras
+                        {issues > 0 && <Badge count={issues} style={{ marginLeft: 6 }} />}
+                      </span>
+                    );
+                  })(),
+                  children: (() => {
+                    const badSignal = enrichedStations.filter((s) => s.signal_dbm && s.signal_dbm < -75);
+                    const lowCcq = enrichedStations.filter((s) => s.ccq != null && s.ccq < 50 && !(s.signal_dbm && s.signal_dbm < -75));
+                    const connectedIps = new Set(stations.map((s) => s.ip).filter(Boolean));
+                    const offlineClients = dbClients.filter((c: any) => c.ip_address && !connectedIps.has(c.ip_address));
+
+                    const issueRow = (label: string, clients: any[], advice: string, color: string) => (
+                      clients.length > 0 ? (
+                        <Alert
+                          key={label}
+                          type={color as any}
+                          showIcon
+                          style={{ marginBottom: 12 }}
+                          message={<strong>{label} ({clients.length})</strong>}
+                          description={
+                            <div>
+                              <div style={{ marginBottom: 6, color: "#595959" }}>{advice}</div>
+                              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                                {clients.map((s: any, i: number) => (
+                                  <li key={i}>
+                                    {s._client || s.full_name ? (
+                                      <a onClick={() => s._client && navigate(`/clients/${s._client.id}`)}>
+                                        {s._client?.full_name || s.full_name}
+                                      </a>
+                                    ) : (
+                                      <span>{s.mac || s.ip_address || "Desconocido"}</span>
+                                    )}
+                                    {s.signal_dbm && <Tag color={signalColor(s.signal_dbm)} style={{ marginLeft: 8 }}>{s.signal_dbm} dBm</Tag>}
+                                    {s.ccq != null && <Tag color={ccqColor(s.ccq)} style={{ marginLeft: 4 }}>CCQ {s.ccq}%</Tag>}
+                                    {s.ip_address && <Text type="secondary" style={{ marginLeft: 4 }}>{s.ip_address}</Text>}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          }
+                        />
+                      ) : null
+                    );
+
+                    const hasIssues = badSignal.length + lowCcq.length + offlineClients.length > 0;
+                    return (
+                      <div>
+                        {!hasIssues && (
+                          <Alert type="success" showIcon message="Todo en orden" description="No se detectaron problemas de señal en los clientes conectados." />
+                        )}
+                        {issueRow("Señal débil (< -75 dBm)", badSignal, "Revisar orientación y alineación de antena. Verificar obstrucciones o distancia excesiva.", "error")}
+                        {issueRow("CCQ bajo (< 50%)", lowCcq, "Alta interferencia en el canal. Usar Site Survey para cambiar a una frecuencia menos congestionada.", "warning")}
+                        {issueRow("Clientes no conectados", offlineClients, "Clientes registrados en la base de datos que no están presentes en el AP. Pueden estar apagados o con problemas de enlace.", "info")}
+                      </div>
+                    );
+                  })(),
+                },
+              ]
+            : []),
           {
             key: "survey",
             label: <span><WifiOutlined /> Site Survey</span>,

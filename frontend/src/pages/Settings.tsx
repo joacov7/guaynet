@@ -4,9 +4,12 @@ import {
   Alert,
   Button,
   Card,
+  Col,
   Form,
   Input,
+  InputNumber,
   Radio,
+  Row,
   Space,
   Typography,
   message,
@@ -20,9 +23,11 @@ export default function Settings() {
   const qc = useQueryClient();
   const [form] = Form.useForm();
   const [waForm] = Form.useForm();
+  const [smtpForm] = Form.useForm();
   const [testPhone, setTestPhone] = useState("");
   const [testMsg, setTestMsg] = useState("");
   const [testing, setTesting] = useState(false);
+  const [testingEmail, setTestingEmail] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["system-config"],
@@ -39,8 +44,16 @@ export default function Settings() {
         whatsapp_reminder_template: data.whatsapp_reminder_template ??
           "Hola {nombre}, te recordamos que tenés una factura de ${monto} con vencimiento {vencimiento} pendiente de pago.",
       });
+      smtpForm.setFieldsValue({
+        smtp_host: data.smtp_host ?? "",
+        smtp_port: data.smtp_port ?? "587",
+        smtp_user: data.smtp_user ?? "",
+        smtp_password: data.smtp_password ?? "",
+        smtp_from: data.smtp_from ?? "",
+        alert_email: data.alert_email ?? "",
+      });
     }
-  }, [data, form, waForm]);
+  }, [data, form, waForm, smtpForm]);
 
   const mutation = useMutation({
     mutationFn: adminApi.updateConfig,
@@ -52,6 +65,18 @@ export default function Settings() {
   });
 
   const suspensionAction = Form.useWatch("suspension_action", form);
+
+  async function handleTestEmail() {
+    setTestingEmail(true);
+    try {
+      await adminApi.testEmail();
+      message.success("Email de prueba enviado correctamente");
+    } catch (e: any) {
+      message.error(e.response?.data?.detail ?? "Error al enviar email de prueba");
+    } finally {
+      setTestingEmail(false);
+    }
+  }
 
   async function handleTestWhatsapp() {
     if (!testPhone || !testMsg) return;
@@ -176,6 +201,65 @@ export default function Settings() {
             </Button>
           </div>
         </div>
+      </Card>
+
+      <Card title="Alertas por Email (SMTP)" loading={isLoading} style={{ marginTop: 16 }}>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 20 }}
+          message="Cuando un router cae o se recupera, se envía un email al destinatario configurado. Compatible con Gmail, Outlook, servidor propio, etc."
+        />
+        <Form
+          form={smtpForm}
+          layout="vertical"
+          onFinish={(values) => mutation.mutate(values)}
+        >
+          <Row gutter={12}>
+            <Col span={16}>
+              <Form.Item name="smtp_host" label="Servidor SMTP">
+                <Input placeholder="smtp.gmail.com" />
+              </Form.Item>
+            </Col>
+            <Col span={8}>
+              <Form.Item name="smtp_port" label="Puerto">
+                <Input placeholder="587" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="smtp_user" label="Usuario / Email">
+                <Input placeholder="tu@gmail.com" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="smtp_password" label="Contraseña / App Password">
+                <Input.Password placeholder="contraseña" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="smtp_from" label="Remitente (From)" extra="Dejá vacío para usar el usuario">
+                <Input placeholder="Guaynet WISP <alertas@empresa.com>" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="alert_email" label="Enviar alertas a">
+                <Input placeholder="admin@empresa.com" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Space>
+            <Button type="primary" htmlType="submit" loading={mutation.isPending}>
+              Guardar configuración SMTP
+            </Button>
+            <Button onClick={handleTestEmail} loading={testingEmail}>
+              Enviar email de prueba
+            </Button>
+          </Space>
+        </Form>
       </Card>
     </div>
   );

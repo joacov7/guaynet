@@ -70,6 +70,15 @@ def check_routers_health():
                 f"{emoji} Router *{router.name}* ({router.host}) "
                 f"cambió de {prev} a {new}."
             )
+            # Email alert
+            async with AsyncSessionLocal() as db:
+                from app.services.email import send_email_alert
+                estado = "en línea" if new == DeviceStatus.online else "fuera de línea"
+                await send_email_alert(
+                    f"Router {router.name} {estado}",
+                    f"Router: {router.name}\nHost: {router.host}\nEstado anterior: {prev}\nEstado actual: {new}\n",
+                    db,
+                )
 
         return {"checked": len(routers), "alerts": len(alerts)}
 

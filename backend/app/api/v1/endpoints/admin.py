@@ -115,8 +115,20 @@ async def update_user(
 # ── System config ─────────────────────────────────────────────────────────────
 
 class ConfigUpdate(BaseModel):
-    suspension_action: Optional[str] = None   # disable | throttle
-    suspension_speed: Optional[str] = None    # e.g. 64k, 128k, 1M
+    suspension_action: Optional[str] = None
+    suspension_speed: Optional[str] = None
+    # WhatsApp / Twilio
+    twilio_account_sid: Optional[str] = None
+    twilio_auth_token: Optional[str] = None
+    twilio_whatsapp_from: Optional[str] = None
+    whatsapp_reminder_template: Optional[str] = None
+    # SMTP email alerts
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[str] = None
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_from: Optional[str] = None
+    alert_email: Optional[str] = None
 
 
 @router.get("/config")
@@ -146,6 +158,18 @@ async def update_config(
     await db.commit()
     rows = (await db.execute(select(SystemConfig))).scalars().all()
     return {r.key: r.value for r in rows}
+
+
+@router.post("/test-email")
+async def test_email(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    from app.services.email import test_email_config
+    result = await test_email_config(db)
+    if not result["ok"]:
+        raise HTTPException(400, result["message"])
+    return result
 
 
 # ── Audit log ─────────────────────────────────────────────────────────────────

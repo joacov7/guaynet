@@ -336,6 +336,7 @@ export const adminApi = {
   mapData: () => http.get("/admin/map-data").then((r) => r.data),
   getConfig: () => http.get<Record<string, string>>("/admin/config").then((r) => r.data),
   updateConfig: (data: Record<string, string>) => http.put<Record<string, string>>("/admin/config", data).then((r) => r.data),
+  testEmail: () => http.post<{ ok: boolean; message: string }>("/admin/test-email").then((r) => r.data),
 };
 
 export interface MyPermissions {
