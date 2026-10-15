@@ -149,34 +149,65 @@ class UbiquitiAirOSService:
         except httpx.RequestError as e:
             raise UbiquitiError(f"Error de red: {e}")
 
+    def _status_cgi(self) -> Dict:
+        """Fetch /status.cgi (AirOS 8.x CGI firmware). Cached per session."""
+        if not hasattr(self, "_status_cgi_cache"):
+            self._status_cgi_cache = self._get("/status.cgi")
+        return self._status_cgi_cache
+
     # ── Device info ───────────────────────────────────────────────────────────
 
     def get_device_info(self) -> Dict:
-        data = self._get("/api/v1.0/device/info")
-        mem = data.get("memory", {})
-        total = mem.get("total", 1) or 1
-        used = mem.get("used", 0)
-        return {
-            "model": data.get("model") or data.get("board", ""),
-            "firmware": data.get("firmware") or data.get("version", ""),
-            "hostname": data.get("hostname", ""),
-            "uptime_seconds": data.get("uptime", 0),
-            "cpu_load": data.get("cpu_load") or data.get("cpu", 0),
-            "ram_used_pct": round(used / total * 100, 1) if total else 0,
-        }
+        try:
+            data = self._get("/api/v1.0/device/info")
+            mem = data.get("memory", {})
+            total = mem.get("total", 1) or 1
+            used = mem.get("used", 0)
+            return {
+                "model": data.get("model") or data.get("board", ""),
+                "firmware": data.get("firmware") or data.get("version", ""),
+                "hostname": data.get("hostname", ""),
+                "uptime_seconds": data.get("uptime", 0),
+                "cpu_load": data.get("cpu_load") or data.get("cpu", 0),
+                "ram_used_pct": round(used / total * 100, 1) if total else 0,
+            }
+        except UbiquitiError:
+            s = self._status_cgi()
+            h = s.get("host", {})
+            total = h.get("totalram", 1) or 1
+            free = h.get("freeram", 0)
+            return {
+                "model": h.get("devmodel", ""),
+                "firmware": h.get("fwversion", ""),
+                "hostname": h.get("hostname", ""),
+                "uptime_seconds": h.get("uptime", 0),
+                "cpu_load": h.get("cpuload", 0),
+                "ram_used_pct": round((total - free) / total * 100, 1),
+            }
 
     # ── Wireless config ───────────────────────────────────────────────────────
 
     def get_wireless(self) -> Dict:
-        data = self._get("/api/v1.0/wireless")
-        return {
-            "mode": data.get("mode", ""),
-            "ssid": data.get("ssid", ""),
-            "frequency_mhz": data.get("frequency") or data.get("freq"),
-            "channel_width_mhz": data.get("channel_width") or data.get("chwidth"),
-            "tx_power_dbm": data.get("tx_power") or data.get("txpower"),
-            "security": data.get("security", ""),
-        }
+        try:
+            data = self._get("/api/v1.0/wireless")
+            return {
+                "mode": data.get("mode", ""),
+                "ssid": data.get("ssid", ""),
+                "frequency_mhz": data.get("frequency") or data.get("freq"),
+                "channel_width_mhz": data.get("channel_width") or data.get("chwidth"),
+                "tx_power_dbm": data.get("tx_power") or data.get("txpower"),
+                "security": data.get("security", ""),
+            }
+        except UbiquitiError:
+            w = self._status_cgi().get("wireless", {})
+            return {
+                "mode": w.get("mode", ""),
+                "ssid": w.get("essid", ""),
+                "frequency_mhz": w.get("frequency"),
+                "channel_width_mhz": w.get("chanbw"),
+                "tx_power_dbm": w.get("txpower"),
+                "security": w.get("security", ""),
+            }
 
     def set_wireless(
         self,
@@ -196,38 +227,77 @@ class UbiquitiAirOSService:
     # ── Link quality (station mode) ───────────────────────────────────────────
 
     def get_link(self) -> Dict:
-        data = self._get("/api/v1.0/link")
-        return {
-            "remote_name": data.get("remote_name") or data.get("remote", ""),
-            "remote_mac": data.get("remote_mac", ""),
-            "signal_dbm": data.get("signal") or data.get("rssi"),
-            "noise_dbm": data.get("noise") or data.get("noisefloor"),
-            "snr_db": data.get("snr"),
-            "ccq": data.get("ccq"),
-            "rx_rate_mbps": data.get("rx_rate") or data.get("rxrate"),
-            "tx_rate_mbps": data.get("tx_rate") or data.get("txrate"),
-            "distance_m": data.get("distance"),
-        }
+        try:
+            data = self._get("/api/v1.0/link")
+            return {
+                "remote_name": data.get("remote_name") or data.get("remote", ""),
+                "remote_mac": data.get("remote_mac", ""),
+                "signal_dbm": data.get("signal") or data.get("rssi"),
+                "noise_dbm": data.get("noise") or data.get("noisefloor"),
+                "snr_db": data.get("snr"),
+                "ccq": data.get("ccq"),
+                "rx_rate_mbps": data.get("rx_rate") or data.get("rxrate"),
+                "tx_rate_mbps": data.get("tx_rate") or data.get("txrate"),
+                "distance_m": data.get("distance"),
+            }
+        except UbiquitiError:
+            s = self._status_cgi()
+            w = s.get("wireless", {})
+            sta_list = w.get("sta", [])
+            sta = sta_list[0] if sta_list else {}
+            remote = sta.get("remote", {})
+            signal = sta.get("signal")
+            noise = sta.get("noisefloor")
+            polling = w.get("polling", {})
+            return {
+                "remote_name": remote.get("hostname", w.get("essid", "")),
+                "remote_mac": sta.get("mac", ""),
+                "signal_dbm": signal,
+                "noise_dbm": noise,
+                "snr_db": (signal - noise) if signal and noise else None,
+                "ccq": sta.get("airmax", {}).get("rx", {}).get("cinr"),
+                "rx_rate_mbps": round(polling.get("dcap", 0) / 1000, 1) or None,
+                "tx_rate_mbps": round(polling.get("ucap", 0) / 1000, 1) or None,
+                "distance_m": sta.get("distance"),
+            }
 
     # ── Connected stations (AP mode) ──────────────────────────────────────────
 
     def get_stations(self) -> List[Dict]:
-        data = self._get("/api/v1.0/stations")
-        stations = data.get("stations", []) if isinstance(data, dict) else (data or [])
-        result = []
-        for s in stations:
-            result.append({
-                "mac": s.get("mac", ""),
-                "ip": s.get("ip", ""),
-                "name": s.get("name") or s.get("hostname", ""),
-                "signal_dbm": s.get("signal") or s.get("rssi"),
-                "noise_dbm": s.get("noise"),
-                "ccq": s.get("ccq"),
-                "rx_rate_mbps": s.get("rx_rate") or s.get("rxrate"),
-                "tx_rate_mbps": s.get("tx_rate") or s.get("txrate"),
-                "uptime_seconds": s.get("uptime"),
-            })
-        return result
+        try:
+            data = self._get("/api/v1.0/stations")
+            stations = data.get("stations", []) if isinstance(data, dict) else (data or [])
+            result = []
+            for s in stations:
+                result.append({
+                    "mac": s.get("mac", ""),
+                    "ip": s.get("ip", ""),
+                    "name": s.get("name") or s.get("hostname", ""),
+                    "signal_dbm": s.get("signal") or s.get("rssi"),
+                    "noise_dbm": s.get("noise"),
+                    "ccq": s.get("ccq"),
+                    "rx_rate_mbps": s.get("rx_rate") or s.get("rxrate"),
+                    "tx_rate_mbps": s.get("tx_rate") or s.get("txrate"),
+                    "uptime_seconds": s.get("uptime"),
+                })
+            return result
+        except UbiquitiError:
+            w = self._status_cgi().get("wireless", {})
+            result = []
+            for sta in w.get("sta", []):
+                remote = sta.get("remote", {})
+                result.append({
+                    "mac": sta.get("mac", ""),
+                    "ip": sta.get("lastip", ""),
+                    "name": remote.get("hostname", ""),
+                    "signal_dbm": sta.get("signal"),
+                    "noise_dbm": sta.get("noisefloor"),
+                    "ccq": sta.get("airmax", {}).get("rx", {}).get("cinr"),
+                    "rx_rate_mbps": None,
+                    "tx_rate_mbps": None,
+                    "uptime_seconds": sta.get("uptime"),
+                })
+            return result
 
     # ── Site survey ───────────────────────────────────────────────────────────
 
