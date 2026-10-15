@@ -48,10 +48,10 @@ class UbiquitiAirOSService:
                 follow_redirects=True,
             )
             try:
-                # AirOS 5.x /login.cgi requires a prior GET to obtain AIROS_SESSIONID cookie
+                # AirOS 5.x /login.cgi requires a prior GET to /login.cgi to obtain AIROS_<MAC> cookie
                 if path == "/login.cgi":
                     try:
-                        client.get("/")
+                        client.get("/login.cgi")
                     except Exception:
                         pass
 
