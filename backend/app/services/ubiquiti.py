@@ -14,12 +14,12 @@ class UbiquitiError(Exception):
 
 
 # Auth strategies tried in order for each scheme (https first, then http)
+# (path, send_as_json, extra_fields)
 _AUTH_ATTEMPTS = [
-    # (path, send_as_json)
-    ("/api/auth",          True),   # AirOS 8.x JSON
-    ("/api/auth",          False),  # AirOS 8.x form-encoded
-    ("/api/1.0/login",     False),  # AirOS 6.x form-encoded
-    ("/login.cgi",         False),  # AirOS 5.x / legacy CGI
+    ("/api/auth",      True,  {}),           # AirOS 8.x JSON
+    ("/api/auth",      False, {}),           # AirOS 8.x form-encoded
+    ("/api/1.0/login", False, {}),           # AirOS 6.x
+    ("/login.cgi",     False, {"uri": "/"}), # AirOS 5.x CGI (needs uri param)
 ]
 
 
@@ -33,11 +33,14 @@ class UbiquitiAirOSService:
     def _try_auth(self, base_url: str) -> Optional[httpx.Client]:
         """Try every auth strategy against base_url.
         Returns authenticated client on success.
-        Returns None if the scheme can't connect (caller should try http fallback).
-        Raises UbiquitiError only for definitive failures (bad credentials, timeout).
+        Returns None if the scheme can't connect (caller tries http fallback).
+        Raises UbiquitiError only on timeout or if ALL methods say credentials are wrong.
         """
-        creds_form = {"username": self.username, "password": self.password}
-        for path, use_json in _AUTH_ATTEMPTS:
+        creds = {"username": self.username, "password": self.password}
+        got_credentials_error = False
+
+        for path, use_json, extra in _AUTH_ATTEMPTS:
+            payload = {**creds, **extra}
             client = httpx.Client(
                 base_url=base_url,
                 verify=False,
@@ -45,22 +48,25 @@ class UbiquitiAirOSService:
                 follow_redirects=True,
             )
             try:
-                res = client.post(path, json=creds_form if use_json else None,
-                                  data=None if use_json else creds_form)
+                if use_json:
+                    res = client.post(path, json=payload)
+                else:
+                    res = client.post(path, data=payload)
             except httpx.ConnectError:
-                # This scheme can't reach the device — let connect() try http
                 client.close()
-                return None
+                return None  # scheme unreachable — caller tries http
             except httpx.TimeoutException:
                 client.close()
                 raise UbiquitiError(f"Timeout al conectar a {self.host}")
-            except httpx.RequestError as e:
+            except httpx.RequestError:
                 client.close()
                 continue
 
             if res.status_code in (401, 403):
+                # This method says bad credentials — try the next one before giving up
                 client.close()
-                raise UbiquitiError(f"Credenciales incorrectas en {self.host}")
+                got_credentials_error = True
+                continue
 
             if res.status_code in (200, 201, 302):
                 try:
@@ -69,12 +75,14 @@ class UbiquitiAirOSService:
                     if token:
                         client.headers.update({"X-Auth-Token": token})
                 except Exception:
-                    pass  # cookie-based auth, no token needed
+                    pass  # cookie-based session, no token needed
                 return client
 
-            # 415 or other status — try next auth strategy
+            # 404, 415, other — try next strategy
             client.close()
 
+        if got_credentials_error:
+            raise UbiquitiError(f"Credenciales incorrectas en {self.host}")
         return None
 
     def connect(self) -> "UbiquitiAirOSService":
