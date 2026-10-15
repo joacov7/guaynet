@@ -112,21 +112,6 @@ class UbiquitiAirOSService:
     def __exit__(self, *_):
         self.disconnect()
 
-    def disconnect(self):
-        if self._client:
-            try:
-                self._client.post("/api/auth/logout")
-            except Exception:
-                pass
-            self._client.close()
-            self._client = None
-
-    def __enter__(self):
-        return self.connect()
-
-    def __exit__(self, *_):
-        self.disconnect()
-
     def _get(self, path: str) -> Any:
         if not self._client:
             raise UbiquitiError("No hay conexión activa")
