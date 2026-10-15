@@ -219,14 +219,14 @@ class MikrotikService:
                 "src_address": r.get("src-address", "") or None,
                 "dst_address": r.get("dst-address", "") or None,
                 "protocol": r.get("protocol", "") or None,
-                "src_port": r.get("src-port", "") or None,
-                "dst_port": r.get("dst-port", "") or None,
+                "src_port": str(v) if (v := r.get("src-port")) else None,
+                "dst_port": str(v) if (v := r.get("dst-port")) else None,
                 "in_interface": r.get("in-interface", "") or None,
                 "out_interface": r.get("out-interface", "") or None,
                 "comment": r.get("comment", "") or None,
                 "disabled": r.get("disabled", "false") in ("true", "yes"),
-                "bytes": r.get("bytes", "") or None,
-                "packets": r.get("packets", "") or None,
+                "bytes": str(v) if (v := r.get("bytes")) is not None else None,
+                "packets": str(v) if (v := r.get("packets")) is not None else None,
             })
         return rules
 
@@ -254,7 +254,7 @@ class MikrotikService:
                 "src_address": r.get("src-address", "") or None,
                 "dst_address": r.get("dst-address", "") or None,
                 "protocol": r.get("protocol", "") or None,
-                "dst_port": r.get("dst-port", "") or None,
+                "dst_port": str(v) if (v := r.get("dst-port")) else None,
                 "comment": r.get("comment", "") or None,
                 "disabled": r.get("disabled", "false") in ("true", "yes"),
                 "passthrough": r.get("passthrough", "true") in ("true", "yes"),
@@ -273,8 +273,8 @@ class MikrotikService:
                 "id": r.get(".id", ""),
                 "name": r.get("name", ""),
                 "kind": r.get("kind", ""),
-                "pcq_rate": r.get("pcq-rate", "") or None,
-                "pcq_limit": r.get("pcq-limit", "") or None,
+                "pcq_rate": str(v) if (v := r.get("pcq-rate")) else None,
+                "pcq_limit": str(v) if (v := r.get("pcq-limit")) is not None else None,
                 "pcq_classifier": r.get("pcq-classifier", "") or None,
             }
             for r in raw
