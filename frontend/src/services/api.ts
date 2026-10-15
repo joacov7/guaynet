@@ -120,7 +120,13 @@ export const routersApi = {
     http.get<MikrotikQueue[]>(`/routers/${id}/queues`).then((r) => r.data),
   syncClients: (id: number) =>
     http
-      .post<{ synced: number; errors: unknown[] }>(`/routers/${id}/sync-clients`)
+      .post<{
+        synced: number;
+        skipped: number;
+        clients_found: number;
+        errors: { client_id: number; name: string; error: string }[];
+        warning?: string;
+      }>(`/routers/${id}/sync-clients`)
       .then((r) => r.data),
   bandwidth: (id: number) =>
     http.get<BandwidthEntry[]>(`/routers/${id}/bandwidth`).then((r) => r.data),

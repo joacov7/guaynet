@@ -1,6 +1,9 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -191,21 +194,34 @@ async def sync_clients_to_router(
     )
     clients = result.scalars().all()
 
+    if not clients:
+        logger.warning("sync router=%d: no clients assigned to this router", router_id)
+        return {"synced": 0, "skipped": 0, "errors": [], "clients_found": 0,
+                "warning": "No hay clientes asignados a este router"}
+
     # Pre-load plans
     plan_ids = {c.plan_id for c in clients}
     from app.models.plan import Plan
     plan_result = await db.execute(select(Plan).where(Plan.id.in_(plan_ids)))
     plans = {p.id: p for p in plan_result.scalars().all()}
 
+    logger.info("sync router=%d: found %d clients, %d plans", router_id, len(clients), len(plans))
+
     def _sync():
         svc = build_service_from_router(rt)
         with svc:
             existing = {q["name"]: q for q in svc.get_simple_queues()}
             synced = 0
+            skipped = 0
             errors = []
             for client in clients:
                 plan = plans.get(client.plan_id)
                 if not plan:
+                    logger.warning(
+                        "sync router=%d client=%d: plan_id=%d not found, skipping",
+                        router_id, client.id, client.plan_id,
+                    )
+                    skipped += 1
                     continue
                 qname = client.mikrotik_queue_name
                 disabled = client.status == "suspended"
@@ -225,17 +241,24 @@ async def sync_clients_to_router(
                             k: v for k, v in params.items()
                             if k not in ("name", "target") and v is not None
                         })
+                        action = "updated"
                     else:
                         svc.add_simple_queue(**params)
+                        action = "created"
+                    logger.info("sync router=%d client=%d queue=%s %s", router_id, client.id, qname, action)
                     synced += 1
                 except Exception as e:
-                    errors.append({"client_id": client.id, "error": str(e)})
-            return {"synced": synced, "errors": errors}
+                    logger.error("sync router=%d client=%d queue=%s error: %s", router_id, client.id, qname, e)
+                    errors.append({"client_id": client.id, "name": client.full_name, "error": str(e)})
+            return {"synced": synced, "skipped": skipped, "errors": errors,
+                    "clients_found": len(clients)}
 
     try:
         result = await asyncio.to_thread(_sync)
+        logger.info("sync router=%d result: %s", router_id, result)
         return result
     except MikrotikError as e:
+        logger.error("sync router=%d connection error: %s", router_id, e)
         raise HTTPException(status_code=503, detail=str(e))
 
 
