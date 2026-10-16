@@ -48,7 +48,14 @@ export default function Plans() {
 
   const syncAllMutation = useMutation({
     mutationFn: plansApi.syncAll,
-    onSuccess: (res) => message.success(`${res.synced} queues sincronizados (plan: ${res.plan})`),
+    onSuccess: (res) => {
+      if (res.errors && res.errors.length > 0) {
+        const first = (res.errors[0] as any)?.error ?? JSON.stringify(res.errors[0]);
+        message.warning(`${res.synced} sincronizados, ${res.errors.length} error(es): ${first}`, 12);
+      } else {
+        message.success(`${res.synced} queues sincronizados (plan: ${res.plan})`);
+      }
+    },
     onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al sincronizar"),
   });
 
