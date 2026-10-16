@@ -334,11 +334,11 @@ async def sync_client_mikrotik(
 
     try:
         action = await _push_to_mikrotik(client, rt, db)
-        logger.info("sync-mikrotik client=%s: %s", client_id, action)
+        print(f"[SYNC-MT] client={client_id} OK: {action}", flush=True)
         return {"ok": True, "message": action or "Queue sincronizada correctamente"}
     except (MikrotikError, Exception) as e:
         detail = str(e) or type(e).__name__
-        logger.error("sync-mikrotik client=%s ERROR: %s", client_id, detail)
+        print(f"[SYNC-MT] client={client_id} ERROR: {detail}", flush=True)
         raise HTTPException(status_code=503, detail=detail)
 
 
