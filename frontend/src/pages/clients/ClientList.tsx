@@ -48,13 +48,21 @@ export default function ClientList() {
 
   const suspendMutation = useMutation({
     mutationFn: (id: number) => clientsApi.suspend(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["clients"] }); message.success("Cliente suspendido"); },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      if (data.mikrotik_error) message.warning(`Suspendido. Error MikroTik: ${data.mikrotik_error}`, 8);
+      else message.success("Cliente suspendido");
+    },
     onError: () => message.error("Error al suspender"),
   });
 
   const activateMutation = useMutation({
     mutationFn: (id: number) => clientsApi.activate(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["clients"] }); message.success("Cliente activado"); },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      if (data.mikrotik_error) message.warning(`Activado. Error MikroTik: ${data.mikrotik_error}`, 8);
+      else message.success("Cliente activado");
+    },
     onError: () => message.error("Error al activar"),
   });
 
@@ -73,7 +81,7 @@ export default function ClientList() {
   const syncMutation = useMutation({
     mutationFn: (id: number) => clientsApi.syncMikrotik(id),
     onSuccess: () => message.success("Queue sincronizada"),
-    onError: () => message.warning("No se pudo sincronizar con Mikrotik"),
+    onError: (err: any) => message.error(err.response?.data?.detail ?? "No se pudo sincronizar con Mikrotik", 8),
   });
 
   const columns = [

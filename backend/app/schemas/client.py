@@ -76,6 +76,7 @@ class ClientResponse(ClientBase):
     plan: Optional[PlanBrief] = None
     router: Optional[RouterBrief] = None
     created_at: datetime
+    mikrotik_error: Optional[str] = None
 
 
 class ClientListResponse(BaseModel):

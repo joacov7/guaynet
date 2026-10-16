@@ -108,6 +108,7 @@ export interface Client {
   plan?: Pick<Plan, "id" | "name" | "download_mbps" | "upload_mbps" | "price">;
   router?: Pick<Router, "id" | "name" | "location">;
   created_at: string;
+  mikrotik_error?: string;
 }
 
 export interface InvoiceItem {

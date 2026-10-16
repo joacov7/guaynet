@@ -77,10 +77,14 @@ export default function ClientForm() {
 
   const updateMutation = useMutation({
     mutationFn: (data: Partial<Client>) => clientsApi.update(Number(id), data),
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["clients"] });
       qc.invalidateQueries({ queryKey: ["client", id] });
-      message.success("Cliente actualizado");
+      if (data.mikrotik_error) {
+        message.warning(`Guardado. Error MikroTik: ${data.mikrotik_error}`, 8);
+      } else {
+        message.success("Cliente actualizado");
+      }
       navigate("/clients");
     },
     onError: (err: any) => {

@@ -194,15 +194,18 @@ async def update_client(
     db.add(client)
     await db.commit()
 
+    mt_error = None
     rt = await db.get(MikrotikRouter, client.router_id)
     if rt:
         try:
             await _push_to_mikrotik(client, rt, db)
-        except MikrotikError:
-            pass
+        except MikrotikError as e:
+            mt_error = str(e)
 
     await db.refresh(client)
-    return client
+    resp = ClientResponse.model_validate(client)
+    resp.mikrotik_error = mt_error
+    return resp
 
 
 @router.delete("/{client_id}", status_code=204)
@@ -251,18 +254,21 @@ async def suspend_client(
     db.add(client)
     await db.commit()
 
+    mt_error = None
     rt = await db.get(MikrotikRouter, client.router_id)
     if rt:
         try:
             await _push_to_mikrotik(client, rt, db)
-        except MikrotikError:
-            pass
+        except MikrotikError as e:
+            mt_error = str(e)
 
     from app.services.telegram import send_telegram
     await send_telegram(f"⛔ *Servicio suspendido*\n{client.full_name} ({client.ip_address})")
 
     await db.refresh(client)
-    return client
+    resp = ClientResponse.model_validate(client)
+    resp.mikrotik_error = mt_error
+    return resp
 
 
 @router.post("/{client_id}/activate", response_model=ClientResponse)
@@ -283,18 +289,21 @@ async def activate_client(
     db.add(client)
     await db.commit()
 
+    mt_error = None
     rt = await db.get(MikrotikRouter, client.router_id)
     if rt:
         try:
             await _push_to_mikrotik(client, rt, db)
-        except MikrotikError:
-            pass
+        except MikrotikError as e:
+            mt_error = str(e)
 
     from app.services.telegram import send_telegram
     await send_telegram(f"✅ *Servicio activado*\n{client.full_name} ({client.ip_address})")
 
     await db.refresh(client)
-    return client
+    resp = ClientResponse.model_validate(client)
+    resp.mikrotik_error = mt_error
+    return resp
 
 
 @router.post("/{client_id}/sync-mikrotik", status_code=200)
