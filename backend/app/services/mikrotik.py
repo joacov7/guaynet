@@ -26,6 +26,20 @@ class MikrotikService:
     # ── Connection ────────────────────────────────────────────────────────────
 
     def connect(self) -> "MikrotikService":
+        # Pre-check: fast TCP reachability test before librouteros handshake
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.settimeout(self.timeout)
+        try:
+            result = probe.connect_ex((self.host, self.port))
+            if result != 0:
+                raise MikrotikError(f"Puerto {self.port} inaccesible en {self.host} (errno {result})")
+        except socket.timeout:
+            raise MikrotikError(f"Timeout al conectar con {self.host}:{self.port} ({self.timeout}s)")
+        except OSError as e:
+            raise MikrotikError(f"No se pudo conectar a {self.host}:{self.port} — {e}")
+        finally:
+            probe.close()
+
         try:
             self._api = librouteros.connect(
                 host=self.host,
@@ -443,5 +457,5 @@ def build_service_from_router(router) -> MikrotikService:
         port=router.port,
         username=router.username,
         password=password,
-        timeout=30,
+        timeout=10,
     )
