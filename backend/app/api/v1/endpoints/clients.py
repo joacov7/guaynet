@@ -28,11 +28,11 @@ async def _get_suspension_config(db: AsyncSession) -> tuple[str, str]:
     return cfg.get("suspension_action", "disable"), cfg.get("suspension_speed", "64k")
 
 
-async def _push_to_mikrotik(client: Client, router_obj: MikrotikRouter, db):
-    """Sync a single client's queue to its Mikrotik router."""
+async def _push_to_mikrotik(client: Client, router_obj: MikrotikRouter, db) -> str:
+    """Sync a single client's queue to its Mikrotik router. Returns a description of what was done."""
     plan = await db.get(Plan, client.plan_id)
     if not plan:
-        return
+        return "sin plan"
 
     is_suspended = client.status == ClientStatus.suspended
     suspension_action, suspension_speed = await _get_suspension_config(db)
@@ -44,29 +44,31 @@ async def _push_to_mikrotik(client: Client, router_obj: MikrotikRouter, db):
         effective_max_limit = plan.mikrotik_max_limit
         effective_disabled = is_suspended
 
-    def _sync():
+    def _sync() -> str:
         svc = build_service_from_router(router_obj)
         with svc:
             existing = svc.get_queue_by_name(client.mikrotik_queue_name)
-            params = dict(
-                name=client.mikrotik_queue_name,
-                target=client.mikrotik_target,
-                max_limit=effective_max_limit,
-                burst_limit=plan.mikrotik_burst_limit if (not is_suspended and plan.mikrotik_burst_threshold) else None,
-                burst_threshold=plan.mikrotik_burst_threshold if (not is_suspended and plan.mikrotik_burst_threshold) else None,
-                burst_time=plan.mikrotik_burst_time if (not is_suspended and plan.mikrotik_burst_limit and plan.mikrotik_burst_threshold) else None,
-                comment=f"guaynet:{client.id}|{client.full_name}",
-                disabled=effective_disabled,
-            )
+            update_params = {
+                "max_limit": effective_max_limit,
+                "disabled": effective_disabled,
+                "comment": f"guaynet:{client.id}|{client.full_name}",
+            }
+            if not is_suspended and plan.mikrotik_burst_limit and plan.mikrotik_burst_threshold:
+                update_params["burst_limit"] = plan.mikrotik_burst_limit
+                update_params["burst_threshold"] = plan.mikrotik_burst_threshold
+                update_params["burst_time"] = plan.mikrotik_burst_time
             if existing:
-                svc.update_simple_queue(existing["id"], **{
-                    k: v for k, v in params.items()
-                    if k not in ("name", "target") and v is not None
-                })
+                svc.update_simple_queue(existing["id"], **update_params)
+                return f"updated {client.mikrotik_queue_name} → {effective_max_limit}"
             else:
-                svc.add_simple_queue(**params)
+                svc.add_simple_queue(
+                    name=client.mikrotik_queue_name,
+                    target=client.mikrotik_target,
+                    **update_params,
+                )
+                return f"created {client.mikrotik_queue_name} → {effective_max_limit}"
 
-    await asyncio.to_thread(_sync)
+    return await asyncio.to_thread(_sync)
 
 
 @router.get("/", response_model=List[ClientListResponse])
@@ -198,9 +200,13 @@ async def update_client(
     rt = await db.get(MikrotikRouter, client.router_id)
     if rt:
         try:
-            await _push_to_mikrotik(client, rt, db)
+            result = await _push_to_mikrotik(client, rt, db)
         except MikrotikError as e:
             mt_error = str(e)
+        except Exception as e:
+            mt_error = f"Error inesperado: {e}"
+    else:
+        mt_error = "Router no encontrado"
 
     await db.refresh(client)
     resp = ClientResponse.model_validate(client)
@@ -259,7 +265,7 @@ async def suspend_client(
     if rt:
         try:
             await _push_to_mikrotik(client, rt, db)
-        except MikrotikError as e:
+        except (MikrotikError, Exception) as e:
             mt_error = str(e)
 
     from app.services.telegram import send_telegram
@@ -294,7 +300,7 @@ async def activate_client(
     if rt:
         try:
             await _push_to_mikrotik(client, rt, db)
-        except MikrotikError as e:
+        except (MikrotikError, Exception) as e:
             mt_error = str(e)
 
     from app.services.telegram import send_telegram
