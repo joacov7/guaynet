@@ -64,4 +64,6 @@ class PCQQueue(BaseModel):
 class TemplateResult(BaseModel):
     template: str
     rules_added: int
+    rules_enabled: int = 0
+    rules_skipped: int = 0
     message: str

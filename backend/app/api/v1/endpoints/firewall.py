@@ -253,10 +253,14 @@ async def apply_template(
             return svc.apply_template(template)
 
     try:
-        count = await asyncio.to_thread(_apply)
+        counts = await asyncio.to_thread(_apply)
     except MikrotikError as e:
         raise HTTPException(502, str(e))
-    return TemplateResult(template=template, rules_added=count, message=f"{count} reglas aplicadas")
+    added = counts.get("added", 0)
+    enabled = counts.get("enabled", 0)
+    skipped = counts.get("skipped", 0)
+    msg = f"{added} agregadas, {enabled} reactivadas, {skipped} ya existían"
+    return TemplateResult(template=template, rules_added=added, rules_enabled=enabled, rules_skipped=skipped, message=msg)
 
 
 # ── PCQ ───────────────────────────────────────────────────────────────────────
