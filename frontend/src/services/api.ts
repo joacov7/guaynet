@@ -19,6 +19,7 @@ import type {
   Plan,
   Router,
   RouterStats,
+  RouterUtilization,
   TemplateResult,
   UbiquitiDevice,
   UbiquitiDeviceInfo,
@@ -127,6 +128,10 @@ export const routersApi = {
     http.get<BandwidthEntry[]>(`/routers/${id}/bandwidth`).then((r) => r.data),
   onlineClients: (id: number) =>
     http.get<OnlineClient[]>(`/routers/${id}/online-clients`).then((r) => r.data),
+  setupQos: (id: number) =>
+    http.post<{ pcq_added: number; mangle_rules_added: number }>(`/routers/${id}/setup-qos`).then((r) => r.data),
+  utilization: (id: number) =>
+    http.get<RouterUtilization>(`/routers/${id}/utilization`).then((r) => r.data),
 };
 
 // ── Clients ───────────────────────────────────────────────────────────────────

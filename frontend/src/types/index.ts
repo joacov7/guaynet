@@ -28,6 +28,22 @@ export interface Plan {
   client_count: number;
 }
 
+export interface RouterUtilization {
+  interfaces: {
+    name: string;
+    type: string;
+    running: boolean;
+    rx_byte: number;
+    tx_byte: number;
+    rx_rate: number;
+    tx_rate: number;
+  }[];
+  uplink_download_mbps?: number;
+  uplink_upload_mbps?: number;
+  queue_total_download_bytes: number;
+  queue_total_upload_bytes: number;
+}
+
 export interface Router {
   id: number;
   name: string;
@@ -38,6 +54,8 @@ export interface Router {
   notes?: string;
   latitude?: number;
   longitude?: number;
+  uplink_download_mbps?: number;
+  uplink_upload_mbps?: number;
   status: DeviceStatus;
   last_seen?: string;
   client_count: number;

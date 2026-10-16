@@ -15,6 +15,8 @@ class RouterBase(BaseModel):
     notes: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    uplink_download_mbps: Optional[int] = None
+    uplink_upload_mbps: Optional[int] = None
 
 
 class RouterCreate(RouterBase):
@@ -31,6 +33,8 @@ class RouterUpdate(BaseModel):
     notes: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    uplink_download_mbps: Optional[int] = None
+    uplink_upload_mbps: Optional[int] = None
 
 
 class RouterResponse(RouterBase):

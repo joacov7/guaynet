@@ -168,20 +168,39 @@ export default function Plans() {
             </Form.Item>
           </Space>
 
-          <Title level={5} style={{ marginBottom: 8 }}>Burst (opcional)</Title>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <Title level={5} style={{ margin: 0 }}>Burst (opcional)</Title>
+            <Button
+              size="small"
+              type="link"
+              onClick={() => {
+                const dl = form.getFieldValue("download_mbps");
+                const ul = form.getFieldValue("upload_mbps");
+                if (!dl || !ul) { message.warning("Ingresá velocidades primero"); return; }
+                form.setFieldsValue({
+                  burst_download_mbps: dl * 2,
+                  burst_upload_mbps: ul * 2,
+                  burst_threshold_mbps: Math.round(dl / 2),
+                  burst_time_seconds: 15,
+                });
+              }}
+            >
+              Sugerir valores
+            </Button>
+          </div>
           <Space style={{ width: "100%" }} size={16}>
-            <Form.Item name="burst_download_mbps" label="Burst descarga (Mbps)">
+            <Form.Item name="burst_download_mbps" label="Burst descarga (Mbps)" extra="Pico al iniciar">
               <InputNumber min={1} style={{ width: "100%" }} />
             </Form.Item>
-            <Form.Item name="burst_upload_mbps" label="Burst subida (Mbps)">
+            <Form.Item name="burst_upload_mbps" label="Burst subida (Mbps)" extra="Pico al iniciar">
               <InputNumber min={1} style={{ width: "100%" }} />
             </Form.Item>
           </Space>
           <Space style={{ width: "100%" }} size={16}>
-            <Form.Item name="burst_threshold_mbps" label="Umbral burst (Mbps)">
+            <Form.Item name="burst_threshold_mbps" label="Umbral burst (Mbps)" extra="Activa si uso < umbral">
               <InputNumber min={1} style={{ width: "100%" }} />
             </Form.Item>
-            <Form.Item name="burst_time_seconds" label="Tiempo burst (seg)">
+            <Form.Item name="burst_time_seconds" label="Ventana burst (seg)" extra="Intervalo de promediado">
               <InputNumber min={1} max={120} style={{ width: "100%" }} />
             </Form.Item>
           </Space>

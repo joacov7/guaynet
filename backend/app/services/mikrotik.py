@@ -98,8 +98,23 @@ class MikrotikService:
                 "comment": q.get("comment", ""),
                 "bytes": q.get("bytes", ""),
                 "packets": q.get("packets", ""),
+                "parent": q.get("parent", "none"),
             })
         return queues
+
+    def ensure_parent_queue(self, name: str, max_limit: str) -> None:
+        """Create or update the uplink parent queue."""
+        existing = self.get_queue_by_name(name)
+        if existing:
+            if existing.get("max_limit") != max_limit:
+                self.update_simple_queue(existing["id"], max_limit=max_limit)
+        else:
+            self._call(
+                "/queue/simple/add",
+                name=name,
+                target="0.0.0.0/0",
+                **{"max-limit": max_limit},
+            )
 
     def get_queue_by_name(self, name: str) -> Optional[Dict]:
         queues = self.get_simple_queues()
@@ -134,6 +149,7 @@ class MikrotikService:
         burst_time: Optional[str] = None,
         comment: str = "",
         disabled: bool = False,
+        parent: Optional[str] = None,
     ) -> None:
         params: Dict[str, str] = {
             "name": name,
@@ -149,6 +165,8 @@ class MikrotikService:
             params["burst-time"] = burst_time
         if comment:
             params["comment"] = comment
+        if parent:
+            params["parent"] = parent
         self._call("/queue/simple/add", **params)
 
     def update_simple_queue(
@@ -160,6 +178,7 @@ class MikrotikService:
         burst_time: Optional[str] = None,
         disabled: Optional[bool] = None,
         comment: Optional[str] = None,
+        parent: Optional[str] = None,
     ) -> None:
         params: Dict[str, str] = {".id": queue_id}
         if max_limit is not None:
@@ -174,6 +193,8 @@ class MikrotikService:
             params["disabled"] = "yes" if disabled else "no"
         if comment is not None:
             params["comment"] = comment
+        if parent is not None:
+            params["parent"] = parent
         self._call("/queue/simple/set", **params)
 
     def disable_queue(self, queue_id: str) -> None:
@@ -205,6 +226,22 @@ class MikrotikService:
 
     def get_interfaces(self) -> List[Dict]:
         return self._call("/interface/print")
+
+    def get_interface_stats(self) -> List[Dict]:
+        """Interface list with byte/rate counters for utilization monitoring."""
+        raw = self._call("/interface/print")
+        result = []
+        for r in raw:
+            result.append({
+                "name": r.get("name", ""),
+                "type": r.get("type", ""),
+                "running": r.get("running", "false") in ("true", "yes"),
+                "rx_byte": int(r.get("rx-byte", 0) or 0),
+                "tx_byte": int(r.get("tx-byte", 0) or 0),
+                "rx_rate": int(r.get("rx-rate", 0) or 0),
+                "tx_rate": int(r.get("tx-rate", 0) or 0),
+            })
+        return result
 
     # ── Firewall Filter ───────────────────────────────────────────────────────
 

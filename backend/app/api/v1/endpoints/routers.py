@@ -197,13 +197,20 @@ async def sync_clients_to_router(
     plan_result = await db.execute(select(Plan).where(Plan.id.in_(plan_ids)))
     plans = {p.id: p for p in plan_result.scalars().all()}
 
+    has_uplink = bool(rt.uplink_download_mbps and rt.uplink_upload_mbps)
+    uplink_max_limit = f"{rt.uplink_upload_mbps}M/{rt.uplink_download_mbps}M" if has_uplink else None
+    PARENT_NAME = "guaynet-uplink"
+
     def _sync():
         svc = build_service_from_router(rt)
         with svc:
+            if has_uplink:
+                svc.ensure_parent_queue(PARENT_NAME, uplink_max_limit)
             existing = {q["name"]: q for q in svc.get_simple_queues()}
             synced = 0
             skipped = 0
             errors = []
+            want_parent = PARENT_NAME if has_uplink else None
             for client in clients:
                 plan = plans.get(client.plan_id)
                 if not plan:
@@ -214,20 +221,25 @@ async def sync_clients_to_router(
                 try:
                     if qname in existing:
                         eq = existing[qname]
-                        # Only push an update if something actually changed
                         changed = (
-                            eq.get("max-limit", eq.get("max_limit", "")) != plan.mikrotik_max_limit
+                            eq.get("max_limit", "") != plan.mikrotik_max_limit
                             or eq.get("disabled", "no") != want_disabled
+                            or (has_uplink and eq.get("parent", "none") != PARENT_NAME)
                         )
                         if not changed:
                             skipped += 1
                             continue
-                        update_params = {"max_limit": plan.mikrotik_max_limit, "disabled": disabled}
+                        update_params = {
+                            "max_limit": plan.mikrotik_max_limit,
+                            "disabled": disabled,
+                            "comment": f"guaynet:{client.id}|{client.full_name}",
+                        }
                         if plan.mikrotik_burst_limit:
                             update_params["burst_limit"] = plan.mikrotik_burst_limit
                             update_params["burst_threshold"] = plan.mikrotik_burst_threshold
                             update_params["burst_time"] = plan.mikrotik_burst_time
-                        update_params["comment"] = f"guaynet:{client.id}|{client.full_name}"
+                        if want_parent:
+                            update_params["parent"] = want_parent
                         svc.update_simple_queue(eq["id"], **update_params)
                     else:
                         svc.add_simple_queue(
@@ -239,6 +251,7 @@ async def sync_clients_to_router(
                             burst_time=plan.mikrotik_burst_time if plan.mikrotik_burst_limit else None,
                             comment=f"guaynet:{client.id}|{client.full_name}",
                             disabled=disabled,
+                            parent=want_parent,
                         )
                     synced += 1
                 except Exception as e:
@@ -359,6 +372,71 @@ async def get_online_clients(
 
     items.sort(key=lambda x: (not x["online"], x["ip_address"]))
     return items
+
+
+@router.post("/{router_id}/setup-qos")
+async def setup_qos(
+    router_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Apply PCQ queue types + mangle QoS prioritization rules."""
+    rt = await db.get(MikrotikRouter, router_id)
+    if not rt:
+        raise HTTPException(status_code=404, detail="Router no encontrado")
+
+    def _setup():
+        svc = build_service_from_router(rt)
+        with svc:
+            pcq_added = svc.setup_pcq()
+            rules_added = svc.apply_template("qos_prioritization")
+            return {"pcq_added": pcq_added, "mangle_rules_added": rules_added}
+
+    try:
+        return await asyncio.to_thread(_setup)
+    except MikrotikError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@router.get("/{router_id}/utilization")
+async def get_utilization(
+    router_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Interface stats + queue byte totals for utilization monitoring."""
+    rt = await db.get(MikrotikRouter, router_id)
+    if not rt:
+        raise HTTPException(status_code=404, detail="Router no encontrado")
+
+    def _get():
+        svc = build_service_from_router(rt)
+        with svc:
+            interfaces = svc.get_interface_stats()
+            queues = svc.get_simple_queues()
+            return interfaces, queues
+
+    try:
+        interfaces, queues = await asyncio.to_thread(_get)
+    except MikrotikError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    total_dl_bytes = 0
+    total_ul_bytes = 0
+    for q in queues:
+        if q["name"] == "guaynet-uplink":
+            continue
+        parts = (q.get("bytes") or "0/0").split("/")
+        total_ul_bytes += int(parts[0]) if parts[0].isdigit() else 0
+        total_dl_bytes += int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+
+    return {
+        "interfaces": interfaces,
+        "uplink_download_mbps": rt.uplink_download_mbps,
+        "uplink_upload_mbps": rt.uplink_upload_mbps,
+        "queue_total_download_bytes": total_dl_bytes,
+        "queue_total_upload_bytes": total_ul_bytes,
+    }
 
 
 # ── Ubiquiti Devices ──────────────────────────────────────────────────────────
