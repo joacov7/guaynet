@@ -88,8 +88,15 @@ export default function Routers() {
 
   const syncMutation = useMutation({
     mutationFn: (id: number) => routersApi.syncClients(id),
-    onSuccess: (data) => message.success(`Sincronizados: ${data.synced} clientes. Errores: ${data.errors.length}`),
-    onError: (err: any) => message.error(err.response?.data?.detail ?? "Error de conexión"),
+    onSuccess: (data) => {
+      if (data.errors.length > 0) {
+        const first = (data.errors[0] as any)?.error ?? JSON.stringify(data.errors[0]);
+        message.warning(`Sincronizados ${data.synced}. ${data.errors.length} error(es): ${first}`, 10);
+      } else {
+        message.success(`Sincronizados: ${data.synced} clientes`);
+      }
+    },
+    onError: (err: any) => message.error(`Error MikroTik: ${err.response?.data?.detail ?? "Sin conexión"}`, 10),
   });
 
   const qosMutation = useMutation({
@@ -109,7 +116,8 @@ export default function Routers() {
     queryKey: ["router-utilization", utilizationDrawer.router?.id],
     queryFn: () => routersApi.utilization(utilizationDrawer.router!.id),
     enabled: utilizationDrawer.open && utilizationDrawer.router != null,
-    refetchInterval: utilizationDrawer.open ? 5000 : false,
+    refetchInterval: (query: any) => (utilizationDrawer.open && !query.state.error) ? 5000 : false,
+    retry: 1,
   });
 
   const openCreate = () => {
