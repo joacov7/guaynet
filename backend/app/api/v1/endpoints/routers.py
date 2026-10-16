@@ -204,13 +204,17 @@ async def sync_clients_to_router(
     def _sync():
         svc = build_service_from_router(rt)
         with svc:
-            if has_uplink:
-                svc.ensure_parent_queue(PARENT_NAME, uplink_max_limit)
+            use_parent = has_uplink
+            if use_parent:
+                try:
+                    svc.ensure_parent_queue(PARENT_NAME, uplink_max_limit)
+                except MikrotikError:
+                    use_parent = False
             existing = {q["name"]: q for q in svc.get_simple_queues()}
             synced = 0
             skipped = 0
             errors = []
-            want_parent = PARENT_NAME if has_uplink else None
+            want_parent = PARENT_NAME if use_parent else None
             for client in clients:
                 plan = plans.get(client.plan_id)
                 if not plan:
@@ -224,7 +228,7 @@ async def sync_clients_to_router(
                         changed = (
                             eq.get("max_limit", "") != plan.mikrotik_max_limit
                             or eq.get("disabled", "no") != want_disabled
-                            or (has_uplink and eq.get("parent", "none") != PARENT_NAME)
+                            or (use_parent and eq.get("parent", "none") != PARENT_NAME)
                         )
                         if not changed:
                             skipped += 1
@@ -234,7 +238,7 @@ async def sync_clients_to_router(
                             "disabled": disabled,
                             "comment": f"guaynet:{client.id}|{client.full_name}",
                         }
-                        if plan.mikrotik_burst_limit:
+                        if plan.mikrotik_burst_limit and plan.mikrotik_burst_threshold:
                             update_params["burst_limit"] = plan.mikrotik_burst_limit
                             update_params["burst_threshold"] = plan.mikrotik_burst_threshold
                             update_params["burst_time"] = plan.mikrotik_burst_time

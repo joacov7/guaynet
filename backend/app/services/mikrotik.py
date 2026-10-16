@@ -38,6 +38,8 @@ class MikrotikService:
             raise MikrotikError(f"Autenticación fallida en {self.host}: {e}")
         except (ConnectionRefusedError, socket.timeout, OSError) as e:
             raise MikrotikError(f"No se pudo conectar a {self.host}:{self.port} — {e}")
+        except Exception as e:
+            raise MikrotikError(f"Error al conectar con {self.host}: {e}")
         return self
 
     def disconnect(self) -> None:

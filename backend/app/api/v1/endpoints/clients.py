@@ -52,9 +52,9 @@ async def _push_to_mikrotik(client: Client, router_obj: MikrotikRouter, db):
                 name=client.mikrotik_queue_name,
                 target=client.mikrotik_target,
                 max_limit=effective_max_limit,
-                burst_limit=plan.mikrotik_burst_limit if not is_suspended else None,
-                burst_threshold=plan.mikrotik_burst_threshold if not is_suspended else None,
-                burst_time=plan.mikrotik_burst_time if (plan.mikrotik_burst_limit and not is_suspended) else None,
+                burst_limit=plan.mikrotik_burst_limit if (not is_suspended and plan.mikrotik_burst_threshold) else None,
+                burst_threshold=plan.mikrotik_burst_threshold if (not is_suspended and plan.mikrotik_burst_threshold) else None,
+                burst_time=plan.mikrotik_burst_time if (not is_suspended and plan.mikrotik_burst_limit and plan.mikrotik_burst_threshold) else None,
                 comment=f"guaynet:{client.id}|{client.full_name}",
                 disabled=effective_disabled,
             )
