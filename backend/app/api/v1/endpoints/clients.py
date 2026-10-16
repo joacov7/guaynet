@@ -319,6 +319,44 @@ async def sync_client_mikrotik(
         raise HTTPException(status_code=503, detail=str(e))
 
 
+@router.post("/{client_id}/cancel", response_model=ClientResponse)
+async def cancel_client(
+    client_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Mark client as cancelled, remove Mikrotik queue, free Ubiquiti device."""
+    result = await db.execute(
+        select(Client).options(selectinload(Client.plan), selectinload(Client.router)).where(Client.id == client_id)
+    )
+    client = result.scalar_one_or_none()
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    if client.status == ClientStatus.cancelled:
+        raise HTTPException(status_code=400, detail="El cliente ya fue dado de baja")
+
+    rt = await db.get(MikrotikRouter, client.router_id)
+    if rt:
+        def _remove():
+            svc = build_service_from_router(rt)
+            with svc:
+                q = svc.get_queue_by_name(client.mikrotik_queue_name)
+                if q:
+                    svc.remove_queue(q["id"])
+        try:
+            await asyncio.to_thread(_remove)
+        except MikrotikError:
+            pass
+
+    client.ubiquiti_device_id = None
+    client.status = ClientStatus.cancelled
+    add_audit_log(db, current_user, "cancel", "client", client.id, client.full_name)
+    db.add(client)
+    await db.commit()
+    await db.refresh(client)
+    return client
+
+
 @router.get("/{client_id}/invoices", response_model=List[InvoiceResponse])
 async def get_client_invoices(
     client_id: int,

@@ -146,6 +146,7 @@ export const clientsApi = {
   delete: (id: number) => http.delete(`/clients/${id}`),
   suspend: (id: number) => http.post<Client>(`/clients/${id}/suspend`).then((r) => r.data),
   activate: (id: number) => http.post<Client>(`/clients/${id}/activate`).then((r) => r.data),
+  cancel: (id: number) => http.post<Client>(`/clients/${id}/cancel`).then((r) => r.data),
   syncMikrotik: (id: number) =>
     http.post(`/clients/${id}/sync-mikrotik`).then((r) => r.data),
   invoices: (id: number) =>
@@ -214,6 +215,7 @@ export const invoicesApi = {
 // ── Ubiquiti ──────────────────────────────────────────────────────────────────
 export const ubiquitiApi = {
   list: () => http.get<UbiquitiDevice[]>("/ubiquiti/").then((r) => r.data),
+  listFree: () => http.get<UbiquitiDevice[]>("/ubiquiti/", { params: { free: true } }).then((r) => r.data),
   get: (id: number) => http.get<UbiquitiDevice>(`/ubiquiti/${id}`).then((r) => r.data),
   create: (data: Partial<UbiquitiDevice> & { password?: string }) =>
     http.post<UbiquitiDevice>("/ubiquiti/", data).then((r) => r.data),

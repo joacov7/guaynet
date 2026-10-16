@@ -22,6 +22,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   SyncOutlined,
+  StopOutlined,
 } from "@ant-design/icons";
 import { clientsApi } from "@/services/api";
 import type { Client, ClientStatus } from "@/types";
@@ -61,6 +62,12 @@ export default function ClientList() {
     mutationFn: (id: number) => clientsApi.delete(id),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["clients"] }); message.success("Cliente eliminado"); },
     onError: () => message.error("Error al eliminar"),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: number) => clientsApi.cancel(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["clients"] }); message.success("Cliente dado de baja"); },
+    onError: () => message.error("Error al dar de baja"),
   });
 
   const syncMutation = useMutation({
@@ -123,6 +130,19 @@ export default function ClientList() {
               </Popconfirm>
             </Tooltip>
           ) : null}
+          {r.status !== "cancelled" && (
+            <Tooltip title="Dar de baja">
+              <Popconfirm
+                title="¿Dar de baja al cliente?"
+                description="Se eliminará la queue de Mikrotik y se liberará la antena."
+                onConfirm={() => cancelMutation.mutate(r.id)}
+                okText="Dar de baja"
+                okButtonProps={{ danger: true }}
+              >
+                <Button size="small" icon={<StopOutlined />} danger />
+              </Popconfirm>
+            </Tooltip>
+          )}
           <Tooltip title="Eliminar">
             <Popconfirm title="¿Eliminar cliente?" onConfirm={() => deleteMutation.mutate(r.id)}>
               <Button size="small" danger icon={<DeleteOutlined />} />

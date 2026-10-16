@@ -33,8 +33,14 @@ router = APIRouter()
 
 
 async def _device_response(dev: UbiquitiDevice, db: AsyncSession) -> UbiquitiDeviceResponse:
+    from app.models.client import ClientStatus
     count = (
-        await db.execute(select(func.count()).where(Client.ubiquiti_device_id == dev.id))
+        await db.execute(
+            select(func.count()).where(
+                Client.ubiquiti_device_id == dev.id,
+                Client.status != ClientStatus.cancelled,
+            )
+        )
     ).scalar_one()
     data = UbiquitiDeviceResponse.model_validate(dev)
     data.client_count = count
@@ -120,8 +126,22 @@ async def discover_devices(
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 
 @router.get("/", response_model=List[UbiquitiDeviceResponse])
-async def list_devices(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
-    result = await db.execute(select(UbiquitiDevice).order_by(UbiquitiDevice.name))
+async def list_devices(
+    free: bool = False,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    from sqlalchemy import exists as sa_exists
+    from app.models.client import ClientStatus as CS
+    q = select(UbiquitiDevice).order_by(UbiquitiDevice.name)
+    if free:
+        q = q.where(
+            ~sa_exists().where(
+                Client.ubiquiti_device_id == UbiquitiDevice.id,
+                Client.status != CS.cancelled,
+            )
+        )
+    result = await db.execute(q)
     return [await _device_response(d, db) for d in result.scalars().all()]
 
 
