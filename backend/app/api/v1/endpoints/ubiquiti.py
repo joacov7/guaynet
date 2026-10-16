@@ -55,17 +55,17 @@ async def discover_devices(
     body: DiscoverRequest,
     _=Depends(get_current_user),
 ):
-    """Scan a subnet for Ubiquiti devices. Max /22 (1022 hosts)."""
+    """Scan a subnet for Ubiquiti devices. Max /24 (254 hosts)."""
     try:
         network = ipaddress.ip_network(body.subnet, strict=False)
     except ValueError:
         raise HTTPException(400, "Subred inválida. Usá formato CIDR como 192.168.1.0/24")
 
-    if network.num_addresses > 1024:
-        raise HTTPException(400, "Subred demasiado grande. Máximo /22 (1022 hosts)")
+    if network.num_addresses > 256:
+        raise HTTPException(400, "Subred demasiado grande. Máximo /24 (254 hosts)")
 
     hosts = list(network.hosts())
-    sem = asyncio.Semaphore(20)
+    sem = asyncio.Semaphore(30)
 
     async def probe(ip: str):
         async with sem:
