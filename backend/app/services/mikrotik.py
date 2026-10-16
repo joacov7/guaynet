@@ -135,8 +135,24 @@ class MikrotikService:
             )
 
     def get_queue_by_name(self, name: str) -> Optional[Dict]:
-        queues = self.get_simple_queues()
-        return next((q for q in queues if q["name"] == name), None)
+        # Use RouterOS-side filtering to avoid fetching all queues
+        try:
+            raw = self._call("/queue/simple/print", **{"?name": name})
+        except MikrotikError:
+            # Fall back to full scan if filtered query fails
+            raw = self._call("/queue/simple/print")
+        q = next((r for r in raw if r.get("name") == name), None)
+        if not q:
+            return None
+        return {
+            "id": q.get(".id", ""),
+            "name": q.get("name", ""),
+            "target": q.get("target", ""),
+            "max_limit": q.get("max-limit", ""),
+            "disabled": q.get("disabled", "false") in ("true", "yes"),
+            "comment": q.get("comment", ""),
+            "parent": q.get("parent", "none"),
+        }
 
     def get_queues_with_bytes(self) -> List[Dict]:
         """Return queues with parsed upload/download byte counters."""
@@ -457,5 +473,5 @@ def build_service_from_router(router) -> MikrotikService:
         port=router.port,
         username=router.username,
         password=password,
-        timeout=10,
+        timeout=20,
     )
