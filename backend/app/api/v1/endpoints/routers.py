@@ -202,6 +202,7 @@ async def sync_clients_to_router(
         with svc:
             existing = {q["name"]: q for q in svc.get_simple_queues()}
             synced = 0
+            skipped = 0
             errors = []
             for client in clients:
                 plan = plans.get(client.plan_id)
@@ -209,28 +210,40 @@ async def sync_clients_to_router(
                     continue
                 qname = client.mikrotik_queue_name
                 disabled = client.status == "suspended"
-                params = dict(
-                    name=qname,
-                    target=client.mikrotik_target,
-                    max_limit=plan.mikrotik_max_limit,
-                    burst_limit=plan.mikrotik_burst_limit,
-                    burst_threshold=plan.mikrotik_burst_threshold,
-                    burst_time=plan.mikrotik_burst_time if plan.mikrotik_burst_limit else None,
-                    comment=f"guaynet:{client.id}|{client.full_name}",
-                    disabled=disabled,
-                )
+                want_disabled = "yes" if disabled else "no"
                 try:
                     if qname in existing:
-                        svc.update_simple_queue(existing[qname]["id"], **{
-                            k: v for k, v in params.items()
-                            if k not in ("name", "target") and v is not None
-                        })
+                        eq = existing[qname]
+                        # Only push an update if something actually changed
+                        changed = (
+                            eq.get("max-limit", eq.get("max_limit", "")) != plan.mikrotik_max_limit
+                            or eq.get("disabled", "no") != want_disabled
+                        )
+                        if not changed:
+                            skipped += 1
+                            continue
+                        update_params = {"max_limit": plan.mikrotik_max_limit, "disabled": disabled}
+                        if plan.mikrotik_burst_limit:
+                            update_params["burst_limit"] = plan.mikrotik_burst_limit
+                            update_params["burst_threshold"] = plan.mikrotik_burst_threshold
+                            update_params["burst_time"] = plan.mikrotik_burst_time
+                        update_params["comment"] = f"guaynet:{client.id}|{client.full_name}"
+                        svc.update_simple_queue(eq["id"], **update_params)
                     else:
-                        svc.add_simple_queue(**params)
+                        svc.add_simple_queue(
+                            name=qname,
+                            target=client.mikrotik_target,
+                            max_limit=plan.mikrotik_max_limit,
+                            burst_limit=plan.mikrotik_burst_limit,
+                            burst_threshold=plan.mikrotik_burst_threshold,
+                            burst_time=plan.mikrotik_burst_time if plan.mikrotik_burst_limit else None,
+                            comment=f"guaynet:{client.id}|{client.full_name}",
+                            disabled=disabled,
+                        )
                     synced += 1
                 except Exception as e:
                     errors.append({"client_id": client.id, "error": str(e)})
-            return {"synced": synced, "errors": errors}
+            return {"synced": synced, "skipped": skipped, "errors": errors}
 
     try:
         result = await asyncio.to_thread(_sync)

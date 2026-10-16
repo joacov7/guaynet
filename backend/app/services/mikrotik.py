@@ -370,4 +370,5 @@ def build_service_from_router(router) -> MikrotikService:
         port=router.port,
         username=router.username,
         password=password,
+        timeout=30,
     )
