@@ -197,10 +197,11 @@ async def update_client(
     await db.commit()
 
     mt_error = None
+    mt_sync = None
     rt = await db.get(MikrotikRouter, client.router_id)
     if rt:
         try:
-            result = await _push_to_mikrotik(client, rt, db)
+            mt_sync = await _push_to_mikrotik(client, rt, db)
         except MikrotikError as e:
             mt_error = str(e)
         except Exception as e:
@@ -211,6 +212,7 @@ async def update_client(
     await db.refresh(client)
     resp = ClientResponse.model_validate(client)
     resp.mikrotik_error = mt_error
+    resp.mikrotik_sync = mt_sync
     return resp
 
 

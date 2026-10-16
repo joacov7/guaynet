@@ -109,6 +109,7 @@ export interface Client {
   router?: Pick<Router, "id" | "name" | "location">;
   created_at: string;
   mikrotik_error?: string;
+  mikrotik_sync?: string;
 }
 
 export interface InvoiceItem {

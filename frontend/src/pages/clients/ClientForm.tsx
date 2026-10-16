@@ -83,7 +83,7 @@ export default function ClientForm() {
       if (data.mikrotik_error) {
         message.warning(`Guardado. Error MikroTik: ${data.mikrotik_error}`, 8);
       } else {
-        message.success("Cliente actualizado");
+        message.success(`Cliente actualizado${data.mikrotik_sync ? ` · MT: ${data.mikrotik_sync}` : ""}`, 6);
       }
       navigate("/clients");
     },
