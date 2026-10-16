@@ -94,7 +94,14 @@ export default function Routers() {
 
   const qosMutation = useMutation({
     mutationFn: (id: number) => routersApi.setupQos(id),
-    onSuccess: (data) => message.success(`QoS aplicado: ${data.mangle_rules_added} reglas mangle, ${data.pcq_added} tipos PCQ`),
+    onSuccess: (data: any) => {
+      const parts = [];
+      if (data.added) parts.push(`${data.added} agregadas`);
+      if (data.enabled) parts.push(`${data.enabled} reactivadas`);
+      if (data.skipped) parts.push(`${data.skipped} ya existían`);
+      if (data.pcq_added) parts.push(`${data.pcq_added} PCQ`);
+      message.success(`QoS: ${parts.join(", ") || "sin cambios"}`);
+    },
     onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al aplicar QoS"),
   });
 

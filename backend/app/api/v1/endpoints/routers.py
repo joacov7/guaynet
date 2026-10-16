@@ -389,8 +389,8 @@ async def setup_qos(
         svc = build_service_from_router(rt)
         with svc:
             pcq_added = svc.setup_pcq()
-            rules_added = svc.apply_template("qos_prioritization")
-            return {"pcq_added": pcq_added, "mangle_rules_added": rules_added}
+            counts = svc.apply_template("qos_prioritization")
+            return {"pcq_added": pcq_added, **counts}
 
     try:
         return await asyncio.to_thread(_setup)

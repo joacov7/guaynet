@@ -276,6 +276,19 @@ class MikrotikService:
     def enable_firewall_filter_rule(self, rule_id: str) -> None:
         self._call("/ip/firewall/filter/set", **{".id": rule_id, "disabled": "no"})
 
+    def _ensure_filter_rule(self, rule: dict) -> str:
+        """Add a filter rule only if none with the same comment exists.
+        Re-enables it if it was disabled. Returns 'added'|'enabled'|'exists'."""
+        comment = rule.get("comment", "")
+        for r in self.get_firewall_filter_rules():
+            if r.get("comment") == comment:
+                if r.get("disabled"):
+                    self.enable_firewall_filter_rule(r["id"])
+                    return "enabled"
+                return "exists"
+        self._call("/ip/firewall/filter/add", **rule)
+        return "added"
+
     # ── Mangle ────────────────────────────────────────────────────────────────
 
     def get_mangle_rules(self) -> List[Dict]:
@@ -300,6 +313,25 @@ class MikrotikService:
 
     def remove_mangle_rule(self, rule_id: str) -> None:
         self._call("/ip/firewall/mangle/remove", **{".id": rule_id})
+
+    def enable_mangle_rule(self, rule_id: str) -> None:
+        self._call("/ip/firewall/mangle/set", **{".id": rule_id, "disabled": "no"})
+
+    def disable_mangle_rule(self, rule_id: str) -> None:
+        self._call("/ip/firewall/mangle/set", **{".id": rule_id, "disabled": "yes"})
+
+    def _ensure_mangle_rule(self, rule: dict) -> str:
+        """Add a mangle rule only if none with the same comment exists.
+        Re-enables it if it was disabled. Returns 'added'|'enabled'|'exists'."""
+        comment = rule.get("comment", "")
+        for r in self.get_mangle_rules():
+            if r.get("comment") == comment:
+                if r.get("disabled"):
+                    self.enable_mangle_rule(r["id"])
+                    return "enabled"
+                return "exists"
+        self._call("/ip/firewall/mangle/add", **rule)
+        return "added"
 
     # ── PCQ / Queue Types ─────────────────────────────────────────────────────
 
@@ -341,7 +373,8 @@ class MikrotikService:
 
     # ── Security / QoS Templates ──────────────────────────────────────────────
 
-    def apply_template(self, template: str) -> int:
+    def apply_template(self, template: str) -> Dict[str, int]:
+        """Apply a rule template idempotently. Returns {added, enabled, skipped}."""
         if template == "basic_security":
             return self._apply_basic_security()
         if template == "icmp_limit":
@@ -352,7 +385,14 @@ class MikrotikService:
             return self._apply_drop_invalid()
         raise MikrotikError(f"Template desconocido: {template}")
 
-    def _apply_basic_security(self) -> int:
+    def _count_results(self, results: List[str]) -> Dict[str, int]:
+        return {
+            "added": results.count("added"),
+            "enabled": results.count("enabled"),
+            "skipped": results.count("exists"),
+        }
+
+    def _apply_basic_security(self) -> Dict[str, int]:
         rules = [
             {"chain": "input", "action": "accept", "connection-state": "established,related", "comment": "guaynet: accept established"},
             {"chain": "input", "action": "drop", "connection-state": "invalid", "comment": "guaynet: drop invalid input"},
@@ -362,29 +402,23 @@ class MikrotikService:
             {"chain": "forward", "action": "accept", "connection-state": "established,related", "comment": "guaynet: forward established"},
             {"chain": "forward", "action": "drop", "connection-state": "invalid", "comment": "guaynet: drop invalid forward"},
         ]
-        for r in rules:
-            self._call("/ip/firewall/filter/add", **r)
-        return len(rules)
+        return self._count_results([self._ensure_filter_rule(r) for r in rules])
 
-    def _apply_icmp_limit(self) -> int:
+    def _apply_icmp_limit(self) -> Dict[str, int]:
         rules = [
             {"chain": "input", "action": "accept", "protocol": "icmp", "limit": "10,20:packet", "comment": "guaynet: icmp rate accept"},
             {"chain": "input", "action": "drop", "protocol": "icmp", "comment": "guaynet: icmp rate drop excess"},
         ]
-        for r in rules:
-            self._call("/ip/firewall/filter/add", **r)
-        return len(rules)
+        return self._count_results([self._ensure_filter_rule(r) for r in rules])
 
-    def _apply_drop_invalid(self) -> int:
+    def _apply_drop_invalid(self) -> Dict[str, int]:
         rules = [
             {"chain": "input", "action": "drop", "connection-state": "invalid", "comment": "guaynet: drop invalid conn"},
             {"chain": "forward", "action": "drop", "connection-state": "invalid", "comment": "guaynet: drop invalid fwd"},
         ]
-        for r in rules:
-            self._call("/ip/firewall/filter/add", **r)
-        return len(rules)
+        return self._count_results([self._ensure_filter_rule(r) for r in rules])
 
-    def _apply_qos_prioritization(self) -> int:
+    def _apply_qos_prioritization(self) -> Dict[str, int]:
         self.setup_pcq()
         rules = [
             {"chain": "prerouting", "action": "mark-packet", "protocol": "udp", "dst-port": "5060,5061,10000-20000", "new-packet-mark": "voip", "passthrough": "yes", "comment": "guaynet: mark VoIP"},
@@ -392,9 +426,7 @@ class MikrotikService:
             {"chain": "prerouting", "action": "mark-packet", "protocol": "tcp", "dst-port": "443", "new-packet-mark": "https", "passthrough": "yes", "comment": "guaynet: mark HTTPS"},
             {"chain": "prerouting", "action": "mark-packet", "protocol": "tcp", "dst-port": "80", "new-packet-mark": "http", "passthrough": "yes", "comment": "guaynet: mark HTTP"},
         ]
-        for r in rules:
-            self._call("/ip/firewall/mangle/add", **r)
-        return len(rules)
+        return self._count_results([self._ensure_mangle_rule(r) for r in rules])
 
 
 def build_service_from_router(router) -> MikrotikService:
