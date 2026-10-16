@@ -50,6 +50,24 @@ async def _get_or_404(device_id: int, db: AsyncSession) -> UbiquitiDevice:
 
 # ── Discovery ─────────────────────────────────────────────────────────────────
 
+@router.post("/probe", response_model=DiscoveredDevice)
+async def probe_single(
+    body: DiscoverRequest,
+    _=Depends(get_current_user),
+):
+    """Probe a single IP to verify connectivity before a full scan."""
+    try:
+        network = ipaddress.ip_network(body.subnet, strict=False)
+    except ValueError:
+        raise HTTPException(400, "IP o subred inválida")
+
+    host = str(next(iter(network.hosts()), network.network_address))
+    result = await asyncio.to_thread(quick_probe, host, body.username, body.password)
+    if not result:
+        raise HTTPException(503, f"No se pudo conectar a {host}. Verificá que sea accesible desde el servidor y que las credenciales sean correctas.")
+    return DiscoveredDevice(**result)
+
+
 @router.post("/discover", response_model=List[DiscoveredDevice])
 async def discover_devices(
     body: DiscoverRequest,
@@ -64,14 +82,19 @@ async def discover_devices(
     if network.num_addresses > 256:
         raise HTTPException(400, "Subred demasiado grande. Máximo /24 (254 hosts)")
 
-    hosts = list(network.hosts())
+    # Support /32 (single host) — .hosts() is empty for /32
+    if network.prefixlen == 32:
+        hosts = [str(network.network_address)]
+    else:
+        hosts = [str(ip) for ip in network.hosts()]
+
     sem = asyncio.Semaphore(30)
 
     async def probe(ip: str):
         async with sem:
             return await asyncio.to_thread(quick_probe, ip, body.username, body.password)
 
-    results = await asyncio.gather(*[probe(str(ip)) for ip in hosts])
+    results = await asyncio.gather(*[probe(ip) for ip in hosts])
     return [DiscoveredDevice(**r) for r in results if r is not None]
 
 

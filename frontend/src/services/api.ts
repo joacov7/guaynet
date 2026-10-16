@@ -251,6 +251,13 @@ export const ubiquitiApi = {
       (() => { const fd = new FormData(); fd.append("file", file); return fd; })(),
       { headers: { "Content-Type": "multipart/form-data" } }
     ).then(r => r.data),
+  probe: (host: string, username: string, password: string, deviceType = "airmax_ac_ap") =>
+    http.post<DiscoveredUbiquitiDevice>("/ubiquiti/probe", {
+      subnet: host,
+      username,
+      password,
+      device_type: deviceType,
+    }, { timeout: 30000 }).then(r => r.data),
   discover: (subnet: string, username: string, password: string, deviceType = "airmax_ac_ap") =>
     http.post<DiscoveredUbiquitiDevice[]>("/ubiquiti/discover", {
       subnet,

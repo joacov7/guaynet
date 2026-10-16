@@ -718,12 +718,34 @@ export default function Ubiquiti() {
   const [discoverSelectedHosts, setDiscoverSelectedHosts] = useState<string[]>([]);
   const [addingDiscovered, setAddingDiscovered] = useState(false);
 
+  const [probeIp, setProbeIp] = useState("");
+  const [probeLoading, setProbeLoading] = useState(false);
+  const [probeResult, setProbeResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
   const closeDiscoverModal = () => {
     if (discoverLoading || addingDiscovered) return;
     setDiscoverOpen(false);
     setDiscovered([]);
     setDiscoverSelectedHosts([]);
+    setProbeResult(null);
+    setProbeIp("");
     discoverForm.resetFields();
+  };
+
+  const handleProbe = async () => {
+    if (!probeIp) return;
+    let values: any;
+    try { values = await discoverForm.validateFields(["username", "password"]); } catch { return; }
+    setProbeLoading(true);
+    setProbeResult(null);
+    try {
+      const dev = await ubiquitiApi.probe(probeIp, values.username, values.password, values.device_type ?? "airmax_ac_ap");
+      setProbeResult({ ok: true, msg: `Conectado: ${dev.model || "dispositivo Ubiquiti"} (firmware ${dev.firmware || "?"})` });
+    } catch (e: any) {
+      setProbeResult({ ok: false, msg: e.response?.data?.detail ?? "No se pudo conectar" });
+    } finally {
+      setProbeLoading(false);
+    }
   };
 
   const handleDiscover = async () => {
@@ -735,7 +757,7 @@ export default function Ubiquiti() {
     try {
       const results = await ubiquitiApi.discover(values.subnet, values.username, values.password, values.device_type);
       setDiscovered(results);
-      if (results.length === 0) message.info("No se encontraron dispositivos Ubiquiti en la subred");
+      if (results.length === 0) message.info("No se encontraron dispositivos. Usá 'Probar IP' para verificar que el servidor pueda alcanzar las antenas.");
     } catch (e: any) {
       message.error(e.response?.data?.detail ?? "Error al escanear");
     } finally {
@@ -1233,6 +1255,33 @@ export default function Ubiquiti() {
               />
             </Form.Item>
           </Form>
+
+          <div style={{ background: "#fafafa", border: "1px solid #e8e8e8", borderRadius: 6, padding: 12 }}>
+            <Text strong style={{ display: "block", marginBottom: 8 }}>Probar IP única</Text>
+            <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 8 }}>
+              Verificá que el servidor pueda alcanzar una antena conocida antes de escanear la subred completa.
+            </Text>
+            <Space.Compact style={{ width: "100%" }}>
+              <Input
+                placeholder="192.168.1.50"
+                value={probeIp}
+                onChange={(e) => { setProbeIp(e.target.value); setProbeResult(null); }}
+                disabled={probeLoading}
+                style={{ maxWidth: 200 }}
+              />
+              <Button loading={probeLoading} onClick={handleProbe} disabled={!probeIp}>
+                Probar
+              </Button>
+            </Space.Compact>
+            {probeResult && (
+              <Alert
+                type={probeResult.ok ? "success" : "error"}
+                showIcon
+                message={probeResult.msg}
+                style={{ marginTop: 8 }}
+              />
+            )}
+          </div>
 
           {discoverLoading && (
             <Alert
