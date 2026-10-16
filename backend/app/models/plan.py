@@ -50,4 +50,4 @@ class Plan(Base, TimestampMixin):
 
     @property
     def mikrotik_burst_time(self) -> str:
-        return f"{self.burst_time_seconds}/{self.burst_time_seconds}"
+        return f"{self.burst_time_seconds}s/{self.burst_time_seconds}s"
