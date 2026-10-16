@@ -774,11 +774,13 @@ export default function Ubiquiti() {
     let errors = 0;
     for (const host of discoverSelectedHosts) {
       const dev = discovered.find((d) => d.host === host)!;
+      // Use the auto-detected type; fall back to the form selection
+      const deviceType = dev.suggested_type || values.device_type;
       try {
         await ubiquitiApi.create({
           name: dev.hostname || dev.model || host,
           host: dev.host,
-          device_type: values.device_type,
+          device_type: deviceType as any,
           username: values.username,
           password: values.password,
         });
@@ -1316,6 +1318,7 @@ export default function Ubiquiti() {
                   { title: "Modelo", dataIndex: "model", key: "model", render: (v: string) => v || "—" },
                   { title: "Firmware", dataIndex: "firmware", key: "firmware", render: (v: string) => v || "—" },
                   { title: "Modo", dataIndex: "mode", key: "mode", render: (v: string) => v ? <Tag color="blue">{v}</Tag> : "—" },
+                  { title: "Tipo detectado", dataIndex: "suggested_type", key: "stype", render: (v: string) => v ? <Tag>{deviceTypeLabel[v] ?? v}</Tag> : "—" },
                   { title: "SSID", dataIndex: "ssid", key: "ssid", render: (v: string) => v || "—" },
                   {
                     title: "Frecuencia",

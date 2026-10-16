@@ -141,3 +141,4 @@ class DiscoveredDevice(BaseModel):
     mode: str = ""
     ssid: str = ""
     frequency_mhz: Optional[int] = None
+    suggested_type: str = ""

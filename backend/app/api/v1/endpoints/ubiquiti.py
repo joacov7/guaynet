@@ -50,6 +50,25 @@ async def _get_or_404(device_id: int, db: AsyncSession) -> UbiquitiDevice:
 
 # ── Discovery ─────────────────────────────────────────────────────────────────
 
+_STATION_MODES = {"station", "managed", "sta", "client"}
+_AC_MODELS = {"litebeam", "powerbeam", "nanobeam", "airfiber", "ac", "prism"}
+
+def _suggest_type(mode: str, model: str) -> str:
+    """Guess airmax_ac_ap/station vs airmax_ap/station from mode + model string."""
+    mode_l = mode.lower()
+    model_l = model.lower()
+    is_ac = any(kw in model_l for kw in _AC_MODELS)
+    is_station = mode_l in _STATION_MODES
+    if is_ac:
+        return "airmax_ac_station" if is_station else "airmax_ac_ap"
+    return "airmax_station" if is_station else "airmax_ap"
+
+
+def _enrich(raw: dict) -> dict:
+    raw["suggested_type"] = _suggest_type(raw.get("mode", ""), raw.get("model", ""))
+    return raw
+
+
 @router.post("/probe", response_model=DiscoveredDevice)
 async def probe_single(
     body: DiscoverRequest,
@@ -65,7 +84,7 @@ async def probe_single(
     result = await asyncio.to_thread(quick_probe, host, body.username, body.password)
     if not result:
         raise HTTPException(503, f"No se pudo conectar a {host}. Verificá que sea accesible desde el servidor y que las credenciales sean correctas.")
-    return DiscoveredDevice(**result)
+    return DiscoveredDevice(**_enrich(result))
 
 
 @router.post("/discover", response_model=List[DiscoveredDevice])
@@ -95,7 +114,7 @@ async def discover_devices(
             return await asyncio.to_thread(quick_probe, ip, body.username, body.password)
 
     results = await asyncio.gather(*[probe(ip) for ip in hosts])
-    return [DiscoveredDevice(**r) for r in results if r is not None]
+    return [DiscoveredDevice(**_enrich(r)) for r in results if r is not None]
 
 
 # ── CRUD ──────────────────────────────────────────────────────────────────────

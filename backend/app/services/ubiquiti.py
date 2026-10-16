@@ -76,11 +76,15 @@ class UbiquitiAirOSService:
                 continue
 
             if res.status_code in (200, 201, 302):
-                # /login.cgi returns 200 even on failure — detect by specific message
-                if path == "/login.cgi" and "missing session" in res.text.lower():
-                    client.close()
-                    got_credentials_error = True
-                    continue
+                # /login.cgi returns 200 even on failure; detect by known failure indicators:
+                # - AirOS 8.x CGI: "missing session id"
+                # - AirOS 5.x/6.x M: failed login redirects back → login form still present
+                if path == "/login.cgi":
+                    t = res.text.lower()
+                    if "missing session" in t or 'action="/login.cgi"' in t or "invalid credentials" in t:
+                        client.close()
+                        got_credentials_error = True
+                        continue
 
                 try:
                     data = res.json()
@@ -385,7 +389,7 @@ class UbiquitiAirOSService:
 
 def quick_probe(host: str, username: str, password: str) -> Optional[Dict]:
     """Lightweight probe for subnet discovery with a 3s timeout per attempt."""
-    svc = UbiquitiAirOSService(host=host, username=username, password=password, timeout=3.0)
+    svc = UbiquitiAirOSService(host=host, username=username, password=password, timeout=5.0)
     try:
         with svc:
             info = svc.get_device_info()

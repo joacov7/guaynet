@@ -294,6 +294,7 @@ export interface DiscoveredUbiquitiDevice {
   mode: string;
   ssid: string;
   frequency_mhz?: number;
+  suggested_type: string;
 }
 
 export interface UbiquitiDevice {
