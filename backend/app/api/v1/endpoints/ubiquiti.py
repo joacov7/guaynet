@@ -131,16 +131,18 @@ async def list_devices(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    from sqlalchemy import exists as sa_exists
     from app.models.client import ClientStatus as CS
     q = select(UbiquitiDevice).order_by(UbiquitiDevice.name)
     if free:
-        q = q.where(
-            ~sa_exists().where(
+        subq = (
+            select(Client.id)
+            .where(
                 Client.ubiquiti_device_id == UbiquitiDevice.id,
                 Client.status != CS.cancelled,
             )
+            .exists()
         )
+        q = q.where(~subq)
     result = await db.execute(q)
     return [await _device_response(d, db) for d in result.scalars().all()]
 

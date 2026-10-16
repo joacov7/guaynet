@@ -63,6 +63,8 @@ class MikrotikService:
             raise MikrotikError(f"Conexión cerrada: {e}")
         except FatalError as e:
             raise MikrotikError(f"Error de API: {e}")
+        except Exception as e:
+            raise MikrotikError(f"Error inesperado en RouterOS: {e}")
 
     # ── System info ───────────────────────────────────────────────────────────
 
