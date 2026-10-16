@@ -184,10 +184,12 @@ export default function Plans() {
                 const dl = form.getFieldValue("download_mbps");
                 const ul = form.getFieldValue("upload_mbps");
                 if (!dl || !ul) { message.warning("Ingresá velocidades primero"); return; }
+                const burstDl = dl * 2;
+                const burstUl = ul * 2;
                 form.setFieldsValue({
-                  burst_download_mbps: dl * 2,
-                  burst_upload_mbps: ul * 2,
-                  burst_threshold_mbps: Math.round(dl / 2),
+                  burst_download_mbps: burstDl,
+                  burst_upload_mbps: burstUl,
+                  burst_threshold_mbps: Math.round(Math.min(burstDl, burstUl) / 2),
                   burst_time_seconds: 15,
                 });
               }}
@@ -204,7 +206,29 @@ export default function Plans() {
             </Form.Item>
           </Space>
           <Space style={{ width: "100%" }} size={16}>
-            <Form.Item name="burst_threshold_mbps" label="Umbral burst (Mbps)" extra="Activa si uso < umbral">
+            <Form.Item
+              name="burst_threshold_mbps"
+              label="Umbral burst (Mbps)"
+              extra="Activa burst si uso promedio < umbral"
+              dependencies={["burst_upload_mbps", "burst_download_mbps"]}
+              rules={[
+                ({ getFieldValue }) => ({
+                  warningOnly: true,
+                  validator(_, value) {
+                    if (!value) return Promise.resolve();
+                    const burstUp = getFieldValue("burst_upload_mbps");
+                    const burstDl = getFieldValue("burst_download_mbps");
+                    if (burstUp && value > burstUp) {
+                      return Promise.reject(`Umbral (${value}M) supera burst subida (${burstUp}M) — se ajustará a ${burstUp}M al sincronizar`);
+                    }
+                    if (burstDl && value > burstDl) {
+                      return Promise.reject(`Umbral (${value}M) supera burst descarga (${burstDl}M) — se ajustará a ${burstDl}M al sincronizar`);
+                    }
+                    return Promise.resolve();
+                  },
+                }),
+              ]}
+            >
               <InputNumber min={1} style={{ width: "100%" }} />
             </Form.Item>
             <Form.Item name="burst_time_seconds" label="Ventana burst (seg)" extra="Intervalo de promediado">
