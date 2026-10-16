@@ -330,10 +330,10 @@ async def sync_client_mikrotik(
         raise HTTPException(status_code=404, detail="Router no encontrado")
 
     try:
-        await _push_to_mikrotik(client, rt, db)
-        return {"ok": True, "message": "Queue sincronizada correctamente"}
-    except MikrotikError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        action = await _push_to_mikrotik(client, rt, db)
+        return {"ok": True, "message": action or "Queue sincronizada correctamente"}
+    except (MikrotikError, Exception) as e:
+        raise HTTPException(status_code=503, detail=str(e) or f"{type(e).__name__}")
 
 
 @router.post("/{client_id}/cancel", response_model=ClientResponse)

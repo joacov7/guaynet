@@ -81,7 +81,9 @@ export default function ClientList() {
   const syncMutation = useMutation({
     mutationFn: (id: number) => clientsApi.syncMikrotik(id),
     onSuccess: () => message.success("Queue sincronizada"),
-    onError: (err: any) => message.error(err.response?.data?.detail ?? "No se pudo sincronizar con Mikrotik", 8),
+    onError: (err: any) => message.error(
+      err.response?.data?.detail || `HTTP ${err.response?.status ?? "?"}: no se pudo sincronizar con Mikrotik`, 10
+    ),
   });
 
   const columns = [
