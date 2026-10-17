@@ -184,6 +184,7 @@ class MikrotikService:
         comment: str = "",
         disabled: bool = False,
         parent: Optional[str] = None,
+        queue_type: Optional[str] = None,
     ) -> None:
         params: Dict[str, str] = {
             "name": name,
@@ -201,6 +202,8 @@ class MikrotikService:
             params["comment"] = comment
         if parent:
             params["parent"] = parent
+        if queue_type:
+            params["queue"] = f"{queue_type}/{queue_type}"
         self._call("/queue/simple/add", **params)
 
     def update_simple_queue(
@@ -213,6 +216,7 @@ class MikrotikService:
         disabled: Optional[bool] = None,
         comment: Optional[str] = None,
         parent: Optional[str] = None,
+        queue_type: Optional[str] = None,
     ) -> None:
         params: Dict[str, str] = {".id": queue_id}
         if max_limit is not None:
@@ -229,6 +233,8 @@ class MikrotikService:
             params["comment"] = comment
         if parent is not None:
             params["parent"] = parent
+        if queue_type is not None:
+            params["queue"] = f"{queue_type}/{queue_type}"
         self._call("/queue/simple/set", **params)
 
     def disable_queue(self, queue_id: str) -> None:
@@ -404,6 +410,20 @@ class MikrotikService:
             )
             added += 1
         return added
+
+    def has_queue_type(self, name: str) -> bool:
+        try:
+            types = self._call("/queue/type/print", **{"?name": name})
+        except MikrotikError:
+            types = self._call("/queue/type/print")
+        return any(r.get("name") == name for r in types)
+
+    def setup_sfq(self) -> int:
+        """Create guaynet-sfq (Stochastic Fair Queuing) queue type if absent. Returns 1 if created."""
+        if self.has_queue_type("guaynet-sfq"):
+            return 0
+        self._call("/queue/type/add", name="guaynet-sfq", kind="sfq", **{"sfq-perturb": "10"})
+        return 1
 
     # ── Queue Tree ────────────────────────────────────────────────────────────
 

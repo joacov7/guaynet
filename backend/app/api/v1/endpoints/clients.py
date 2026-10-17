@@ -50,6 +50,7 @@ async def _push_to_mikrotik(client: Client, router_obj: MikrotikRouter, db) -> s
     def _sync() -> str:
         svc = build_service_from_router(router_obj)
         with svc:
+            use_sfq = svc.has_queue_type("guaynet-sfq")
             existing = svc.get_queue_by_name(client.mikrotik_queue_name)
             update_params = {
                 "max_limit": effective_max_limit,
@@ -60,6 +61,8 @@ async def _push_to_mikrotik(client: Client, router_obj: MikrotikRouter, db) -> s
                 update_params["burst_limit"] = plan.mikrotik_burst_limit
                 update_params["burst_threshold"] = plan.mikrotik_burst_threshold
                 update_params["burst_time"] = plan.mikrotik_burst_time
+            if use_sfq:
+                update_params["queue_type"] = "guaynet-sfq"
             if existing:
                 svc.update_simple_queue(existing["id"], **update_params)
                 return f"updated {client.mikrotik_queue_name} → {effective_max_limit}"

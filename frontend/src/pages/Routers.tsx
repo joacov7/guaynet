@@ -107,6 +107,7 @@ export default function Routers() {
       if (data.enabled) parts.push(`${data.enabled} reactivadas`);
       if (data.skipped) parts.push(`${data.skipped} ya existían`);
       if (data.pcq_added) parts.push(`${data.pcq_added} PCQ`);
+      if (data.sfq_added) parts.push(`SFQ creado`);
       if (data.tree?.added) parts.push(`${data.tree.added} Queue Tree creadas`);
       if (data.tree?.updated) parts.push(`${data.tree.updated} Queue Tree actualizadas`);
       message.success(`QoS: ${parts.join(", ") || "sin cambios"}`);

@@ -204,6 +204,7 @@ async def sync_clients_to_router(
     def _sync():
         svc = build_service_from_router(rt)
         with svc:
+            use_sfq = svc.has_queue_type("guaynet-sfq")
             use_parent = has_uplink
             if use_parent:
                 try:
@@ -244,6 +245,8 @@ async def sync_clients_to_router(
                             update_params["burst_time"] = plan.mikrotik_burst_time
                         if want_parent:
                             update_params["parent"] = want_parent
+                        if use_sfq:
+                            update_params["queue_type"] = "guaynet-sfq"
                         svc.update_simple_queue(eq["id"], **update_params)
                     else:
                         svc.add_simple_queue(
@@ -256,6 +259,7 @@ async def sync_clients_to_router(
                             comment=f"guaynet:{client.id}|{client.full_name}",
                             disabled=disabled,
                             parent=want_parent,
+                            queue_type="guaynet-sfq" if use_sfq else None,
                         )
                     synced += 1
                 except Exception as e:
@@ -393,6 +397,7 @@ async def setup_qos(
         svc = build_service_from_router(rt)
         with svc:
             pcq_added = svc.setup_pcq()
+            sfq_added = svc.setup_sfq()
             counts = svc.apply_template("qos_prioritization")
             tree_result = {}
             if rt.uplink_interface:
@@ -402,7 +407,7 @@ async def setup_qos(
                     rt.uplink_upload_mbps,
                     rt.uplink_download_mbps,
                 )
-            return {"pcq_added": pcq_added, **counts, "tree": tree_result}
+            return {"pcq_added": pcq_added, "sfq_added": sfq_added, **counts, "tree": tree_result}
 
     try:
         return await asyncio.to_thread(_setup)
