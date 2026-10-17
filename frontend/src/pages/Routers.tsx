@@ -107,6 +107,8 @@ export default function Routers() {
       if (data.enabled) parts.push(`${data.enabled} reactivadas`);
       if (data.skipped) parts.push(`${data.skipped} ya existían`);
       if (data.pcq_added) parts.push(`${data.pcq_added} PCQ`);
+      if (data.tree?.added) parts.push(`${data.tree.added} Queue Tree creadas`);
+      if (data.tree?.updated) parts.push(`${data.tree.updated} Queue Tree actualizadas`);
       message.success(`QoS: ${parts.join(", ") || "sin cambios"}`);
     },
     onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al aplicar QoS"),
@@ -310,6 +312,13 @@ export default function Routers() {
               </Form.Item>
             </Col>
           </Row>
+          <Form.Item
+            name="uplink_interface"
+            label="Interfaz WAN (para Queue Tree QoS)"
+            extra="Ej: ether1 — se usa para priorizar tráfico VoIP y DNS con menor latencia"
+          >
+            <Input placeholder="ether1" />
+          </Form.Item>
         </Form>
 
         {testResult && (

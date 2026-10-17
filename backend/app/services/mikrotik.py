@@ -405,6 +405,68 @@ class MikrotikService:
             added += 1
         return added
 
+    # ── Queue Tree ────────────────────────────────────────────────────────────
+
+    def get_queue_trees(self) -> List[Dict]:
+        raw = self._call("/queue/tree/print")
+        result = []
+        for r in raw:
+            result.append({
+                "id": r.get(".id", ""),
+                "name": r.get("name", ""),
+                "parent": r.get("parent", ""),
+                "packet_mark": r.get("packet-mark", "") or None,
+                "priority": r.get("priority", "8"),
+                "max_limit": r.get("max-limit", ""),
+                "disabled": r.get("disabled", "false") in ("true", "yes"),
+            })
+        return result
+
+    def setup_queue_tree(self, interface: str, max_limit_upload_mbps: Optional[int]) -> Dict[str, int]:
+        """Create/update Queue Tree for priority QoS on the uplink interface.
+
+        Tree structure:
+          guaynet-qos (parent=<interface>, max-limit=<uplink>)
+          ├── guaynet-qos-voip  priority=1  packet-mark=voip
+          ├── guaynet-qos-dns   priority=2  packet-mark=dns
+          ├── guaynet-qos-https priority=4  packet-mark=https
+          └── guaynet-qos-http  priority=6  packet-mark=http
+        """
+        ROOT_NAME = "guaynet-qos"
+        CHILDREN = [
+            ("guaynet-qos-voip",  "voip",  "1"),
+            ("guaynet-qos-dns",   "dns",   "2"),
+            ("guaynet-qos-https", "https", "4"),
+            ("guaynet-qos-http",  "http",  "6"),
+        ]
+
+        max_limit = f"{max_limit_upload_mbps}M" if max_limit_upload_mbps else "0"
+        existing = {t["name"]: t for t in self.get_queue_trees()}
+
+        added = 0
+        updated = 0
+
+        root = existing.get(ROOT_NAME)
+        if root:
+            if root["parent"] != interface or root["max_limit"] != max_limit:
+                self._call("/queue/tree/set", **{".id": root["id"], "parent": interface, "max-limit": max_limit})
+                updated += 1
+        else:
+            self._call("/queue/tree/add", name=ROOT_NAME, parent=interface, **{"max-limit": max_limit, "priority": "8"})
+            added += 1
+
+        for name, mark, priority in CHILDREN:
+            entry = existing.get(name)
+            if entry:
+                if entry["parent"] != ROOT_NAME or entry.get("packet_mark") != mark:
+                    self._call("/queue/tree/set", **{".id": entry["id"], "parent": ROOT_NAME, "packet-mark": mark, "priority": priority})
+                    updated += 1
+            else:
+                self._call("/queue/tree/add", name=name, parent=ROOT_NAME, **{"packet-mark": mark, "priority": priority})
+                added += 1
+
+        return {"added": added, "updated": updated}
+
     # ── Security / QoS Templates ──────────────────────────────────────────────
 
     def apply_template(self, template: str) -> Dict[str, int]:

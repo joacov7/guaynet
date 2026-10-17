@@ -394,7 +394,10 @@ async def setup_qos(
         with svc:
             pcq_added = svc.setup_pcq()
             counts = svc.apply_template("qos_prioritization")
-            return {"pcq_added": pcq_added, **counts}
+            tree_result = {}
+            if rt.uplink_interface:
+                tree_result = svc.setup_queue_tree(rt.uplink_interface, rt.uplink_upload_mbps)
+            return {"pcq_added": pcq_added, **counts, "tree": tree_result}
 
     try:
         return await asyncio.to_thread(_setup)
