@@ -18,6 +18,7 @@ class RouterBase(BaseModel):
     uplink_download_mbps: Optional[int] = None
     uplink_upload_mbps: Optional[int] = None
     uplink_interface: Optional[str] = None
+    lan_interface: Optional[str] = None
 
 
 class RouterCreate(RouterBase):
@@ -37,6 +38,7 @@ class RouterUpdate(BaseModel):
     uplink_download_mbps: Optional[int] = None
     uplink_upload_mbps: Optional[int] = None
     uplink_interface: Optional[str] = None
+    lan_interface: Optional[str] = None
 
 
 class RouterResponse(RouterBase):

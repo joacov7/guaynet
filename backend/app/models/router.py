@@ -46,6 +46,7 @@ class MikrotikRouter(Base, TimestampMixin):
     uplink_download_mbps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     uplink_upload_mbps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     uplink_interface: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    lan_interface: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     clients: Mapped[List["Client"]] = relationship(back_populates="router")
     ubiquiti_devices: Mapped[List["UbiquitiDevice"]] = relationship(back_populates="mikrotik_router")

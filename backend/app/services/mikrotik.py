@@ -422,48 +422,62 @@ class MikrotikService:
             })
         return result
 
-    def setup_queue_tree(self, interface: str, max_limit_upload_mbps: Optional[int]) -> Dict[str, int]:
-        """Create/update Queue Tree for priority QoS on the uplink interface.
+    def setup_queue_tree(
+        self,
+        wan_interface: str,
+        lan_interface: Optional[str],
+        upload_mbps: Optional[int],
+        download_mbps: Optional[int],
+    ) -> Dict[str, int]:
+        """Create/update Queue Tree for priority QoS on WAN (upload) and LAN (download).
 
-        Tree structure:
-          guaynet-qos (parent=<interface>, max-limit=<uplink>)
-          ├── guaynet-qos-voip  priority=1  packet-mark=voip
-          ├── guaynet-qos-dns   priority=2  packet-mark=dns
-          ├── guaynet-qos-https priority=4  packet-mark=https
-          └── guaynet-qos-http  priority=6  packet-mark=http
+        Upload tree  (parent=<wan_interface>, max-limit=upload_mbps):
+          guaynet-qos-up → voip p1, dns p2, https p4, http p6
+
+        Download tree (parent=<lan_interface>, max-limit=download_mbps) — only when lan_interface set:
+          guaynet-qos-down → voip p1, dns p2, https p4, http p6
+
+        Both trees reuse the same packet marks from mangle rules.
         """
-        ROOT_NAME = "guaynet-qos"
         CHILDREN = [
-            ("guaynet-qos-voip",  "voip",  "1"),
-            ("guaynet-qos-dns",   "dns",   "2"),
-            ("guaynet-qos-https", "https", "4"),
-            ("guaynet-qos-http",  "http",  "6"),
+            ("voip",  "voip",  "1"),
+            ("dns",   "dns",   "2"),
+            ("https", "https", "4"),
+            ("http",  "http",  "6"),
         ]
 
-        max_limit = f"{max_limit_upload_mbps}M" if max_limit_upload_mbps else "0"
         existing = {t["name"]: t for t in self.get_queue_trees()}
-
         added = 0
         updated = 0
 
-        root = existing.get(ROOT_NAME)
-        if root:
-            if root["parent"] != interface or root["max_limit"] != max_limit:
-                self._call("/queue/tree/set", **{".id": root["id"], "parent": interface, "max-limit": max_limit})
-                updated += 1
-        else:
-            self._call("/queue/tree/add", name=ROOT_NAME, parent=interface, **{"max-limit": max_limit, "priority": "8"})
-            added += 1
-
-        for name, mark, priority in CHILDREN:
-            entry = existing.get(name)
-            if entry:
-                if entry["parent"] != ROOT_NAME or entry.get("packet_mark") != mark:
-                    self._call("/queue/tree/set", **{".id": entry["id"], "parent": ROOT_NAME, "packet-mark": mark, "priority": priority})
+        def _ensure_tree(root_name: str, parent: str, max_limit: str) -> None:
+            nonlocal added, updated
+            root = existing.get(root_name)
+            if root:
+                if root["parent"] != parent or root["max_limit"] != max_limit:
+                    self._call("/queue/tree/set", **{".id": root["id"], "parent": parent, "max-limit": max_limit})
                     updated += 1
             else:
-                self._call("/queue/tree/add", name=name, parent=ROOT_NAME, **{"packet-mark": mark, "priority": priority})
+                self._call("/queue/tree/add", name=root_name, parent=parent, **{"max-limit": max_limit, "priority": "8"})
                 added += 1
+
+            for suffix, mark, priority in CHILDREN:
+                name = f"{root_name}-{suffix}"
+                entry = existing.get(name)
+                if entry:
+                    if entry["parent"] != root_name or entry.get("packet_mark") != mark:
+                        self._call("/queue/tree/set", **{".id": entry["id"], "parent": root_name, "packet-mark": mark, "priority": priority})
+                        updated += 1
+                else:
+                    self._call("/queue/tree/add", name=name, parent=root_name, **{"packet-mark": mark, "priority": priority})
+                    added += 1
+
+        ul_limit = f"{upload_mbps}M" if upload_mbps else "0"
+        _ensure_tree("guaynet-qos-up", wan_interface, ul_limit)
+
+        if lan_interface:
+            dl_limit = f"{download_mbps}M" if download_mbps else "0"
+            _ensure_tree("guaynet-qos-down", lan_interface, dl_limit)
 
         return {"added": added, "updated": updated}
 

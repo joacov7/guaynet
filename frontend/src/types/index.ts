@@ -57,6 +57,7 @@ export interface Router {
   uplink_download_mbps?: number;
   uplink_upload_mbps?: number;
   uplink_interface?: string;
+  lan_interface?: string;
   status: DeviceStatus;
   last_seen?: string;
   client_count: number;

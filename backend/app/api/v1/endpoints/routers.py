@@ -396,7 +396,12 @@ async def setup_qos(
             counts = svc.apply_template("qos_prioritization")
             tree_result = {}
             if rt.uplink_interface:
-                tree_result = svc.setup_queue_tree(rt.uplink_interface, rt.uplink_upload_mbps)
+                tree_result = svc.setup_queue_tree(
+                    rt.uplink_interface,
+                    rt.lan_interface,
+                    rt.uplink_upload_mbps,
+                    rt.uplink_download_mbps,
+                )
             return {"pcq_added": pcq_added, **counts, "tree": tree_result}
 
     try:

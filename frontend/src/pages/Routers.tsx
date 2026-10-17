@@ -312,13 +312,26 @@ export default function Routers() {
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item
-            name="uplink_interface"
-            label="Interfaz WAN (para Queue Tree QoS)"
-            extra="Ej: ether1 — se usa para priorizar tráfico VoIP y DNS con menor latencia"
-          >
-            <Input placeholder="ether1" />
-          </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item
+                name="uplink_interface"
+                label="Interfaz WAN"
+                extra="Upload QoS (tráfico saliente al ISP)"
+              >
+                <Input placeholder="ether1" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="lan_interface"
+                label="Interfaz LAN"
+                extra="Download QoS (tráfico entrante a clientes)"
+              >
+                <Input placeholder="bridge1" />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
 
         {testResult && (
