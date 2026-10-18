@@ -331,6 +331,18 @@ export const ticketsApi = {
   },
 };
 
+// ── Work Orders ──────────────────────────────────────────────────────────────
+export const workOrdersApi = {
+  list: (params?: { status?: string; assigned_to_id?: number }) =>
+    http.get<import("@/types").WorkOrder[]>("/work-orders/", { params }).then((r) => r.data),
+  get: (id: number) => http.get<import("@/types").WorkOrder>(`/work-orders/${id}`).then((r) => r.data),
+  create: (data: Partial<import("@/types").WorkOrder>) =>
+    http.post<import("@/types").WorkOrder>("/work-orders/", data).then((r) => r.data),
+  update: (id: number, data: Partial<import("@/types").WorkOrder>) =>
+    http.put<import("@/types").WorkOrder>(`/work-orders/${id}`, data).then((r) => r.data),
+  delete: (id: number) => http.delete(`/work-orders/${id}`),
+};
+
 // ── Reports ───────────────────────────────────────────────────────────────────
 export const reportsApi = {
   monthlyRevenue: (months = 12) =>

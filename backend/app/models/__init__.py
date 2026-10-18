@@ -13,6 +13,7 @@ from app.models.ticket import Ticket, TicketComment, TicketStatus, TicketPriorit
 from app.models.inventory import InventoryItem, EquipmentCondition, EquipmentStatus
 from app.models.push_subscription import PushSubscription
 from app.models.zone import Zone
+from app.models.work_order import WorkOrder, WorkOrderType, WorkOrderStatus
 
 __all__ = [
     "Base",

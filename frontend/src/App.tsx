@@ -24,11 +24,14 @@ import Tickets from "@/pages/Tickets";
 import Inventory from "@/pages/Inventory";
 import Reports from "@/pages/Reports";
 import Zones from "@/pages/Zones";
+import WorkOrders from "@/pages/WorkOrders";
 import TechLayout from "@/pages/tech/TechLayout";
 import TechLogin from "@/pages/tech/TechLogin";
 import TechHome from "@/pages/tech/TechHome";
 import TechHistory from "@/pages/tech/TechHistory";
 import TechTicket from "@/pages/tech/TechTicket";
+import TechWorkOrders from "@/pages/tech/TechWorkOrders";
+import TechWorkOrderDetail from "@/pages/tech/TechWorkOrderDetail";
 import Portal from "@/pages/Portal";
 import { PermissionsProvider } from "@/contexts/PermissionsContext";
 
@@ -80,6 +83,7 @@ export default function App() {
           <Route path="inventory" element={<Inventory />} />
           <Route path="reports" element={<Reports />} />
           <Route path="zones" element={<Zones />} />
+          <Route path="work-orders" element={<WorkOrders />} />
           <Route path="settings" element={<Settings />} />
         </Route>
 
@@ -93,6 +97,8 @@ export default function App() {
           <Route path="tickets" element={<TechHome />} />
           <Route path="tickets/:id" element={<TechTicket />} />
           <Route path="history" element={<TechHistory />} />
+          <Route path="work-orders" element={<TechWorkOrders />} />
+          <Route path="work-orders/:id" element={<TechWorkOrderDetail />} />
         </Route>
       </Routes>
     </BrowserRouter>

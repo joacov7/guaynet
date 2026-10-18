@@ -499,6 +499,30 @@ export interface Ticket {
   comments: TicketComment[];
 }
 
+export type WorkOrderType = "installation" | "repair" | "maintenance" | "inspection" | "other";
+export type WorkOrderStatus = "pending" | "in_progress" | "completed" | "cancelled";
+
+export interface WorkOrder {
+  id: number;
+  title: string;
+  description?: string;
+  type: WorkOrderType;
+  status: WorkOrderStatus;
+  priority: "low" | "medium" | "high";
+  client_id?: number;
+  client_name?: string;
+  assigned_to_id?: number;
+  assigned_to_name?: string;
+  scheduled_date?: string;
+  completed_at?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  completion_notes?: string;
+  photo_urls?: string[];
+  created_at: string;
+}
+
 export interface MapDataPoint {
   id: number;
   name?: string;
