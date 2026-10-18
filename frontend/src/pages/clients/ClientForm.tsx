@@ -18,7 +18,7 @@ import {
   message,
 } from "antd";
 import dayjs from "dayjs";
-import { clientsApi, plansApi, routersApi, ubiquitiApi } from "@/services/api";
+import { clientsApi, plansApi, routersApi, ubiquitiApi, zonesApi } from "@/services/api";
 import type { Client } from "@/types";
 
 const { Title } = Typography;
@@ -40,6 +40,7 @@ export default function ClientForm() {
   const { data: plans = [] } = useQuery({ queryKey: ["plans"], queryFn: () => plansApi.list() });
   const { data: routers = [] } = useQuery({ queryKey: ["routers"], queryFn: routersApi.list });
   const { data: freeDevices = [] } = useQuery({ queryKey: ["ubiquiti-free"], queryFn: ubiquitiApi.listFree });
+  const { data: zones = [] } = useQuery({ queryKey: ["zones"], queryFn: zonesApi.list });
   const { data: currentDevice } = useQuery({
     queryKey: ["ubiquiti", client?.ubiquiti_device_id],
     queryFn: () => ubiquitiApi.get(client!.ubiquiti_device_id!),
@@ -225,6 +226,18 @@ export default function ClientForm() {
                         { value: "suspended", label: "Suspendido" },
                         { value: "cancelled", label: "Cancelado" },
                       ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={8}>
+                  <Form.Item name="zone_id" label="Zona">
+                    <Select
+                      allowClear
+                      placeholder="Sin zona"
+                      options={zones.map((z) => ({
+                        value: z.id,
+                        label: z.name,
+                      }))}
                     />
                   </Form.Item>
                 </Col>

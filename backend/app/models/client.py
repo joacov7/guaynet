@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.models.invoice import Invoice
     from app.models.plan import Plan
     from app.models.router import MikrotikRouter, UbiquitiDevice
+    from app.models.zone import Zone
 
 
 class ClientStatus(str, enum.Enum):
@@ -42,6 +43,7 @@ class Client(Base, TimestampMixin):
     ubiquiti_device_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("ubiquiti_devices.id", ondelete="SET NULL"), nullable=True
     )
+    zone_id: Mapped[Optional[int]] = mapped_column(ForeignKey("zones.id"), nullable=True)
 
     # Location
     latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -57,6 +59,7 @@ class Client(Base, TimestampMixin):
     router: Mapped["MikrotikRouter"] = relationship(back_populates="clients")
     ubiquiti_device: Mapped[Optional["UbiquitiDevice"]] = relationship(back_populates="clients")
     invoices: Mapped[List["Invoice"]] = relationship(back_populates="client")
+    zone: Mapped[Optional["Zone"]] = relationship("Zone", back_populates="clients", lazy="select")
 
     @property
     def full_name(self) -> str:

@@ -23,6 +23,7 @@ import Settings from "@/pages/Settings";
 import Tickets from "@/pages/Tickets";
 import Inventory from "@/pages/Inventory";
 import Reports from "@/pages/Reports";
+import Zones from "@/pages/Zones";
 import TechLayout from "@/pages/tech/TechLayout";
 import TechLogin from "@/pages/tech/TechLogin";
 import TechHome from "@/pages/tech/TechHome";
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="tickets" element={<Tickets />} />
           <Route path="inventory" element={<Inventory />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="zones" element={<Zones />} />
           <Route path="settings" element={<Settings />} />
         </Route>
 

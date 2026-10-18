@@ -22,6 +22,13 @@ class RouterBrief(BaseModel):
     location: Optional[str]
 
 
+class ZoneBrief(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    color: str
+
+
 class ClientBase(BaseModel):
     first_name: str
     last_name: str
@@ -38,6 +45,7 @@ class ClientBase(BaseModel):
     plan_id: int
     router_id: int
     ubiquiti_device_id: Optional[int] = None
+    zone_id: Optional[int] = None
     service_start_date: Optional[date] = None
     billing_day: int = 1
 
@@ -62,6 +70,7 @@ class ClientUpdate(BaseModel):
     plan_id: Optional[int] = None
     router_id: Optional[int] = None
     ubiquiti_device_id: Optional[int] = None
+    zone_id: Optional[int] = None
     status: Optional[ClientStatus] = None
     billing_day: Optional[int] = None
 
@@ -75,6 +84,7 @@ class ClientResponse(ClientBase):
     mikrotik_queue_name: str
     plan: Optional[PlanBrief] = None
     router: Optional[RouterBrief] = None
+    zone: Optional[ZoneBrief] = None
     created_at: datetime
     mikrotik_error: Optional[str] = None
     mikrotik_sync: Optional[str] = None

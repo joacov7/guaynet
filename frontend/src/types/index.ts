@@ -107,8 +107,10 @@ export interface Client {
   service_start_date?: string;
   billing_day: number;
   mikrotik_queue_name: string;
+  zone_id?: number;
   plan?: Pick<Plan, "id" | "name" | "download_mbps" | "upload_mbps" | "price">;
   router?: Pick<Router, "id" | "name" | "location">;
+  zone?: Pick<Zone, "id" | "name" | "color">;
   created_at: string;
   mikrotik_error?: string;
   mikrotik_sync?: string;
@@ -420,6 +422,18 @@ export interface BandwidthHistoryEntry {
   queue_name: string;
   upload_bytes: number;
   download_bytes: number;
+}
+
+export interface Zone {
+  id: number;
+  name: string;
+  description?: string;
+  color: string;
+  router_id?: number;
+  latitude?: number;
+  longitude?: number;
+  client_count: number;
+  created_at: string;
 }
 
 export interface IpPoolEntry {

@@ -12,6 +12,7 @@ from app.models.config import SystemConfig
 from app.models.ticket import Ticket, TicketComment, TicketStatus, TicketPriority, TicketCategory
 from app.models.inventory import InventoryItem, EquipmentCondition, EquipmentStatus
 from app.models.push_subscription import PushSubscription
+from app.models.zone import Zone
 
 __all__ = [
     "Base",
@@ -30,4 +31,5 @@ __all__ = [
     "PaymentMethod",
     "AuditLog",
     "BandwidthSample",
+    "Zone",
 ]

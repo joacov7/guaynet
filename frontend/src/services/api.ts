@@ -29,6 +29,7 @@ import type {
   UbiquitiWirelessConfig,
   User,
   VpnConnection,
+  Zone,
 } from "@/types";
 
 const http = axios.create({
@@ -91,6 +92,14 @@ export const vpnApi = {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 export const dashboardApi = {
   stats: () => http.get<DashboardStats>("/dashboard/stats").then((r) => r.data),
+};
+
+// ── Zones ─────────────────────────────────────────────────────────────────────
+export const zonesApi = {
+  list: () => http.get<Zone[]>("/zones/").then((r) => r.data),
+  create: (data: Partial<Zone>) => http.post<Zone>("/zones/", data).then((r) => r.data),
+  update: (id: number, data: Partial<Zone>) => http.put<Zone>(`/zones/${id}`, data).then((r) => r.data),
+  delete: (id: number) => http.delete(`/zones/${id}`),
 };
 
 // ── Plans ─────────────────────────────────────────────────────────────────────
