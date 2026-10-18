@@ -165,11 +165,66 @@ def check_routers_health():
                         await db.commit()
                         alarm_events.append((router, AlarmType.wan_down, False, {"interface": router.uplink_interface}))
 
+            # Alarm: uplink_saturated
+            if (
+                router.uplink_interface
+                and router.uplink_download_mbps
+                and iface_stats is not None
+            ):
+                uplink = next(
+                    (i for i in iface_stats if i["name"] == router.uplink_interface), None
+                )
+                if uplink:
+                    rx_bytes_sec = uplink.get("rx_rate", 0)
+                    capacity_bytes_sec = router.uplink_download_mbps * 125_000
+                    sat_pct = (rx_bytes_sec / capacity_bytes_sec * 100) if capacity_bytes_sec > 0 else 0
+
+                    async with AsyncSessionLocal() as db:
+                        cfg_sat = (await db.execute(
+                            select(SystemConfig).where(SystemConfig.key == "uplink_saturation_threshold")
+                        )).scalar_one_or_none()
+                        sat_threshold = int(cfg_sat.value) if cfg_sat else 90
+
+                        active_sat = (await db.execute(
+                            select(Alarm).where(
+                                Alarm.router_id == router.id,
+                                Alarm.type == AlarmType.uplink_saturated,
+                                Alarm.status == AlarmStatus.active,
+                            )
+                        )).scalar_one_or_none()
+
+                        if sat_pct >= sat_threshold and not active_sat:
+                            db.add(Alarm(
+                                router_id=router.id,
+                                type=AlarmType.uplink_saturated,
+                                status=AlarmStatus.active,
+                                triggered_at=now,
+                                details={
+                                    "interface": router.uplink_interface,
+                                    "utilization_pct": round(sat_pct, 1),
+                                    "threshold": sat_threshold,
+                                },
+                            ))
+                            await db.commit()
+                            alarm_events.append((router, AlarmType.uplink_saturated, True, {
+                                "utilization_pct": round(sat_pct, 1),
+                                "interface": router.uplink_interface,
+                            }))
+                        elif sat_pct < sat_threshold and active_sat:
+                            active_sat.status = AlarmStatus.resolved
+                            active_sat.resolved_at = now
+                            db.add(active_sat)
+                            await db.commit()
+                            alarm_events.append((router, AlarmType.uplink_saturated, False, {
+                                "utilization_pct": round(sat_pct, 1),
+                            }))
+
         # Telegram notifications for alarms
         type_labels = {
             AlarmType.router_offline: "fuera de línea",
             AlarmType.cpu_high: "CPU alta",
             AlarmType.wan_down: "WAN caída",
+            AlarmType.uplink_saturated: "uplink saturado",
         }
         for router, atype, is_trigger, details in alarm_events:
             label = type_labels.get(atype, str(atype))
@@ -179,6 +234,8 @@ def check_routers_health():
                     msg += f" ({details.get('cpu_load')}%)"
                 elif atype == AlarmType.wan_down:
                     msg += f" (interfaz {details.get('interface')})"
+                elif atype == AlarmType.uplink_saturated:
+                    msg += f" ({details.get('utilization_pct')}% uso en {details.get('interface')})"
             else:
                 msg = f"✅ *Resuelta*: Router *{router.name}* — {label} normalizado"
             await _send_telegram(msg)

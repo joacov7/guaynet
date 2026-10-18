@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta, timezone, datetime
 from typing import List
 
 from fastapi import APIRouter, Depends, Query
@@ -222,4 +222,113 @@ async def revenue_by_zone(
             "client_count": no_zone_count or 0,
             "total_revenue": float(no_zone_rev or 0),
         })
+    return out
+
+
+@router.get("/oversubscription")
+async def oversubscription_report(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Per-router oversubscription: sum of plan Mbps vs uplink capacity."""
+    from app.models.plan import Plan
+    from app.models.router import MikrotikRouter
+
+    routers = (await db.execute(select(MikrotikRouter))).scalars().all()
+    out = []
+    for r in routers:
+        dl_sum = await db.scalar(
+            select(func.sum(Plan.download_mbps))
+            .join(Client, Client.plan_id == Plan.id)
+            .where(Client.router_id == r.id, Client.status == ClientStatus.active)
+        ) or 0
+        ul_sum = await db.scalar(
+            select(func.sum(Plan.upload_mbps))
+            .join(Client, Client.plan_id == Plan.id)
+            .where(Client.router_id == r.id, Client.status == ClientStatus.active)
+        ) or 0
+        client_count = await db.scalar(
+            select(func.count(Client.id)).where(
+                Client.router_id == r.id, Client.status == ClientStatus.active
+            )
+        ) or 0
+        dl_ratio = round(dl_sum / r.uplink_download_mbps, 2) if r.uplink_download_mbps else None
+        ul_ratio = round(ul_sum / r.uplink_upload_mbps, 2) if r.uplink_upload_mbps else None
+        out.append({
+            "router_id": r.id,
+            "router_name": r.name,
+            "location": r.location,
+            "uplink_download_mbps": r.uplink_download_mbps,
+            "uplink_upload_mbps": r.uplink_upload_mbps,
+            "subscribed_download_mbps": int(dl_sum),
+            "subscribed_upload_mbps": int(ul_sum),
+            "active_clients": client_count,
+            "oversubscription_dl": dl_ratio,
+            "oversubscription_ul": ul_ratio,
+        })
+    out.sort(key=lambda x: (x["oversubscription_dl"] or 0), reverse=True)
+    return out
+
+
+@router.get("/upgrade-candidates")
+async def upgrade_candidates(
+    days: int = Query(default=30, ge=7, le=90),
+    threshold_pct: float = Query(default=80.0, ge=50, le=100),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Clients whose peak bandwidth usage exceeds threshold_pct of their plan limit."""
+    from app.models.bandwidth import BandwidthSample
+    from app.models.plan import Plan
+
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    result = await db.execute(
+        select(
+            BandwidthSample.client_id,
+            func.max(BandwidthSample.download_bytes).label("max_dl"),
+            func.max(BandwidthSample.upload_bytes).label("max_ul"),
+        )
+        .where(
+            BandwidthSample.client_id.isnot(None),
+            BandwidthSample.sampled_at >= since,
+        )
+        .group_by(BandwidthSample.client_id)
+    )
+    rows = result.all()
+
+    # Build client_id -> plan mapping
+    client_ids = [r.client_id for r in rows if r.client_id]
+    if not client_ids:
+        return []
+
+    clients_res = await db.execute(
+        select(Client, Plan)
+        .join(Plan, Client.plan_id == Plan.id)
+        .where(Client.id.in_(client_ids), Client.status == ClientStatus.active)
+    )
+    client_map = {c.id: (c, p) for c, p in clients_res.all()}
+
+    out = []
+    for r in rows:
+        if r.client_id not in client_map:
+            continue
+        client, plan = client_map[r.client_id]
+        dl_limit_bytes = plan.download_mbps * 125_000
+        ul_limit_bytes = plan.upload_mbps * 125_000
+        dl_pct = round(r.max_dl / dl_limit_bytes * 100, 1) if dl_limit_bytes else 0
+        ul_pct = round(r.max_ul / ul_limit_bytes * 100, 1) if ul_limit_bytes else 0
+        peak_pct = max(dl_pct, ul_pct)
+        if peak_pct >= threshold_pct:
+            out.append({
+                "client_id": client.id,
+                "client_name": client.full_name,
+                "plan_name": plan.name,
+                "plan_download_mbps": plan.download_mbps,
+                "plan_upload_mbps": plan.upload_mbps,
+                "peak_download_pct": dl_pct,
+                "peak_upload_pct": ul_pct,
+                "peak_pct": peak_pct,
+            })
+    out.sort(key=lambda x: x["peak_pct"], reverse=True)
     return out

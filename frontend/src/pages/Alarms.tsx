@@ -11,11 +11,13 @@ const TYPE_LABEL: Record<string, string> = {
   router_offline: "Router offline",
   cpu_high: "CPU alta",
   wan_down: "WAN caída",
+  uplink_saturated: "Uplink saturado",
 };
 const TYPE_COLOR: Record<string, string> = {
   router_offline: "red",
   cpu_high: "orange",
   wan_down: "volcano",
+  uplink_saturated: "purple",
 };
 
 function formatDetails(details?: Record<string, unknown>): string {

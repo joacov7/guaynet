@@ -1,5 +1,6 @@
+import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Card, Col, Row, Statistic, Typography } from "antd";
+import { Card, Col, Progress, Row, Statistic, Table, Tag, Tooltip, Typography } from "antd";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, ComposedChart,
@@ -71,6 +72,18 @@ export default function Reports() {
     queryKey: ["reports-zone"],
     queryFn: reportsApi.revenueByZone,
   });
+
+  const { data: oversubscription = [] } = useQuery({
+    queryKey: ["reports-oversubscription"],
+    queryFn: reportsApi.oversubscription,
+  });
+
+  const { data: upgradeCandidates = [] } = useQuery({
+    queryKey: ["reports-upgrade-candidates"],
+    queryFn: () => reportsApi.upgradeCandidates(30, 80),
+  });
+
+  const navigate = useNavigate();
 
   const totalRevenue = monthly.reduce((s, m) => s + m.revenue, 0);
   const lastMonth = monthly[monthly.length - 1];
@@ -304,6 +317,125 @@ export default function Reports() {
                 <Bar dataKey="cancelled" name="Cancelados" fill="#ff4d4f" radius={[4, 4, 0, 0]} stackId="a" />
               </ComposedChart>
             </ResponsiveContainer>
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={16} style={{ marginTop: 24 }}>
+        <Col xs={24}>
+          <Card title="Sobresubscripción por Router">
+            <Table
+              dataSource={oversubscription}
+              rowKey="router_id"
+              size="small"
+              pagination={false}
+              columns={[
+                {
+                  title: "Router",
+                  key: "router",
+                  render: (_: unknown, r: typeof oversubscription[0]) => (
+                    <span>{r.router_name}{r.location ? ` (${r.location})` : ""}</span>
+                  ),
+                },
+                { title: "Clientes activos", dataIndex: "active_clients", key: "clients" },
+                {
+                  title: "Capacidad DL",
+                  key: "cap_dl",
+                  render: (_: unknown, r: typeof oversubscription[0]) =>
+                    r.uplink_download_mbps ? `${r.uplink_download_mbps} Mbps` : "—",
+                },
+                {
+                  title: "Suscripto DL",
+                  key: "sub_dl",
+                  render: (_: unknown, r: typeof oversubscription[0]) => `${r.subscribed_download_mbps} Mbps`,
+                },
+                {
+                  title: "Ratio DL",
+                  key: "ratio_dl",
+                  render: (_: unknown, r: typeof oversubscription[0]) => {
+                    if (r.oversubscription_dl == null) return "—";
+                    const v = r.oversubscription_dl;
+                    return (
+                      <Tag color={v > 5 ? "red" : v > 3 ? "orange" : "green"}>
+                        {v}x
+                      </Tag>
+                    );
+                  },
+                },
+                {
+                  title: "Ratio UL",
+                  key: "ratio_ul",
+                  render: (_: unknown, r: typeof oversubscription[0]) => {
+                    if (r.oversubscription_ul == null) return "—";
+                    const v = r.oversubscription_ul;
+                    return (
+                      <Tag color={v > 5 ? "red" : v > 3 ? "orange" : "green"}>
+                        {v}x
+                      </Tag>
+                    );
+                  },
+                },
+              ]}
+            />
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={16} style={{ marginTop: 24, marginBottom: 24 }}>
+        <Col xs={24}>
+          <Card title="Candidatos a upgrade de plan (últimos 30 días, pico ≥ 80%)">
+            <Table
+              dataSource={upgradeCandidates}
+              rowKey="client_id"
+              size="small"
+              pagination={{ pageSize: 20 }}
+              columns={[
+                {
+                  title: "Cliente",
+                  key: "client",
+                  render: (_: unknown, r: typeof upgradeCandidates[0]) => (
+                    <a onClick={() => navigate(`/clients/${r.client_id}`)}>{r.client_name}</a>
+                  ),
+                },
+                { title: "Plan actual", dataIndex: "plan_name", key: "plan" },
+                {
+                  title: "Velocidad",
+                  key: "speed",
+                  render: (_: unknown, r: typeof upgradeCandidates[0]) =>
+                    `↓${r.plan_download_mbps} / ↑${r.plan_upload_mbps} Mbps`,
+                },
+                {
+                  title: "Pico descarga",
+                  dataIndex: "peak_download_pct",
+                  key: "dl_pct",
+                  render: (v: number) => (
+                    <Tooltip title={`${v}%`}>
+                      <Progress
+                        percent={Math.round(v)}
+                        size="small"
+                        strokeColor={v >= 95 ? "#f5222d" : v >= 80 ? "#fa8c16" : "#52c41a"}
+                        format={(p) => `${p}%`}
+                      />
+                    </Tooltip>
+                  ),
+                },
+                {
+                  title: "Pico subida",
+                  dataIndex: "peak_upload_pct",
+                  key: "ul_pct",
+                  render: (v: number) => (
+                    <Tooltip title={`${v}%`}>
+                      <Progress
+                        percent={Math.round(v)}
+                        size="small"
+                        strokeColor={v >= 95 ? "#f5222d" : v >= 80 ? "#fa8c16" : "#52c41a"}
+                        format={(p) => `${p}%`}
+                      />
+                    </Tooltip>
+                  ),
+                },
+              ]}
+            />
           </Card>
         </Col>
       </Row>

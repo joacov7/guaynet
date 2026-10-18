@@ -375,13 +375,23 @@ export default function Settings() {
       <Card title="Monitoreo" loading={isLoading} style={{ marginTop: 16 }}>
         <Form
           layout="vertical"
-          initialValues={{ cpu_alert_threshold: data?.cpu_alert_threshold ?? "85" }}
+          initialValues={{
+            cpu_alert_threshold: data?.cpu_alert_threshold ?? "85",
+            uplink_saturation_threshold: data?.uplink_saturation_threshold ?? "90",
+          }}
           onFinish={(values) => mutation.mutate(values)}
         >
           <Form.Item
             name="cpu_alert_threshold"
             label="Umbral de CPU (%)"
             extra="Se genera una alarma cuando la CPU del router supera este valor. Default: 85"
+          >
+            <InputNumber min={50} max={99} style={{ width: 120 }} addonAfter="%" />
+          </Form.Item>
+          <Form.Item
+            name="uplink_saturation_threshold"
+            label="Umbral de saturación de uplink (%)"
+            extra="Se genera una alarma cuando la interfaz WAN supera este porcentaje de su capacidad. Default: 90"
           >
             <InputNumber min={50} max={99} style={{ width: 120 }} addonAfter="%" />
           </Form.Item>

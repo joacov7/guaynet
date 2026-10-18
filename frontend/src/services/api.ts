@@ -363,6 +363,19 @@ export const reportsApi = {
     http.get<Array<{ period: string; suspended: number; cancelled: number; total_active: number }>>("/reports/churn", { params: { months } }).then((r) => r.data),
   revenueByZone: () =>
     http.get<Array<{ zone_name: string; color: string; client_count: number; total_revenue: number }>>("/reports/revenue-by-zone").then((r) => r.data),
+  oversubscription: () =>
+    http.get<Array<{
+      router_id: number; router_name: string; location?: string;
+      uplink_download_mbps?: number; uplink_upload_mbps?: number;
+      subscribed_download_mbps: number; subscribed_upload_mbps: number;
+      active_clients: number; oversubscription_dl?: number; oversubscription_ul?: number;
+    }>>("/reports/oversubscription").then((r) => r.data),
+  upgradeCandidates: (days = 30, threshold_pct = 80) =>
+    http.get<Array<{
+      client_id: number; client_name: string; plan_name: string;
+      plan_download_mbps: number; plan_upload_mbps: number;
+      peak_download_pct: number; peak_upload_pct: number; peak_pct: number;
+    }>>("/reports/upgrade-candidates", { params: { days, threshold_pct } }).then((r) => r.data),
 };
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
