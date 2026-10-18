@@ -100,11 +100,35 @@ def check_routers_health():
             if system_info is None:
                 continue
 
-            # Alarm: cpu_high
+            # Alarm: cpu_high (streak-based — requires N consecutive high readings)
             try:
                 cpu_val = int(str(system_info.get("cpu_load", "0")).replace("%", "") or 0)
             except (ValueError, TypeError):
                 cpu_val = 0
+
+            async with AsyncSessionLocal() as db:
+                cfg_consec = (await db.execute(
+                    select(SystemConfig).where(SystemConfig.key == "cpu_consecutive_checks")
+                )).scalar_one_or_none()
+                cpu_consecutive_required = max(1, int(cfg_consec.value) if cfg_consec else 2)
+
+                streak_key = f"_cpu_streak_{router.id}"
+                streak_cfg = (await db.execute(
+                    select(SystemConfig).where(SystemConfig.key == streak_key)
+                )).scalar_one_or_none()
+                cpu_streak = int(streak_cfg.value) if streak_cfg else 0
+
+                if cpu_val >= cpu_threshold:
+                    cpu_streak += 1
+                else:
+                    cpu_streak = 0
+
+                if streak_cfg:
+                    streak_cfg.value = str(cpu_streak)
+                    db.add(streak_cfg)
+                else:
+                    db.add(SystemConfig(key=streak_key, value=str(cpu_streak)))
+                await db.commit()
 
             async with AsyncSessionLocal() as db:
                 active_cpu = (await db.execute(
@@ -115,22 +139,87 @@ def check_routers_health():
                     )
                 )).scalar_one_or_none()
 
-                if cpu_val >= cpu_threshold and not active_cpu:
+                if cpu_streak >= cpu_consecutive_required and not active_cpu:
                     db.add(Alarm(
                         router_id=router.id,
                         type=AlarmType.cpu_high,
                         status=AlarmStatus.active,
                         triggered_at=now,
-                        details={"cpu_load": cpu_val, "threshold": cpu_threshold},
+                        details={"cpu_load": cpu_val, "threshold": cpu_threshold, "consecutive": cpu_streak},
                     ))
                     await db.commit()
                     alarm_events.append((router, AlarmType.cpu_high, True, {"cpu_load": cpu_val}))
-                elif cpu_val < cpu_threshold and active_cpu:
+                elif cpu_streak == 0 and active_cpu:
                     active_cpu.status = AlarmStatus.resolved
                     active_cpu.resolved_at = now
                     db.add(active_cpu)
                     await db.commit()
                     alarm_events.append((router, AlarmType.cpu_high, False, {"cpu_load": cpu_val}))
+
+            # Alarm: ram_high (streak-based — requires N consecutive high readings)
+            try:
+                free_mem = int(str(system_info.get("free_memory", "0")).replace("KiB", "").replace("MiB", "").strip() or 0)
+                total_mem = int(str(system_info.get("total_memory", "1")).replace("KiB", "").replace("MiB", "").strip() or 1)
+                free_pct = round(free_mem / total_mem * 100, 1) if total_mem > 0 else 100.0
+                free_mb = round(free_mem / 1024, 1)
+            except (ValueError, TypeError, ZeroDivisionError):
+                free_pct = 100.0
+                free_mb = 0.0
+
+            async with AsyncSessionLocal() as db:
+                cfg_ram_thresh = (await db.execute(
+                    select(SystemConfig).where(SystemConfig.key == "ram_alert_threshold")
+                )).scalar_one_or_none()
+                ram_threshold_pct = int(cfg_ram_thresh.value) if cfg_ram_thresh else 20
+
+                cfg_ram_consec = (await db.execute(
+                    select(SystemConfig).where(SystemConfig.key == "cpu_consecutive_checks")
+                )).scalar_one_or_none()
+                ram_consecutive_required = max(1, int(cfg_ram_consec.value) if cfg_ram_consec else 2)
+
+                ram_streak_key = f"_ram_streak_{router.id}"
+                ram_streak_cfg = (await db.execute(
+                    select(SystemConfig).where(SystemConfig.key == ram_streak_key)
+                )).scalar_one_or_none()
+                ram_streak = int(ram_streak_cfg.value) if ram_streak_cfg else 0
+
+                if free_pct <= ram_threshold_pct:
+                    ram_streak += 1
+                else:
+                    ram_streak = 0
+
+                if ram_streak_cfg:
+                    ram_streak_cfg.value = str(ram_streak)
+                    db.add(ram_streak_cfg)
+                else:
+                    db.add(SystemConfig(key=ram_streak_key, value=str(ram_streak)))
+                await db.commit()
+
+            async with AsyncSessionLocal() as db:
+                active_ram = (await db.execute(
+                    select(Alarm).where(
+                        Alarm.router_id == router.id,
+                        Alarm.type == AlarmType.ram_high,
+                        Alarm.status == AlarmStatus.active,
+                    )
+                )).scalar_one_or_none()
+
+                if ram_streak >= ram_consecutive_required and not active_ram:
+                    db.add(Alarm(
+                        router_id=router.id,
+                        type=AlarmType.ram_high,
+                        status=AlarmStatus.active,
+                        triggered_at=now,
+                        details={"free_pct": free_pct, "free_mb": free_mb, "threshold": ram_threshold_pct},
+                    ))
+                    await db.commit()
+                    alarm_events.append((router, AlarmType.ram_high, True, {"free_pct": free_pct, "free_mb": free_mb}))
+                elif ram_streak == 0 and active_ram:
+                    active_ram.status = AlarmStatus.resolved
+                    active_ram.resolved_at = now
+                    db.add(active_ram)
+                    await db.commit()
+                    alarm_events.append((router, AlarmType.ram_high, False, {"free_pct": free_pct, "free_mb": free_mb}))
 
             # Alarm: wan_down
             if router.uplink_interface and iface_stats is not None:
@@ -225,6 +314,7 @@ def check_routers_health():
             AlarmType.cpu_high: "CPU alta",
             AlarmType.wan_down: "WAN caída",
             AlarmType.uplink_saturated: "uplink saturado",
+            AlarmType.ram_high: "RAM alta",
         }
         for router, atype, is_trigger, details in alarm_events:
             label = type_labels.get(atype, str(atype))
@@ -236,6 +326,8 @@ def check_routers_health():
                     msg += f" (interfaz {details.get('interface')})"
                 elif atype == AlarmType.uplink_saturated:
                     msg += f" ({details.get('utilization_pct')}% uso en {details.get('interface')})"
+                elif atype == AlarmType.ram_high:
+                    msg += f" (libre: {details.get('free_pct')}%, {details.get('free_mb')} MB)"
             else:
                 msg = f"✅ *Resuelta*: Router *{router.name}* — {label} normalizado"
             await _send_telegram(msg)

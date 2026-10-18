@@ -16,6 +16,7 @@ class AlarmType(str, enum.Enum):
     cpu_high = "cpu_high"
     wan_down = "wan_down"
     uplink_saturated = "uplink_saturated"
+    ram_high = "ram_high"
 
 
 class AlarmStatus(str, enum.Enum):

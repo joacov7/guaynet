@@ -526,7 +526,7 @@ export interface WorkOrder {
   created_at: string;
 }
 
-export type AlarmType = "router_offline" | "cpu_high" | "wan_down" | "uplink_saturated";
+export type AlarmType = "router_offline" | "cpu_high" | "wan_down" | "uplink_saturated" | "ram_high";
 export type AlarmStatus = "active" | "resolved";
 
 export interface Alarm {

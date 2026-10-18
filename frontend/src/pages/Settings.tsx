@@ -378,23 +378,51 @@ export default function Settings() {
           initialValues={{
             cpu_alert_threshold: data?.cpu_alert_threshold ?? "85",
             uplink_saturation_threshold: data?.uplink_saturation_threshold ?? "90",
+            cpu_consecutive_checks: data?.cpu_consecutive_checks ?? "2",
+            ram_alert_threshold: data?.ram_alert_threshold ?? "20",
           }}
           onFinish={(values) => mutation.mutate(values)}
         >
-          <Form.Item
-            name="cpu_alert_threshold"
-            label="Umbral de CPU (%)"
-            extra="Se genera una alarma cuando la CPU del router supera este valor. Default: 85"
-          >
-            <InputNumber min={50} max={99} style={{ width: 120 }} addonAfter="%" />
-          </Form.Item>
-          <Form.Item
-            name="uplink_saturation_threshold"
-            label="Umbral de saturación de uplink (%)"
-            extra="Se genera una alarma cuando la interfaz WAN supera este porcentaje de su capacidad. Default: 90"
-          >
-            <InputNumber min={50} max={99} style={{ width: 120 }} addonAfter="%" />
-          </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item
+                name="cpu_alert_threshold"
+                label="Umbral de CPU (%)"
+                extra="Alarma cuando CPU supera este valor. Default: 85"
+              >
+                <InputNumber min={50} max={99} style={{ width: "100%" }} addonAfter="%" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="cpu_consecutive_checks"
+                label="Lecturas consecutivas para alarmar CPU/RAM"
+                extra="Evita falsos positivos por picos momentáneos. Default: 2"
+              >
+                <InputNumber min={1} max={5} style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item
+                name="uplink_saturation_threshold"
+                label="Umbral de saturación de uplink (%)"
+                extra="Alarma cuando WAN supera este % de su capacidad. Default: 90"
+              >
+                <InputNumber min={50} max={99} style={{ width: "100%" }} addonAfter="%" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="ram_alert_threshold"
+                label="Umbral de RAM libre (%)"
+                extra="Alarma cuando la RAM libre cae bajo este %. Default: 20"
+              >
+                <InputNumber min={5} max={50} style={{ width: "100%" }} addonAfter="%" />
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={mutation.isPending}>
               Guardar
