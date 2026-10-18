@@ -400,3 +400,100 @@ def collect_bandwidth_samples():
         return {"samples_saved": total}
 
     return _run(_execute())
+
+
+@celery_app.task(name="app.tasks.monitoring.sample_wan_bytes")
+def sample_wan_bytes():
+    """Sample WAN interface byte counters and accumulate into DB (delta from last reading)."""
+    async def _execute():
+        from sqlalchemy import select
+        from app.core.database import AsyncSessionLocal
+        from app.models.router import MikrotikRouter
+        from app.models.wan import WanInterface
+        from app.services.mikrotik import MikrotikError, build_service_from_router
+
+        async with AsyncSessionLocal() as db:
+            wans = (await db.execute(select(WanInterface))).scalars().all()
+            router_ids = list({w.router_id for w in wans})
+            routers = {
+                r.id: r
+                for r in (await db.execute(
+                    select(MikrotikRouter).where(MikrotikRouter.id.in_(router_ids))
+                )).scalars().all()
+            }
+
+        updated = 0
+        for wan in wans:
+            rt = routers.get(wan.router_id)
+            if not rt:
+                continue
+
+            def _get_bytes(iface=wan.interface_name, router=rt):
+                svc = build_service_from_router(router)
+                with svc:
+                    return svc.get_interface_bytes(iface)
+
+            try:
+                stats = await asyncio.to_thread(_get_bytes)
+            except (MikrotikError, Exception):
+                continue
+
+            rx = stats.get("rx_byte", 0)
+            tx = stats.get("tx_byte", 0)
+
+            async with AsyncSessionLocal() as db:
+                w = await db.get(WanInterface, wan.id)
+                if w is None:
+                    continue
+                if w.last_rx_bytes is not None and rx >= w.last_rx_bytes:
+                    w.accumulated_rx_bytes = (w.accumulated_rx_bytes or 0) + (rx - w.last_rx_bytes)
+                if w.last_tx_bytes is not None and tx >= w.last_tx_bytes:
+                    w.accumulated_tx_bytes = (w.accumulated_tx_bytes or 0) + (tx - w.last_tx_bytes)
+                w.last_rx_bytes = rx
+                w.last_tx_bytes = tx
+
+                # Check cap and disable if exceeded
+                if w.cap_gb and w.cap_gb > 0:
+                    cap_bytes = w.cap_gb * 1024 ** 3
+                    used = (w.accumulated_rx_bytes or 0) + (w.accumulated_tx_bytes or 0)
+                    if used >= cap_bytes and w.enabled:
+                        def _disable(iface=w.interface_name, router=rt):
+                            svc = build_service_from_router(router)
+                            with svc:
+                                svc.disable_interface(iface)
+                        try:
+                            await asyncio.to_thread(_disable)
+                            w.enabled = False
+                        except Exception:
+                            pass
+
+                await db.commit()
+                updated += 1
+
+        return {"wan_interfaces_sampled": updated}
+
+    return _run(_execute())
+
+
+@celery_app.task(name="app.tasks.monitoring.reset_wan_counters")
+def reset_wan_counters():
+    """Reset monthly WAN consumption counters. Run on 1st of each month."""
+    async def _execute():
+        from sqlalchemy import select, update
+        from app.core.database import AsyncSessionLocal
+        from app.models.wan import WanInterface
+
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(WanInterface).values(
+                    accumulated_rx_bytes=0,
+                    accumulated_tx_bytes=0,
+                    last_rx_bytes=None,
+                    last_tx_bytes=None,
+                )
+            )
+            await db.commit()
+
+        return {"reset": True}
+
+    return _run(_execute())

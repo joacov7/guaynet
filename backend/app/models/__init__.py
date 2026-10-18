@@ -15,6 +15,7 @@ from app.models.push_subscription import PushSubscription
 from app.models.zone import Zone
 from app.models.work_order import WorkOrder, WorkOrderType, WorkOrderStatus
 from app.models.alarm import Alarm, AlarmType, AlarmStatus
+from app.models.wan import WanInterface, WanSchedule
 
 __all__ = [
     "Base",

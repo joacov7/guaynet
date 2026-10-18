@@ -542,6 +542,38 @@ export interface Alarm {
   created_at: string;
 }
 
+export interface WanSchedule {
+  id: number;
+  wan_interface_id: number;
+  action: "enable" | "disable";
+  days: string;
+  time_start: string;
+  time_end: string;
+}
+
+export interface WanInterface {
+  id: number;
+  router_id: number;
+  interface_name: string;
+  display_name: string;
+  weight: number;
+  cap_gb?: number;
+  manual_override: boolean;
+  enabled: boolean;
+  accumulated_rx_bytes: number;
+  accumulated_tx_bytes: number;
+  used_bytes: number;
+  cap_bytes: number;
+  cap_pct?: number;
+  schedules: WanSchedule[];
+  live?: {
+    rx_byte: number;
+    tx_byte: number;
+    running: boolean;
+    disabled: boolean;
+  } | null;
+}
+
 export interface MapDataPoint {
   id: number;
   name?: string;

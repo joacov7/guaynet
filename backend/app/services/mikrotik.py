@@ -616,6 +616,142 @@ class MikrotikService:
             return False
 
 
+    # ── WAN / Interface control ───────────────────────────────────────────────
+
+    def enable_interface(self, name: str) -> None:
+        ifaces = self._call("/interface/print", **{"?name": name})
+        if not ifaces:
+            raise MikrotikError(f"Interface '{name}' not found")
+        iface_id = ifaces[0].get(".id")
+        self._call("/interface/enable", **{".id": iface_id})
+
+    def disable_interface(self, name: str) -> None:
+        ifaces = self._call("/interface/print", **{"?name": name})
+        if not ifaces:
+            raise MikrotikError(f"Interface '{name}' not found")
+        iface_id = ifaces[0].get(".id")
+        self._call("/interface/disable", **{".id": iface_id})
+
+    def get_interface_bytes(self, name: str) -> Dict[str, int]:
+        """Return current rx-byte / tx-byte counters for one interface."""
+        ifaces = self._call("/interface/print", **{"?name": name})
+        if not ifaces:
+            return {"rx_byte": 0, "tx_byte": 0, "running": False}
+        r = ifaces[0]
+        return {
+            "rx_byte": int(r.get("rx-byte", 0) or 0),
+            "tx_byte": int(r.get("tx-byte", 0) or 0),
+            "running": r.get("running", "false") in ("true", "yes"),
+            "disabled": r.get("disabled", "false") in ("true", "yes"),
+        }
+
+    def set_scheduler_entry(self, entry_name: str, start_time: str, interval: str, script: str, days: str = "mon,tue,wed,thu,fri,sat,sun") -> None:
+        """Create or replace a scheduler entry."""
+        existing = self._call("/system/scheduler/print", **{"?name": entry_name})
+        if existing:
+            entry_id = existing[0].get(".id")
+            self._call("/system/scheduler/set", **{
+                ".id": entry_id,
+                "start-time": start_time,
+                "interval": interval,
+                "on-event": script,
+                "days": days,
+            })
+        else:
+            self._call("/system/scheduler/add", **{
+                "name": entry_name,
+                "start-time": start_time,
+                "interval": interval,
+                "on-event": script,
+                "days": days,
+            })
+
+    def remove_scheduler_entry(self, entry_name: str) -> None:
+        existing = self._call("/system/scheduler/print", **{"?name": entry_name})
+        if existing:
+            entry_id = existing[0].get(".id")
+            self._call("/system/scheduler/remove", **{".id": entry_id})
+
+    def get_scheduler_entries(self, prefix: str = "") -> List[Dict]:
+        entries = self._call("/system/scheduler/print")
+        if prefix:
+            entries = [e for e in entries if e.get("name", "").startswith(prefix)]
+        return entries
+
+    def apply_pcc_load_balance(self, wan_configs: List[Dict]) -> Dict[str, int]:
+        """
+        Configure PCC load balancing for multiple WAN interfaces.
+        wan_configs: [{"interface": "ether1", "gateway": "1.2.3.1", "weight": 1}, ...]
+        Returns counts of rules added/updated.
+        """
+        added = 0
+        n = len(wan_configs)
+        if n < 2:
+            raise MikrotikError("Need at least 2 WAN interfaces for load balancing")
+
+        for i, wan in enumerate(wan_configs):
+            iface = wan["interface"]
+            mark = f"wan{i+1}"
+
+            # Mark new connections per WAN using PCC
+            conn_rule = {
+                "chain": "prerouting",
+                "in-interface": "!"+iface,
+                "connection-state": "new",
+                "action": "mark-connection",
+                "new-connection-mark": f"{mark}_conn",
+                "per-connection-classifier": f"both-addresses-and-ports:{n}/{i}",
+                "comment": f"guaynet-lb-conn-{mark}",
+                "passthrough": "yes",
+            }
+            # Mark packets for marked connections
+            pkt_rule = {
+                "chain": "prerouting",
+                "connection-mark": f"{mark}_conn",
+                "action": "mark-routing",
+                "new-routing-mark": f"{mark}_route",
+                "comment": f"guaynet-lb-pkt-{mark}",
+                "passthrough": "yes",
+            }
+            for rule in [conn_rule, pkt_rule]:
+                self._ensure_mangle_rule(rule)
+                added += 1
+
+        # Add routing table entries
+        for i, wan in enumerate(wan_configs):
+            mark = f"wan{i+1}"
+            gateway = wan.get("gateway")
+            if not gateway:
+                continue
+            try:
+                self._call("/ip/route/add", **{
+                    "dst-address": "0.0.0.0/0",
+                    "gateway": gateway,
+                    "routing-mark": f"{mark}_route",
+                    "comment": f"guaynet-lb-route-{mark}",
+                    "distance": str(i + 1),
+                })
+                added += 1
+            except Exception:
+                pass
+
+        return {"rules_added": added}
+
+    def remove_pcc_load_balance(self) -> None:
+        """Remove all guaynet PCC load balancing rules."""
+        mangle = self._call("/ip/firewall/mangle/print")
+        for rule in mangle:
+            if str(rule.get("comment", "")).startswith("guaynet-lb-"):
+                self._call("/ip/firewall/mangle/remove", **{".id": rule[".id"]})
+        routes = self._call("/ip/route/print")
+        for route in routes:
+            if str(route.get("comment", "")).startswith("guaynet-lb-route-"):
+                try:
+                    self._call("/ip/route/remove", **{".id": route[".id"]})
+                except Exception:
+                    pass
+
+
 def build_service_from_router(router) -> MikrotikService:
     """Build a MikrotikService from a MikrotikRouter ORM model."""
     from app.core.security import decrypt_value

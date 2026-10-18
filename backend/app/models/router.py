@@ -50,6 +50,7 @@ class MikrotikRouter(Base, TimestampMixin):
 
     clients: Mapped[List["Client"]] = relationship(back_populates="router")
     ubiquiti_devices: Mapped[List["UbiquitiDevice"]] = relationship(back_populates="mikrotik_router")
+    wan_interfaces = relationship("WanInterface", back_populates="router", cascade="all, delete-orphan")
 
 
 class UbiquitiDevice(Base, TimestampMixin):

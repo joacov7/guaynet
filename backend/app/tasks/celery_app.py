@@ -33,5 +33,13 @@ celery_app.conf.update(
             "task": "app.tasks.monitoring.collect_bandwidth_samples",
             "schedule": crontab(minute="*/5"),
         },
+        "sample-wan-bytes": {
+            "task": "app.tasks.monitoring.sample_wan_bytes",
+            "schedule": crontab(minute="*/5"),
+        },
+        "reset-wan-counters": {
+            "task": "app.tasks.monitoring.reset_wan_counters",
+            "schedule": crontab(hour=0, minute=5, day_of_month=1),
+        },
     },
 )

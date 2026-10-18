@@ -30,6 +30,8 @@ import type {
   User,
   VpnConnection,
   Zone,
+  WanInterface,
+  WanSchedule,
 } from "@/types";
 
 const http = axios.create({
@@ -449,6 +451,29 @@ export const alarmsApi = {
     http.get<import("@/types").Alarm[]>("/alarms/", { params: status ? { status } : {} }).then(r => r.data),
   countActive: () =>
     http.get<{ count: number }>("/alarms/count-active").then(r => r.data),
+};
+
+export const wanApi = {
+  list: (routerId: number) =>
+    http.get<WanInterface[]>(`/routers/${routerId}/wan`).then(r => r.data),
+  create: (routerId: number, data: { interface_name: string; display_name?: string; weight?: number; cap_gb?: number; enabled?: boolean }) =>
+    http.post<WanInterface>(`/routers/${routerId}/wan`, data).then(r => r.data),
+  update: (routerId: number, wanId: number, data: Partial<{ display_name: string; weight: number; cap_gb: number; enabled: boolean }>) =>
+    http.put<WanInterface>(`/routers/${routerId}/wan/${wanId}`, data).then(r => r.data),
+  remove: (routerId: number, wanId: number) =>
+    http.delete(`/routers/${routerId}/wan/${wanId}`),
+  toggle: (routerId: number, wanId: number) =>
+    http.post<{ enabled: boolean; manual_override: boolean }>(`/routers/${routerId}/wan/${wanId}/toggle`).then(r => r.data),
+  clearOverride: (routerId: number, wanId: number) =>
+    http.post(`/routers/${routerId}/wan/${wanId}/clear-override`).then(r => r.data),
+  createSchedule: (routerId: number, wanId: number, data: { action: string; days: string; time_start: string; time_end: string }) =>
+    http.post<WanSchedule>(`/routers/${routerId}/wan/${wanId}/schedules`, data).then(r => r.data),
+  deleteSchedule: (routerId: number, wanId: number, schedId: number) =>
+    http.delete(`/routers/${routerId}/wan/${wanId}/schedules/${schedId}`),
+  applyLoadBalance: (routerId: number, wans: { wan_interface_id: number; gateway: string }[]) =>
+    http.post(`/routers/${routerId}/wan/apply-load-balance`, { wans }).then(r => r.data),
+  removeLoadBalance: (routerId: number) =>
+    http.post(`/routers/${routerId}/wan/remove-load-balance`).then(r => r.data),
 };
 
 export default http;
