@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Card, Col, Progress, Row, Statistic, Table, Tag, Tooltip, Typography } from "antd";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, ComposedChart,
 } from "recharts";
 import { reportsApi } from "@/services/api";
@@ -151,7 +151,7 @@ export default function Reports() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="period" tick={{ fontSize: 11 }} />
                 <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => formatARS(v)} />
+                <ChartTooltip formatter={(v: number) => formatARS(v)} />
                 <Bar dataKey="revenue" fill="#1677ff" name="Cobrado" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -178,7 +178,7 @@ export default function Reports() {
                     <Cell key={s.status} fill={STATUS_COLORS[s.status] ?? "#8c8c8c"} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(v: number) => formatARS(v)} />
+                <ChartTooltip formatter={(v: number) => formatARS(v)} />
               </PieChart>
             </ResponsiveContainer>
           </Card>
@@ -227,7 +227,7 @@ export default function Reports() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
                 <YAxis type="category" dataKey="plan" width={120} tick={{ fontSize: 11 }} />
-                <Tooltip />
+                <ChartTooltip />
                 <Bar dataKey="count" fill="#52c41a" name="Clientes" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -254,7 +254,7 @@ export default function Reports() {
                     <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(v: number) => formatARS(v)} />
+                <ChartTooltip formatter={(v: number) => formatARS(v)} />
               </PieChart>
             </ResponsiveContainer>
           </Card>
@@ -269,7 +269,7 @@ export default function Reports() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="plan_name" tick={{ fontSize: 11 }} />
                 <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(v: number) => formatARS(v)} />
+                <ChartTooltip formatter={(v: number) => formatARS(v)} />
                 <Bar dataKey="avg_invoice" name="ARPU" radius={[4, 4, 0, 0]}>
                   {arpu.map((_, i) => (
                     <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
@@ -296,7 +296,7 @@ export default function Reports() {
                     <Cell key={i} fill={z.color} />
                   ))}
                 </Pie>
-                <Tooltip formatter={(v: number) => formatARS(v)} />
+                <ChartTooltip formatter={(v: number) => formatARS(v)} />
               </PieChart>
             </ResponsiveContainer>
           </Card>
@@ -311,7 +311,7 @@ export default function Reports() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="period" tick={{ fontSize: 11 }} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                <Tooltip />
+                <ChartTooltip />
                 <Legend />
                 <Bar dataKey="suspended" name="Suspendidos" fill="#fa8c16" radius={[4, 4, 0, 0]} stackId="a" />
                 <Bar dataKey="cancelled" name="Cancelados" fill="#ff4d4f" radius={[4, 4, 0, 0]} stackId="a" />
