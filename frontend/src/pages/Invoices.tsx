@@ -24,6 +24,7 @@ import {
   CheckCircleOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  FileProtectOutlined,
   FileTextOutlined,
   FilePdfOutlined,
   PauseCircleOutlined,
@@ -157,6 +158,15 @@ export default function Invoices() {
     onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al generar link de MercadoPago"),
   });
 
+  const emitCaeMutation = useMutation({
+    mutationFn: (id: number) => invoicesApi.emitCae(id),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      message.success(`CAE emitido: ${res.cae} (Comprobante N° ${res.cbte_nro})`);
+    },
+    onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al emitir CAE"),
+  });
+
   const formatARS = (v: number) =>
     new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(v);
 
@@ -196,6 +206,21 @@ export default function Invoices() {
               onClick={() => window.open(invoicesApi.pdfUrl(r.id), "_blank")}
             />
           </Tooltip>
+          {!r.afip_cae && (
+            <Tooltip title="Emitir CAE (AFIP/ARCA)">
+              <Button
+                size="small"
+                icon={<FileProtectOutlined />}
+                loading={emitCaeMutation.isPending}
+                onClick={() => emitCaeMutation.mutate(r.id)}
+              />
+            </Tooltip>
+          )}
+          {r.afip_cae && (
+            <Tooltip title={`CAE: ${r.afip_cae}`}>
+              <Tag color="green" style={{ margin: 0 }}>CAE ✓</Tag>
+            </Tooltip>
+          )}
           {r.status !== "paid" && r.status !== "cancelled" && (
             <>
               <Tooltip title="Link de pago MercadoPago">
@@ -309,6 +334,12 @@ export default function Invoices() {
                 </>
               ) : (
                 <div style={{ color: "#999", fontSize: 13 }}>Sin pagos registrados</div>
+              )}
+              {r.afip_cae && (
+                <div style={{ marginTop: 8, fontSize: 13 }}>
+                  <span style={{ fontWeight: 600 }}>CAE AFIP:</span> {r.afip_cae}
+                  {r.invoice_number ? ` — Comprobante N° ${r.invoice_number}` : ""}
+                </div>
               )}
             </div>
           ),

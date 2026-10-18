@@ -227,6 +227,8 @@ export const invoicesApi = {
   pdfUrl: (id: number) => `/api/v1/invoices/${id}/pdf`,
   mpLink: (id: number) =>
     http.post<{ init_point: string; preference_id: string }>(`/invoices/${id}/mp-link`).then((r) => r.data),
+  emitCae: (id: number) =>
+    http.post<{ cae: string; cae_fch_vto: string; cbte_nro: number }>(`/invoices/${id}/emit-cae`).then((r) => r.data),
 };
 
 // ── Ubiquiti ──────────────────────────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import asyncio
 import calendar
 import csv
 import io
@@ -312,6 +313,84 @@ async def create_mp_link(invoice_id: int, db: AsyncSession = Depends(get_db), _=
 
     init_point = response["response"]["init_point"]
     return {"init_point": init_point, "preference_id": response["response"]["id"]}
+
+
+@router.post("/{invoice_id}/emit-cae")
+async def emit_afip_cae(
+    invoice_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Emit a CAE from ARCA/AFIP for this invoice."""
+    from app.models.config import SystemConfig
+    from app.services.afip import emit_cae as _emit_cae
+
+    invoice = await db.get(Invoice, invoice_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if invoice.afip_cae:
+        raise HTTPException(status_code=400, detail="La factura ya tiene un CAE emitido")
+
+    async def _get_config(key: str) -> Optional[str]:
+        r = await db.execute(select(SystemConfig).where(SystemConfig.key == key))
+        row = r.scalar_one_or_none()
+        return row.value if row else None
+
+    cuit = await _get_config("afip_cuit")
+    cert_pem = await _get_config("afip_cert_pem")
+    key_pem = await _get_config("afip_key_pem")
+    punto_venta_str = await _get_config("afip_punto_venta")
+    cbte_tipo_str = await _get_config("afip_cbte_tipo")
+    production_str = await _get_config("afip_production")
+
+    if not all([cuit, cert_pem, key_pem, punto_venta_str]):
+        raise HTTPException(
+            status_code=400,
+            detail="AFIP no configurado. Configure CUIT, certificado y punto de venta en Ajustes.",
+        )
+
+    punto_venta = int(punto_venta_str)
+    cbte_tipo = int(cbte_tipo_str or "11")
+    production = production_str == "true"
+
+    client_row = await db.get(Client, invoice.client_id) if invoice.client_id else None
+    doc_tipo = 96
+    doc_nro = "0"
+    if client_row:
+        if client_row.cuit:
+            doc_tipo = 80
+            doc_nro = client_row.cuit.replace("-", "").replace(" ", "")
+        elif client_row.dni:
+            doc_tipo = 96
+            doc_nro = client_row.dni.replace(".", "").replace(" ", "")
+
+    fecha = invoice.issue_date.strftime("%Y%m%d") if invoice.issue_date else date.today().strftime("%Y%m%d")
+
+    try:
+        result = await asyncio.to_thread(
+            _emit_cae,
+            cuit=cuit,
+            punto_venta=punto_venta,
+            cbte_tipo=cbte_tipo,
+            concepto=2,
+            doc_tipo=doc_tipo,
+            doc_nro=doc_nro,
+            importe_total=float(invoice.amount),
+            fecha=fecha,
+            cert_pem=cert_pem,
+            key_pem=key_pem,
+            production=production,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error AFIP: {str(e)}")
+
+    invoice.afip_cae = result["cae"]
+    invoice.invoice_number = result["cbte_nro"]
+    invoice.invoice_point_of_sale = punto_venta
+    invoice.invoice_type = str(cbte_tipo)
+    await db.commit()
+    await db.refresh(invoice)
+    return {"cae": result["cae"], "cae_fch_vto": result["cae_fch_vto"], "cbte_nro": result["cbte_nro"]}
 
 
 @router.post("/mark-overdue", status_code=200)

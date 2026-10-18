@@ -10,6 +10,7 @@ import {
   InputNumber,
   Radio,
   Row,
+  Select,
   Space,
   Typography,
   message,
@@ -25,6 +26,7 @@ export default function Settings() {
   const [waForm] = Form.useForm();
   const [smtpForm] = Form.useForm();
   const [mpForm] = Form.useForm();
+  const [afipForm] = Form.useForm();
   const [testPhone, setTestPhone] = useState("");
   const [testMsg, setTestMsg] = useState("");
   const [testing, setTesting] = useState(false);
@@ -56,8 +58,16 @@ export default function Settings() {
       mpForm.setFieldsValue({
         mp_access_token: data.mp_access_token ?? "",
       });
+      afipForm.setFieldsValue({
+        afip_cuit: data.afip_cuit ?? "",
+        afip_punto_venta: data.afip_punto_venta ?? "1",
+        afip_cbte_tipo: data.afip_cbte_tipo ?? "11",
+        afip_cert_pem: data.afip_cert_pem ?? "",
+        afip_key_pem: data.afip_key_pem ?? "",
+        afip_production: data.afip_production ?? "false",
+      });
     }
-  }, [data, form, waForm, smtpForm, mpForm]);
+  }, [data, form, waForm, smtpForm, mpForm, afipForm]);
 
   const mutation = useMutation({
     mutationFn: adminApi.updateConfig,
@@ -287,6 +297,77 @@ export default function Settings() {
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={mutation.isPending}>
               Guardar configuración MercadoPago
+            </Button>
+          </Form.Item>
+        </Form>
+      </Card>
+
+      <Card title="AFIP / ARCA (Facturación electrónica)" loading={isLoading} style={{ marginTop: 16 }}>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 20 }}
+          message={
+            <>
+              Configurá tus credenciales AFIP para emitir CAE desde las facturas.
+              Necesitás un certificado digital (.pem) y clave privada (.key) tramitados en el portal AFIP.
+              Usá el ambiente de <strong>Homologación</strong> para pruebas antes de pasar a Producción.
+            </>
+          }
+        />
+        <Form
+          form={afipForm}
+          layout="vertical"
+          onFinish={(values) => mutation.mutate(values)}
+        >
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="afip_cuit" label="CUIT del emisor" extra="Sin guiones, ej: 20123456789">
+                <Input placeholder="20123456789" />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="afip_punto_venta" label="Punto de venta">
+                <InputNumber min={1} style={{ width: "100%" }} placeholder="1" />
+              </Form.Item>
+            </Col>
+            <Col span={6}>
+              <Form.Item name="afip_cbte_tipo" label="Tipo de comprobante">
+                <Select
+                  options={[
+                    { value: "11", label: "Factura C" },
+                    { value: "6", label: "Factura B" },
+                    { value: "1", label: "Factura A" },
+                  ]}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="afip_production" label="Ambiente">
+            <Select
+              options={[
+                { value: "false", label: "Testing / Homologación" },
+                { value: "true", label: "Producción" },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item
+            name="afip_cert_pem"
+            label="Certificado (cert.pem)"
+            extra="Pegá el contenido del archivo .pem incluyendo las líneas BEGIN/END CERTIFICATE"
+          >
+            <TextArea rows={5} placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----" />
+          </Form.Item>
+          <Form.Item
+            name="afip_key_pem"
+            label="Clave privada (key.pem)"
+            extra="Pegá el contenido del archivo .key incluyendo las líneas BEGIN/END PRIVATE KEY"
+          >
+            <Input.TextArea rows={5} placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----" />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={mutation.isPending}>
+              Guardar configuración AFIP
             </Button>
           </Form.Item>
         </Form>
