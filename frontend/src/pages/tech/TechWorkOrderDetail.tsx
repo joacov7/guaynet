@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Spin, Tag, Typography, message } from "antd";
 import dayjs from "dayjs";
 import { workOrdersApi, clientsApi } from "@/services/api";
-import type { User } from "@/types";
+import type { User, WorkOrderStatus } from "@/types";
 
 const { Text } = Typography;
 
@@ -45,7 +45,7 @@ export default function TechWorkOrderDetail() {
 
   const updateMutation = useMutation({
     mutationFn: ({ status, notes }: { status: string; notes?: string }) =>
-      workOrdersApi.update(Number(id), { status, completion_notes: notes }),
+      workOrdersApi.update(Number(id), { status: status as WorkOrderStatus, completion_notes: notes }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tech-work-order", id] });
       qc.invalidateQueries({ queryKey: ["tech-work-orders"] });
