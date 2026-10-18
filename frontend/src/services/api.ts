@@ -341,6 +341,12 @@ export const reportsApi = {
     http.get<Array<{ plan: string; count: number }>>("/reports/clients-by-plan").then((r) => r.data),
   paymentMethods: () =>
     http.get<Array<{ method: string; count: number; total: number }>>("/reports/payment-methods").then((r) => r.data),
+  arpu: () =>
+    http.get<Array<{ plan_name: string; client_count: number; total_revenue: number; avg_invoice: number }>>("/reports/arpu-by-plan").then((r) => r.data),
+  churn: (months = 12) =>
+    http.get<Array<{ period: string; suspended: number; cancelled: number; total_active: number }>>("/reports/churn", { params: { months } }).then((r) => r.data),
+  revenueByZone: () =>
+    http.get<Array<{ zone_name: string; color: string; client_count: number; total_revenue: number }>>("/reports/revenue-by-zone").then((r) => r.data),
 };
 
 // ── Inventory ─────────────────────────────────────────────────────────────────

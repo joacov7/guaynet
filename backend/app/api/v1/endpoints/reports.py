@@ -99,3 +99,127 @@ async def payment_methods(
     )
     rows = result.all()
     return [{"method": r.method.value, "count": r.count, "total": float(r.total or 0)} for r in rows]
+
+
+@router.get("/arpu-by-plan")
+async def arpu_by_plan(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Average Revenue Per User grouped by plan (paid invoices)."""
+    from app.models.plan import Plan
+
+    result = await db.execute(
+        select(
+            Plan.name.label("plan_name"),
+            func.count(func.distinct(Client.id)).label("client_count"),
+            func.sum(Invoice.amount).label("total_revenue"),
+            func.avg(Invoice.amount).label("avg_invoice"),
+        )
+        .join(Client, Invoice.client_id == Client.id)
+        .join(Plan, Client.plan_id == Plan.id)
+        .where(Invoice.status == InvoiceStatus.paid)
+        .group_by(Plan.name)
+        .order_by(func.sum(Invoice.amount).desc())
+    )
+    rows = result.all()
+    return [
+        {
+            "plan_name": r.plan_name,
+            "client_count": r.client_count,
+            "total_revenue": float(r.total_revenue or 0),
+            "avg_invoice": float(r.avg_invoice or 0),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/churn")
+async def churn_report(
+    months: int = Query(default=12, ge=1, le=24),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Monthly churn: clients suspended/cancelled per month vs active base."""
+    today = date.today()
+    rows_out = []
+    for i in range(months - 1, -1, -1):
+        m = today.month - i
+        y = today.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        period = f"{y:04d}-{m:02d}"
+        susp = await db.scalar(
+            select(func.count(Client.id)).where(
+                Client.status == ClientStatus.suspended,
+                extract("year", Client.updated_at) == y,
+                extract("month", Client.updated_at) == m,
+            )
+        )
+        canc = await db.scalar(
+            select(func.count(Client.id)).where(
+                Client.status == ClientStatus.cancelled,
+                extract("year", Client.updated_at) == y,
+                extract("month", Client.updated_at) == m,
+            )
+        )
+        total_active = await db.scalar(
+            select(func.count(Client.id)).where(Client.status == ClientStatus.active)
+        )
+        rows_out.append({
+            "period": period,
+            "suspended": susp or 0,
+            "cancelled": canc or 0,
+            "total_active": total_active or 0,
+        })
+    return rows_out
+
+
+@router.get("/revenue-by-zone")
+async def revenue_by_zone(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Paid invoice revenue grouped by client zone."""
+    from app.models.zone import Zone
+
+    result = await db.execute(
+        select(
+            Zone.name.label("zone_name"),
+            Zone.color.label("color"),
+            func.count(func.distinct(Client.id)).label("client_count"),
+            func.sum(Invoice.amount).label("total_revenue"),
+        )
+        .join(Client, Client.zone_id == Zone.id)
+        .join(Invoice, Invoice.client_id == Client.id)
+        .where(Invoice.status == InvoiceStatus.paid)
+        .group_by(Zone.name, Zone.color)
+        .order_by(func.sum(Invoice.amount).desc())
+    )
+    rows = result.all()
+    no_zone_rev = await db.scalar(
+        select(func.sum(Invoice.amount))
+        .join(Client, Invoice.client_id == Client.id)
+        .where(Invoice.status == InvoiceStatus.paid, Client.zone_id.is_(None))
+    )
+    no_zone_count = await db.scalar(
+        select(func.count(func.distinct(Client.id))).where(Client.zone_id.is_(None))
+    )
+    out = [
+        {
+            "zone_name": r.zone_name,
+            "color": r.color,
+            "client_count": r.client_count,
+            "total_revenue": float(r.total_revenue or 0),
+        }
+        for r in rows
+    ]
+    if no_zone_rev:
+        out.append({
+            "zone_name": "Sin zona",
+            "color": "#8c8c8c",
+            "client_count": no_zone_count or 0,
+            "total_revenue": float(no_zone_rev or 0),
+        })
+    return out
