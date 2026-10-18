@@ -3,6 +3,7 @@ import { Menu } from "antd";
 import {
   ApartmentOutlined,
   AuditOutlined,
+  BellOutlined,
   DashboardOutlined,
   EnvironmentOutlined,
   FileTextOutlined,
@@ -32,6 +33,7 @@ const ALL_ITEMS = [
   { key: "/routers",   icon: <ApartmentOutlined />,   label: "Routers",         section: "routers" },
   { key: "/billing",   icon: <FileTextOutlined />,    label: "Facturación",     section: "billing" },
   { key: "/monitoring",icon: <MonitorOutlined />,     label: "Monitoreo",       section: "monitoring" },
+  { key: "/alarms",    icon: <BellOutlined />,        label: "Alarmas",         section: null },
   { key: "/firewall",  icon: <SafetyOutlined />,      label: "Firewall & QoS",  section: "firewall" },
   { key: "/ubiquiti",  icon: <WifiOutlined />,        label: "Ubiquiti",        section: "ubiquiti" },
   { key: "/map",       icon: <GlobalOutlined />,      label: "Mapa de Red",     section: "map" },

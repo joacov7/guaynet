@@ -372,6 +372,26 @@ export default function Settings() {
           </Form.Item>
         </Form>
       </Card>
+      <Card title="Monitoreo" loading={isLoading} style={{ marginTop: 16 }}>
+        <Form
+          layout="vertical"
+          initialValues={{ cpu_alert_threshold: data?.cpu_alert_threshold ?? "85" }}
+          onFinish={(values) => mutation.mutate(values)}
+        >
+          <Form.Item
+            name="cpu_alert_threshold"
+            label="Umbral de CPU (%)"
+            extra="Se genera una alarma cuando la CPU del router supera este valor. Default: 85"
+          >
+            <InputNumber min={50} max={99} style={{ width: 120 }} addonAfter="%" />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={mutation.isPending}>
+              Guardar
+            </Button>
+          </Form.Item>
+        </Form>
+      </Card>
     </div>
   );
 }

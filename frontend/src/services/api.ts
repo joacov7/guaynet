@@ -431,4 +431,11 @@ export const permissionsApi = {
     http.put<RolePermission>(`/permissions/${role}/${section}`, { can_view, can_edit }).then((r) => r.data),
 };
 
+export const alarmsApi = {
+  list: (status?: string) =>
+    http.get<import("@/types").Alarm[]>("/alarms/", { params: status ? { status } : {} }).then(r => r.data),
+  countActive: () =>
+    http.get<{ count: number }>("/alarms/count-active").then(r => r.data),
+};
+
 export default http;

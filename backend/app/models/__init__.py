@@ -14,6 +14,7 @@ from app.models.inventory import InventoryItem, EquipmentCondition, EquipmentSta
 from app.models.push_subscription import PushSubscription
 from app.models.zone import Zone
 from app.models.work_order import WorkOrder, WorkOrderType, WorkOrderStatus
+from app.models.alarm import Alarm, AlarmType, AlarmStatus
 
 __all__ = [
     "Base",

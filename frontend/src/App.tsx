@@ -25,6 +25,7 @@ import Inventory from "@/pages/Inventory";
 import Reports from "@/pages/Reports";
 import Zones from "@/pages/Zones";
 import WorkOrders from "@/pages/WorkOrders";
+import Alarms from "@/pages/Alarms";
 import TechLayout from "@/pages/tech/TechLayout";
 import TechLogin from "@/pages/tech/TechLogin";
 import TechHome from "@/pages/tech/TechHome";
@@ -84,6 +85,7 @@ export default function App() {
           <Route path="reports" element={<Reports />} />
           <Route path="zones" element={<Zones />} />
           <Route path="work-orders" element={<WorkOrders />} />
+          <Route path="alarms" element={<Alarms />} />
           <Route path="settings" element={<Settings />} />
         </Route>
 

@@ -526,6 +526,22 @@ export interface WorkOrder {
   created_at: string;
 }
 
+export type AlarmType = "router_offline" | "cpu_high" | "wan_down";
+export type AlarmStatus = "active" | "resolved";
+
+export interface Alarm {
+  id: number;
+  router_id: number;
+  router_name?: string;
+  router_host?: string;
+  type: AlarmType;
+  status: AlarmStatus;
+  triggered_at: string;
+  resolved_at?: string;
+  details?: Record<string, unknown>;
+  created_at: string;
+}
+
 export interface MapDataPoint {
   id: number;
   name?: string;
