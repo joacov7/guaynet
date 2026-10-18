@@ -282,6 +282,7 @@ export interface BandwidthEntry {
   disabled: boolean;
   upload_bytes: number;
   download_bytes: number;
+  missing_queue?: boolean;
 }
 
 export interface OnlineClient {

@@ -299,6 +299,7 @@ async def get_router_bandwidth(
     except MikrotikError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
+    queue_names_on_router = {q["name"] for q in queues}
     items = []
     for q in queues:
         client = client_map.get(q["name"])
@@ -314,9 +315,25 @@ async def get_router_bandwidth(
             "disabled": q["disabled"],
             "upload_bytes": upload_bytes,
             "download_bytes": download_bytes,
+            "missing_queue": False,
         })
 
-    items.sort(key=lambda x: x["download_bytes"] + x["upload_bytes"], reverse=True)
+    # Append DB clients whose queue no longer exists on the router
+    for qname, client in client_map.items():
+        if qname not in queue_names_on_router:
+            items.append({
+                "queue_name": qname,
+                "client_id": client.id,
+                "client_name": client.full_name,
+                "ip_address": client.ip_address,
+                "max_limit": "—",
+                "disabled": False,
+                "upload_bytes": 0,
+                "download_bytes": 0,
+                "missing_queue": True,
+            })
+
+    items.sort(key=lambda x: (x["missing_queue"], -(x["download_bytes"] + x["upload_bytes"])))
     return items
 
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -14,8 +14,8 @@ import {
   Tooltip,
   Typography,
 } from "antd";
-import { ReloadOutlined, WifiOutlined, ThunderboltOutlined } from "@ant-design/icons";
-import { routersApi } from "@/services/api";
+import { ReloadOutlined, WifiOutlined, ThunderboltOutlined, SyncOutlined, WarningOutlined } from "@ant-design/icons";
+import { routersApi, clientsApi } from "@/services/api";
 import type { BandwidthEntry, OnlineClient } from "@/types";
 
 const { Title, Text } = Typography;
@@ -63,17 +63,37 @@ export default function Monitoring() {
 
   const onlineCount = online.filter((c) => c.online).length;
   const unregisteredCount = online.filter((c) => c.online && !c.client_id).length;
+  const missingQueueCount = bandwidth.filter((b) => b.missing_queue).length;
+
+  const [syncingId, setSyncingId] = useState<number | null>(null);
+  const syncClient = useCallback(async (clientId: number) => {
+    setSyncingId(clientId);
+    try {
+      await clientsApi.syncMikrotik(clientId);
+      refetchBw();
+    } finally {
+      setSyncingId(null);
+    }
+  }, [refetchBw]);
 
   const bwColumns = [
     {
       title: "Cliente",
       key: "client",
-      render: (_: unknown, r: BandwidthEntry) =>
-        r.client_id ? (
-          <a onClick={() => navigate(`/clients/${r.client_id}`)}>{r.client_name}</a>
-        ) : (
-          <Text type="secondary">{r.queue_name}</Text>
-        ),
+      render: (_: unknown, r: BandwidthEntry) => (
+        <Space>
+          {r.missing_queue && (
+            <Tooltip title="Queue no existe en el router — fuera de sync">
+              <WarningOutlined style={{ color: "#faad14" }} />
+            </Tooltip>
+          )}
+          {r.client_id ? (
+            <a onClick={() => navigate(`/clients/${r.client_id}`)}>{r.client_name}</a>
+          ) : (
+            <Text type="secondary">{r.queue_name}</Text>
+          )}
+        </Space>
+      ),
     },
     { title: "IP", dataIndex: "ip_address", key: "ip" },
     { title: "Límite", dataIndex: "max_limit", key: "limit" },
@@ -81,9 +101,12 @@ export default function Monitoring() {
       title: "Estado",
       dataIndex: "disabled",
       key: "disabled",
-      render: (v: boolean) => (
-        <Tag color={v ? "orange" : "green"}>{v ? "Suspendido" : "Activo"}</Tag>
-      ),
+      render: (v: boolean, r: BandwidthEntry) =>
+        r.missing_queue ? (
+          <Tag color="warning" icon={<WarningOutlined />}>Sin queue</Tag>
+        ) : (
+          <Tag color={v ? "orange" : "green"}>{v ? "Suspendido" : "Activo"}</Tag>
+        ),
     },
     {
       title: "Descarga total",
@@ -109,6 +132,24 @@ export default function Monitoring() {
       dataIndex: "upload_bytes",
       key: "ul",
       render: (v: number) => formatBytes(v),
+    },
+    {
+      title: "",
+      key: "actions",
+      width: 80,
+      render: (_: unknown, r: BandwidthEntry) =>
+        r.missing_queue && r.client_id ? (
+          <Tooltip title="Sincronizar queue en MikroTik">
+            <Button
+              size="small"
+              icon={<SyncOutlined spin={syncingId === r.client_id} />}
+              onClick={() => syncClient(r.client_id!)}
+              loading={syncingId === r.client_id}
+            >
+              Sync
+            </Button>
+          </Tooltip>
+        ) : null,
     },
   ];
 
@@ -251,6 +292,11 @@ export default function Monitoring() {
                     <Text type="secondary">
                       Estadísticas acumuladas desde el último reset del router. Se actualiza cada 30s.
                     </Text>
+                    {missingQueueCount > 0 && (
+                      <Tag color="warning" icon={<WarningOutlined />}>
+                        {missingQueueCount} sin queue en router
+                      </Tag>
+                    )}
                     <Button
                       size="small"
                       icon={<ReloadOutlined />}
@@ -267,6 +313,7 @@ export default function Monitoring() {
                     columns={bwColumns}
                     size="small"
                     pagination={{ pageSize: 50 }}
+                    rowClassName={(r: BandwidthEntry) => r.missing_queue ? "ant-table-row-warning" : ""}
                   />
                 </div>
               ),
