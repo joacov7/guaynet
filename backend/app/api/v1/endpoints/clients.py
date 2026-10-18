@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import add_audit_log, get_current_user, get_db
+from app.core.security import decrypt_value, encrypt_value
 from app.models.client import Client, ClientStatus
 from app.models.config import SystemConfig
 from app.models.invoice import Invoice
@@ -77,6 +78,41 @@ async def _push_to_mikrotik(client: Client, router_obj: MikrotikRouter, db) -> s
     return await asyncio.to_thread(_sync)
 
 
+async def _sync_pppoe_to_mikrotik(client: Client, db: AsyncSession) -> str:
+    if not client.pppoe_username or not client.pppoe_password_encrypted:
+        return "no_pppoe"
+    if not client.router_id:
+        return "no_router"
+    rt = await db.get(MikrotikRouter, client.router_id)
+    if not rt or not rt.password_encrypted:
+        return "no_router"
+    pppoe_password = decrypt_value(client.pppoe_password_encrypted)
+    disabled = client.status != ClientStatus.active
+
+    def _sync():
+        svc = build_service_from_router(rt)
+        with svc:
+            existing = svc.get_pppoe_secrets()
+            found = next((s for s in existing if s.get("name") == client.pppoe_username), None)
+            if found:
+                return svc.update_pppoe_secret(
+                    client.pppoe_username,
+                    password=pppoe_password,
+                    ip_address=client.ip_address,
+                    disabled=disabled,
+                )
+            else:
+                return svc.add_pppoe_secret(
+                    client.pppoe_username,
+                    pppoe_password,
+                    client.ip_address,
+                    comment=f"guaynet-client-{client.id}",
+                )
+
+    success = await asyncio.to_thread(_sync)
+    return "synced" if success else "error"
+
+
 @router.get("/", response_model=List[ClientListResponse])
 async def list_clients(
     status: Optional[ClientStatus] = None,
@@ -133,7 +169,11 @@ async def create_client(
     if not rt:
         raise HTTPException(status_code=404, detail="Router no encontrado")
 
-    client = Client(**body.model_dump())
+    data = body.model_dump()
+    pppoe_pw = data.pop("pppoe_password", None)
+    client = Client(**data)
+    if pppoe_pw:
+        client.pppoe_password_encrypted = encrypt_value(pppoe_pw)
     db.add(client)
     await db.commit()
     await db.refresh(client)
@@ -142,6 +182,10 @@ async def create_client(
     try:
         await _push_to_mikrotik(client, rt, db)
     except MikrotikError:
+        pass
+    try:
+        await _sync_pppoe_to_mikrotik(client, db)
+    except Exception:
         pass
 
     return await db.get(
@@ -185,6 +229,7 @@ async def update_client(
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
     updates = body.model_dump(exclude_unset=True)
+    pppoe_pw = updates.pop("pppoe_password", None)
 
     if "ip_address" in updates and updates["ip_address"] != client.ip_address:
         dup = await db.execute(select(Client).where(Client.ip_address == updates["ip_address"]))
@@ -194,6 +239,8 @@ async def update_client(
     old_plan_id = client.plan_id
     for field, value in updates.items():
         setattr(client, field, value)
+    if pppoe_pw:
+        client.pppoe_password_encrypted = encrypt_value(pppoe_pw)
 
     if "plan_id" in updates and updates["plan_id"] != old_plan_id:
         add_audit_log(db, current_user, "plan_change", "client", client.id, client.full_name,
@@ -215,8 +262,14 @@ async def update_client(
     else:
         mt_error = "Router no encontrado"
 
+    try:
+        await _sync_pppoe_to_mikrotik(client, db)
+    except Exception:
+        pass
+
     await db.refresh(client)
     resp = ClientResponse.model_validate(client)
+    resp.has_pppoe = bool(client.pppoe_password_encrypted)
     resp.mikrotik_error = mt_error
     resp.mikrotik_sync = mt_sync
     return resp
@@ -341,6 +394,19 @@ async def sync_client_mikrotik(
     except (MikrotikError, Exception) as e:
         detail = str(e) or type(e).__name__
         raise HTTPException(status_code=503, detail=detail)
+
+
+@router.post("/{client_id}/sync-pppoe")
+async def sync_client_pppoe(
+    client_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    status = await _sync_pppoe_to_mikrotik(client, db)
+    return {"status": status}
 
 
 @router.post("/{client_id}/cancel", response_model=ClientResponse)

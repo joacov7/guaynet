@@ -108,6 +108,8 @@ export interface Client {
   billing_day: number;
   mikrotik_queue_name: string;
   zone_id?: number;
+  pppoe_username?: string;
+  has_pppoe?: boolean;
   plan?: Pick<Plan, "id" | "name" | "download_mbps" | "upload_mbps" | "price">;
   router?: Pick<Router, "id" | "name" | "location">;
   zone?: Pick<Zone, "id" | "name" | "color">;

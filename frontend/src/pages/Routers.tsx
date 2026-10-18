@@ -33,6 +33,7 @@ import {
   SyncOutlined,
   ThunderboltOutlined,
   BarChartOutlined,
+  LoginOutlined,
 } from "@ant-design/icons";
 import { routersApi } from "@/services/api";
 import type { MikrotikQueue, Router, RouterStats, RouterUtilization } from "@/types";
@@ -97,6 +98,18 @@ export default function Routers() {
       }
     },
     onError: (err: any) => message.error(`Error MikroTik: ${err.response?.data?.detail ?? "Sin conexión"}`, 10),
+  });
+
+  const syncPppoeMutation = useMutation({
+    mutationFn: (id: number) => routersApi.syncPppoe(id),
+    onSuccess: (data) => {
+      if (data.errors.length > 0) {
+        message.warning(`PPPoE: ${data.synced} sincronizados, ${data.errors.length} error(es)`, 8);
+      } else {
+        message.success(`PPPoE: ${data.synced} secretos sincronizados`);
+      }
+    },
+    onError: (err: any) => message.error(`Error PPPoE: ${err.response?.data?.detail ?? "Sin conexión"}`, 8),
   });
 
   const qosMutation = useMutation({
@@ -208,6 +221,11 @@ export default function Routers() {
               onConfirm={() => qosMutation.mutate(r.id)}
             >
               <Button size="small" icon={<ThunderboltOutlined />} />
+            </Popconfirm>
+          </Tooltip>
+          <Tooltip title="Sync PPPoE">
+            <Popconfirm title="¿Sincronizar secretos PPPoE al router?" onConfirm={() => syncPppoeMutation.mutate(r.id)}>
+              <Button size="small" icon={<LoginOutlined />} />
             </Popconfirm>
           </Tooltip>
           <Tooltip title="Editar">

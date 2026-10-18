@@ -281,6 +281,24 @@ export default function ClientForm() {
           </Col>
         </Row>
 
+          {/* PPPoE */}
+          <Col span={24}>
+            <Card title="PPPoE (opcional)" size="small" style={{ marginBottom: 16 }}>
+              <Row gutter={16}>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="pppoe_username" label="Usuario PPPoE">
+                    <Input placeholder="cliente01" autoComplete="off" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item name="pppoe_password" label="Contraseña PPPoE">
+                    <Input.Password placeholder="Dejar en blanco para no cambiar" autoComplete="new-password" />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </Card>
+          </Col>
+
         <Space>
           <Button onClick={() => navigate("/clients")}>Cancelar</Button>
           <Button type="primary" htmlType="submit" loading={isSubmitting}>

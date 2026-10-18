@@ -489,3 +489,50 @@ async def create_ubiquiti_device(
     await db.commit()
     await db.refresh(device)
     return device
+
+
+@router.post("/{router_id}/sync-pppoe")
+async def sync_all_pppoe(
+    router_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Sync all PPPoE secrets for clients assigned to this router."""
+    router_obj = await db.get(MikrotikRouter, router_id)
+    if not router_obj:
+        raise HTTPException(status_code=404, detail="Router not found")
+
+    result = await db.execute(
+        select(Client).where(Client.router_id == router_id, Client.pppoe_username.isnot(None))
+    )
+    clients = result.scalars().all()
+
+    synced = 0
+    errors = []
+
+    for client in clients:
+        if not client.pppoe_password_encrypted:
+            continue
+        pppoe_password = decrypt_value(client.pppoe_password_encrypted)
+        disabled = client.status != "active"
+
+        def _sync(c=client, pw=pppoe_password, dis=disabled):
+            svc = build_service_from_router(router_obj)
+            with svc:
+                existing = svc.get_pppoe_secrets()
+                found = next((s for s in existing if s.get("name") == c.pppoe_username), None)
+                if found:
+                    return svc.update_pppoe_secret(c.pppoe_username, password=pw, ip_address=c.ip_address, disabled=dis)
+                else:
+                    return svc.add_pppoe_secret(c.pppoe_username, pw, c.ip_address, comment=f"guaynet-client-{c.id}")
+
+        try:
+            ok = await asyncio.to_thread(_sync)
+            if ok:
+                synced += 1
+            else:
+                errors.append(client.pppoe_username)
+        except Exception as e:
+            errors.append(f"{client.pppoe_username}: {e}")
+
+    return {"synced": synced, "errors": errors}

@@ -141,6 +141,8 @@ export const routersApi = {
     http.post<{ pcq_added: number; mangle_rules_added: number }>(`/routers/${id}/setup-qos`).then((r) => r.data),
   utilization: (id: number) =>
     http.get<RouterUtilization>(`/routers/${id}/utilization`).then((r) => r.data),
+  syncPppoe: (id: number) =>
+    http.post<{ synced: number; errors: string[] }>(`/routers/${id}/sync-pppoe`).then((r) => r.data),
 };
 
 // ── Clients ───────────────────────────────────────────────────────────────────
@@ -163,6 +165,8 @@ export const clientsApi = {
   cancel: (id: number) => http.post<Client>(`/clients/${id}/cancel`).then((r) => r.data),
   syncMikrotik: (id: number) =>
     http.post(`/clients/${id}/sync-mikrotik`).then((r) => r.data),
+  syncPppoe: (id: number) =>
+    http.post<{ status: string }>(`/clients/${id}/sync-pppoe`).then((r) => r.data),
   invoices: (id: number) =>
     http.get<Invoice[]>(`/clients/${id}/invoices`).then((r) => r.data),
 };

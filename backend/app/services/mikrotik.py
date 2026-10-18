@@ -559,6 +559,63 @@ class MikrotikService:
         return self._count_results([self._ensure_mangle_rule(r) for r in rules])
 
 
+    # ── PPPoE Secrets ─────────────────────────────────────────────────────────
+
+    def get_pppoe_secrets(self) -> list:
+        try:
+            return [dict(s) for s in self._call("/ppp/secret/print")]
+        except Exception as e:
+            print(f"[mikrotik] get_pppoe_secrets error: {e}", flush=True)
+            return []
+
+    def add_pppoe_secret(self, username: str, password: str, ip_address: str, profile: str = "default", comment: str = "") -> bool:
+        try:
+            self._call("/ppp/secret/add", **{
+                "name": username,
+                "password": password,
+                "service": "pppoe",
+                "remote-address": ip_address,
+                "profile": profile,
+                "comment": comment,
+                "disabled": "no",
+            })
+            return True
+        except Exception as e:
+            print(f"[mikrotik] add_pppoe_secret error: {e}", flush=True)
+            return False
+
+    def update_pppoe_secret(self, username: str, password: Optional[str] = None, ip_address: Optional[str] = None, disabled: Optional[bool] = None) -> bool:
+        try:
+            secrets = self._call("/ppp/secret/print", **{"?name": username})
+            if not secrets:
+                return False
+            secret_id = secrets[0].get(".id") or secrets[0].get("id")
+            params: Dict[str, str] = {".id": secret_id}
+            if password is not None:
+                params["password"] = password
+            if ip_address is not None:
+                params["remote-address"] = ip_address
+            if disabled is not None:
+                params["disabled"] = "yes" if disabled else "no"
+            self._call("/ppp/secret/set", **params)
+            return True
+        except Exception as e:
+            print(f"[mikrotik] update_pppoe_secret error: {e}", flush=True)
+            return False
+
+    def remove_pppoe_secret(self, username: str) -> bool:
+        try:
+            secrets = self._call("/ppp/secret/print", **{"?name": username})
+            if not secrets:
+                return True
+            secret_id = secrets[0].get(".id") or secrets[0].get("id")
+            self._call("/ppp/secret/remove", **{".id": secret_id})
+            return True
+        except Exception as e:
+            print(f"[mikrotik] remove_pppoe_secret error: {e}", flush=True)
+            return False
+
+
 def build_service_from_router(router) -> MikrotikService:
     """Build a MikrotikService from a MikrotikRouter ORM model."""
     from app.core.security import decrypt_value

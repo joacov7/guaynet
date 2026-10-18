@@ -46,12 +46,14 @@ class ClientBase(BaseModel):
     router_id: int
     ubiquiti_device_id: Optional[int] = None
     zone_id: Optional[int] = None
+    pppoe_username: Optional[str] = None
     service_start_date: Optional[date] = None
     billing_day: int = 1
 
 
 class ClientCreate(ClientBase):
     status: ClientStatus = ClientStatus.active
+    pppoe_password: Optional[str] = None
 
 
 class ClientUpdate(BaseModel):
@@ -71,6 +73,8 @@ class ClientUpdate(BaseModel):
     router_id: Optional[int] = None
     ubiquiti_device_id: Optional[int] = None
     zone_id: Optional[int] = None
+    pppoe_username: Optional[str] = None
+    pppoe_password: Optional[str] = None
     status: Optional[ClientStatus] = None
     billing_day: Optional[int] = None
 
@@ -82,6 +86,8 @@ class ClientResponse(ClientBase):
     status: ClientStatus
     full_name: str
     mikrotik_queue_name: str
+    pppoe_username: Optional[str] = None
+    has_pppoe: bool = False
     plan: Optional[PlanBrief] = None
     router: Optional[RouterBrief] = None
     zone: Optional[ZoneBrief] = None

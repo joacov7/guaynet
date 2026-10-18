@@ -45,6 +45,10 @@ class Client(Base, TimestampMixin):
     )
     zone_id: Mapped[Optional[int]] = mapped_column(ForeignKey("zones.id"), nullable=True)
 
+    # PPPoE
+    pppoe_username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, unique=True, index=True)
+    pppoe_password_encrypted: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
     # Location
     latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
