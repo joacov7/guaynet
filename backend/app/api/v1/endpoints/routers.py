@@ -370,10 +370,7 @@ async def get_online_clients(
     }
 
     items = []
-    seen_ips = set()
-
     for ip, client in client_map.items():
-        seen_ips.add(ip)
         items.append({
             "client_id": client.id,
             "client_name": client.full_name,
@@ -382,18 +379,6 @@ async def get_online_clients(
             "status": client.status,
             "online": ip in online_ips,
         })
-
-    # IPs in ARP not registered as clients
-    for ip, mac in online_ips.items():
-        if ip not in seen_ips:
-            items.append({
-                "client_id": None,
-                "client_name": None,
-                "ip_address": ip,
-                "mac_address": mac,
-                "status": None,
-                "online": True,
-            })
 
     items.sort(key=lambda x: (not x["online"], x["ip_address"]))
     return items

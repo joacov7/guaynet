@@ -62,7 +62,6 @@ export default function Monitoring() {
   });
 
   const onlineCount = online.filter((c) => c.online).length;
-  const unregisteredCount = online.filter((c) => c.online && !c.client_id).length;
   const missingQueueCount = bandwidth.filter((b) => b.missing_queue).length;
 
   const [syncingId, setSyncingId] = useState<number | null>(null);
@@ -238,21 +237,12 @@ export default function Monitoring() {
                     count={onlineCount}
                     style={{ marginLeft: 6, backgroundColor: "#52c41a" }}
                   />
-                  {unregisteredCount > 0 && (
-                    <Badge
-                      count={unregisteredCount}
-                      style={{ marginLeft: 4, backgroundColor: "#faad14" }}
-                    />
-                  )}
                 </span>
               ),
               children: (
                 <div>
                   <Space style={{ marginBottom: 12 }}>
                     <Tag color="green">Online: {onlineCount}</Tag>
-                    {unregisteredCount > 0 && (
-                      <Tag color="orange">Sin registrar: {unregisteredCount}</Tag>
-                    )}
                     <Tag>Total: {online.length}</Tag>
                     <Button
                       size="small"
