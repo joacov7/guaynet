@@ -15,6 +15,7 @@ from app.core.deps import get_current_user, get_db
 from app.models.client import Client, ClientStatus
 from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus, Payment
 from app.schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceUpdate, PaymentCreate, PaymentResponse
+from app.services.telegram import send_telegram as _send_telegram
 
 router = APIRouter()
 
@@ -118,7 +119,10 @@ async def add_payment(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    invoice = await db.get(Invoice, invoice_id)
+    result = await db.execute(
+        select(Invoice).options(selectinload(Invoice.payments)).where(Invoice.id == invoice_id)
+    )
+    invoice = result.scalar_one_or_none()
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
@@ -127,14 +131,187 @@ async def add_payment(
 
     # Mark invoice as paid if amount covers total
     total_paid = sum(p.amount for p in invoice.payments) + body.amount
+    newly_paid = False
     if total_paid >= float(invoice.amount):
         invoice.status = InvoiceStatus.paid
         invoice.paid_date = body.payment_date
         db.add(invoice)
+        newly_paid = True
 
     await db.commit()
     await db.refresh(payment)
+
+    # Auto-reactivate suspended client when this payment makes the invoice fully paid
+    if newly_paid and invoice.client_id:
+        client = await db.get(Client, invoice.client_id)
+        if client and client.status == ClientStatus.suspended:
+            # Check whether any other overdue invoice remains
+            other_overdue = await db.execute(
+                select(Invoice.id).where(
+                    Invoice.client_id == invoice.client_id,
+                    Invoice.id != invoice_id,
+                    Invoice.status == InvoiceStatus.overdue,
+                )
+            )
+            if not other_overdue.scalar_one_or_none():
+                client.status = ClientStatus.active
+                db.add(client)
+                await db.commit()
+
+                # Re-enable MikroTik queue
+                import asyncio
+                from app.models.router import MikrotikRouter
+                from app.services.mikrotik import build_service_from_router, MikrotikError
+                rt = await db.get(MikrotikRouter, client.router_id)
+                if rt:
+                    def _enable(router=rt, qname=client.mikrotik_queue_name):
+                        svc = build_service_from_router(router)
+                        with svc:
+                            q = svc.get_queue_by_name(qname)
+                            if q:
+                                svc.enable_queue(q["id"])
+                    try:
+                        await asyncio.to_thread(_enable)
+                    except MikrotikError:
+                        pass
+
+                try:
+                    await _send_telegram(
+                        f"✅ Cliente reactivado automáticamente: {client.full_name} (pago factura #{invoice_id})"
+                    )
+                except Exception:
+                    pass
+
     return payment
+
+
+def _build_invoice_pdf(invoice: Invoice, client: Client) -> bytes:
+    """Build a simple PDF receipt using reportlab."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.pdfgen import canvas as rl_canvas
+
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=A4)
+    w, h = A4
+
+    c.setFont("Helvetica-Bold", 18)
+    c.drawString(20 * mm, h - 25 * mm, "Factura de servicio")
+
+    c.setFont("Helvetica", 11)
+    c.drawString(20 * mm, h - 35 * mm, f"N° {invoice.id}  |  Período: {invoice.period}")
+    c.drawString(20 * mm, h - 42 * mm, f"Cliente: {client.full_name}")
+    if client.dni:
+        c.drawString(20 * mm, h - 49 * mm, f"DNI/CUIT: {client.dni}")
+    if client.address:
+        c.drawString(20 * mm, h - 56 * mm, f"Dirección: {client.address}")
+    if client.phone:
+        c.drawString(20 * mm, h - 63 * mm, f"Teléfono: {client.phone}")
+
+    c.line(20 * mm, h - 68 * mm, w - 20 * mm, h - 68 * mm)
+
+    y = h - 78 * mm
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(20 * mm, y, "Descripción")
+    c.drawString(100 * mm, y, "Cant.")
+    c.drawString(130 * mm, y, "P. Unit.")
+    c.drawString(160 * mm, y, "Subtotal")
+    y -= 7 * mm
+
+    c.setFont("Helvetica", 10)
+    if invoice.items:
+        for item in invoice.items:
+            c.drawString(20 * mm, y, item.description[:55])
+            c.drawRightString(115 * mm, y, str(item.quantity))
+            c.drawRightString(148 * mm, y, f"${item.unit_price:,.2f}")
+            c.drawRightString(178 * mm, y, f"${item.subtotal:,.2f}")
+            y -= 6 * mm
+    else:
+        c.drawString(20 * mm, y, f"Servicio de internet — {invoice.period}")
+        c.drawRightString(178 * mm, y, f"${invoice.amount:,.2f}")
+        y -= 6 * mm
+
+    c.line(20 * mm, y, w - 20 * mm, y)
+    y -= 8 * mm
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(130 * mm, y, "Total:")
+    c.drawRightString(178 * mm, y, f"${invoice.amount:,.2f}")
+
+    y -= 15 * mm
+    c.setFont("Helvetica", 10)
+    c.drawString(20 * mm, y, f"Emisión: {invoice.issue_date}  |  Vencimiento: {invoice.due_date}  |  Estado: {invoice.status.value}")
+    if invoice.paid_date:
+        y -= 6 * mm
+        c.drawString(20 * mm, y, f"Fecha de pago: {invoice.paid_date}")
+
+    c.save()
+    return buf.getvalue()
+
+
+@router.get("/{invoice_id}/pdf")
+async def invoice_pdf(invoice_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    result = await db.execute(
+        select(Invoice).options(selectinload(Invoice.items), selectinload(Invoice.payments)).where(Invoice.id == invoice_id)
+    )
+    invoice = result.scalar_one_or_none()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    client = await db.get(Client, invoice.client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+
+    pdf_bytes = _build_invoice_pdf(invoice, client)
+    filename = f"factura_{invoice_id}_{invoice.period}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename={filename}"},
+    )
+
+
+@router.post("/{invoice_id}/mp-link")
+async def create_mp_link(invoice_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    result = await db.execute(
+        select(Invoice).options(selectinload(Invoice.items)).where(Invoice.id == invoice_id)
+    )
+    invoice = result.scalar_one_or_none()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if invoice.status in (InvoiceStatus.paid, InvoiceStatus.cancelled):
+        raise HTTPException(status_code=400, detail="La factura ya está pagada o cancelada")
+
+    client = await db.get(Client, invoice.client_id)
+
+    # Load MP access token from SystemConfig
+    from app.models.config import SystemConfig
+    cfg_result = await db.execute(select(SystemConfig).where(SystemConfig.key == "mp_access_token"))
+    cfg = cfg_result.scalar_one_or_none()
+    if not cfg or not cfg.value:
+        raise HTTPException(status_code=400, detail="No se configuró el access token de MercadoPago (Configuración → MercadoPago)")
+
+    import mercadopago
+    sdk = mercadopago.SDK(cfg.value)
+
+    title = f"Factura #{invoice_id} — {invoice.period}"
+    if invoice.items:
+        items = [{"title": it.description, "quantity": int(it.quantity), "unit_price": float(it.unit_price)} for it in invoice.items]
+    else:
+        items = [{"title": title, "quantity": 1, "unit_price": float(invoice.amount)}]
+
+    preference_data = {
+        "items": items,
+        "external_reference": str(invoice_id),
+        "statement_descriptor": "Guaynet WISP",
+    }
+    if client and client.email:
+        preference_data["payer"] = {"email": client.email}
+
+    response = sdk.preference().create(preference_data)
+    if response["status"] not in (200, 201):
+        raise HTTPException(status_code=502, detail=f"Error MercadoPago: {response.get('response', {})}")
+
+    init_point = response["response"]["init_point"]
+    return {"init_point": init_point, "preference_id": response["response"]["id"]}
 
 
 @router.post("/mark-overdue", status_code=200)

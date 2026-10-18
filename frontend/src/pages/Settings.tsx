@@ -24,6 +24,7 @@ export default function Settings() {
   const [form] = Form.useForm();
   const [waForm] = Form.useForm();
   const [smtpForm] = Form.useForm();
+  const [mpForm] = Form.useForm();
   const [testPhone, setTestPhone] = useState("");
   const [testMsg, setTestMsg] = useState("");
   const [testing, setTesting] = useState(false);
@@ -52,8 +53,11 @@ export default function Settings() {
         smtp_from: data.smtp_from ?? "",
         alert_email: data.alert_email ?? "",
       });
+      mpForm.setFieldsValue({
+        mp_access_token: data.mp_access_token ?? "",
+      });
     }
-  }, [data, form, waForm, smtpForm]);
+  }, [data, form, waForm, smtpForm, mpForm]);
 
   const mutation = useMutation({
     mutationFn: adminApi.updateConfig,
@@ -259,6 +263,32 @@ export default function Settings() {
               Enviar email de prueba
             </Button>
           </Space>
+        </Form>
+      </Card>
+      <Card title="MercadoPago" loading={isLoading} style={{ marginTop: 16 }}>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 20 }}
+          message="Configurá tu Access Token de MercadoPago para generar links de pago directamente desde las facturas."
+        />
+        <Form
+          form={mpForm}
+          layout="vertical"
+          onFinish={(values) => mutation.mutate(values)}
+        >
+          <Form.Item
+            name="mp_access_token"
+            label="Access Token"
+            extra="Obtenelo en mercadopago.com.ar → Tu negocio → Credenciales"
+          >
+            <Input.Password placeholder="APP_USR-..." />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={mutation.isPending}>
+              Guardar configuración MercadoPago
+            </Button>
+          </Form.Item>
         </Form>
       </Card>
     </div>

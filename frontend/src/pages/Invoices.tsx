@@ -25,10 +25,12 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   FileTextOutlined,
+  FilePdfOutlined,
   PauseCircleOutlined,
   PlusOutlined,
   WarningOutlined,
   ThunderboltOutlined,
+  LinkOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { clientsApi, invoicesApi, notificationsApi } from "@/services/api";
@@ -147,6 +149,14 @@ export default function Invoices() {
     onError: () => message.error("Error al registrar pago"),
   });
 
+  const mpLinkMutation = useMutation({
+    mutationFn: (id: number) => invoicesApi.mpLink(id),
+    onSuccess: (res) => {
+      window.open(res.init_point, "_blank");
+    },
+    onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al generar link de MercadoPago"),
+  });
+
   const formatARS = (v: number) =>
     new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(v);
 
@@ -177,20 +187,40 @@ export default function Invoices() {
       title: "",
       key: "actions",
       align: "right" as const,
-      render: (_: unknown, r: Invoice) =>
-        r.status !== "paid" && r.status !== "cancelled" ? (
-          <Button
-            size="small"
-            type="primary"
-            icon={<CheckCircleOutlined />}
-            onClick={() => {
-              setPayModal(r);
-              payForm.setFieldsValue({ payment_date: dayjs(), amount: r.amount, method: "cash" });
-            }}
-          >
-            Registrar pago
-          </Button>
-        ) : null,
+      render: (_: unknown, r: Invoice) => (
+        <Space size="small">
+          <Tooltip title="Descargar PDF">
+            <Button
+              size="small"
+              icon={<FilePdfOutlined />}
+              onClick={() => window.open(invoicesApi.pdfUrl(r.id), "_blank")}
+            />
+          </Tooltip>
+          {r.status !== "paid" && r.status !== "cancelled" && (
+            <>
+              <Tooltip title="Link de pago MercadoPago">
+                <Button
+                  size="small"
+                  icon={<LinkOutlined />}
+                  loading={mpLinkMutation.isPending}
+                  onClick={() => mpLinkMutation.mutate(r.id)}
+                />
+              </Tooltip>
+              <Button
+                size="small"
+                type="primary"
+                icon={<CheckCircleOutlined />}
+                onClick={() => {
+                  setPayModal(r);
+                  payForm.setFieldsValue({ payment_date: dayjs(), amount: r.amount, method: "cash" });
+                }}
+              >
+                Registrar pago
+              </Button>
+            </>
+          )}
+        </Space>
+      ),
     },
   ];
 

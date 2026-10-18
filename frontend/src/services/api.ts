@@ -215,6 +215,9 @@ export const invoicesApi = {
     const params = new URLSearchParams({ format: "csv", min_days_overdue: String(minDays) });
     window.open(`/api/v1/invoices/overdue-report?${params}`, "_blank");
   },
+  pdfUrl: (id: number) => `/api/v1/invoices/${id}/pdf`,
+  mpLink: (id: number) =>
+    http.post<{ init_point: string; preference_id: string }>(`/invoices/${id}/mp-link`).then((r) => r.data),
 };
 
 // ── Ubiquiti ──────────────────────────────────────────────────────────────────

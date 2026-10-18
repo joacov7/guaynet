@@ -64,6 +64,15 @@ def mark_overdue_and_suspend(grace_days: int = 3):
             )
             client_ids = [row[0] for row in overdue_clients_r.all()]
 
+            # Load WhatsApp config once
+            from sqlalchemy import select as _select
+            from app.models.config import SystemConfig
+            wa_cfg: dict = {}
+            for key in ("twilio_account_sid", "twilio_auth_token", "twilio_whatsapp_from", "whatsapp_reminder_template"):
+                r = await db.execute(_select(SystemConfig).where(SystemConfig.key == key))
+                rec = r.scalar_one_or_none()
+                wa_cfg[key] = rec.value if rec else None
+
             for client_id in client_ids:
                 client = await db.get(Client, client_id)
                 if not client:
@@ -96,6 +105,37 @@ def mark_overdue_and_suspend(grace_days: int = 3):
                         pass
 
                 suspended_names.append(client.full_name)
+
+                # Send WhatsApp notification
+                if client.phone and all(wa_cfg.get(k) for k in ("twilio_account_sid", "twilio_auth_token", "twilio_whatsapp_from")):
+                    template = wa_cfg.get("whatsapp_reminder_template") or \
+                        "Hola {nombre}, tu servicio fue suspendido por falta de pago. Comunicate con nosotros para regularizar."
+                    # Find oldest overdue invoice amount
+                    inv_r = await db.execute(
+                        select(Invoice).where(
+                            Invoice.client_id == client.id,
+                            Invoice.status == InvoiceStatus.overdue,
+                        ).order_by(Invoice.due_date)
+                    )
+                    oldest_inv = inv_r.scalars().first()
+                    msg = template.format(
+                        nombre=client.full_name,
+                        monto=f"${oldest_inv.amount:,.2f}" if oldest_inv else "",
+                        vencimiento=str(oldest_inv.due_date) if oldest_inv else "",
+                    )
+                    try:
+                        from twilio.rest import Client as TwilioClient
+                        def _send_wa(account_sid=wa_cfg["twilio_account_sid"],
+                                     auth_token=wa_cfg["twilio_auth_token"],
+                                     from_=wa_cfg["twilio_whatsapp_from"],
+                                     phone=client.phone,
+                                     body=msg):
+                            tc = TwilioClient(account_sid, auth_token)
+                            to = phone if phone.startswith("whatsapp:") else f"whatsapp:{phone}"
+                            tc.messages.create(from_=from_, to=to, body=body)
+                        await asyncio.to_thread(_send_wa)
+                    except Exception:
+                        pass
 
             await db.commit()
 
