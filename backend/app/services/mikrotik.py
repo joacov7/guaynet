@@ -33,11 +33,11 @@ class MikrotikService:
         probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         probe.settimeout(self.timeout)
         try:
-            result = probe.connect_ex((self.host, self.port))
-            if result != 0:
-                raise MikrotikError(f"Puerto {self.port} inaccesible en {self.host} (errno {result})")
+            probe.connect((self.host, self.port))
         except socket.timeout:
             raise MikrotikError(f"Timeout al conectar con {self.host}:{self.port} ({self.timeout}s)")
+        except ConnectionRefusedError:
+            raise MikrotikError(f"Puerto {self.port} inaccesible en {self.host}")
         except OSError as e:
             raise MikrotikError(f"No se pudo conectar a {self.host}:{self.port} — {e}")
         finally:
