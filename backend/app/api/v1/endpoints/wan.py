@@ -310,7 +310,7 @@ async def create_wan_schedule(
     try:
         await asyncio.to_thread(_write_schedules)
     except Exception as e:
-        import traceback; traceback.print_exc()
+        print(f"[wan] schedule error: {e}", flush=True)
         raise HTTPException(status_code=503, detail=str(e))
 
     return _sched_to_dict(s)
@@ -371,7 +371,7 @@ async def apply_load_balance(
     try:
         result = await asyncio.to_thread(_apply)
     except Exception as e:
-        import traceback; traceback.print_exc()
+        print(f"[wan] load-balance error: {e}", flush=True)
         raise HTTPException(status_code=503, detail=str(e))
 
     return result

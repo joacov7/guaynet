@@ -671,6 +671,15 @@ class MikrotikService:
             entries = [e for e in entries if e.get("name", "").startswith(prefix)]
         return entries
 
+    def _routeros_version(self) -> int:
+        """Return major RouterOS version (6 or 7)."""
+        try:
+            info = self._call("/system/resource/print")
+            version = info[0].get("version", "6") if info else "6"
+            return int(str(version).split(".")[0])
+        except Exception:
+            return 6
+
     def apply_pcc_load_balance(self, wan_configs: List[Dict]) -> Dict[str, int]:
         """
         Configure PCC load balancing for multiple WAN interfaces.
@@ -680,16 +689,17 @@ class MikrotikService:
         added = 0
         n = len(wan_configs)
         if n < 2:
-            raise MikrotikError("Need at least 2 WAN interfaces for load balancing")
+            raise MikrotikError("Necesitás al menos 2 interfaces WAN para balanceo")
+
+        ros_ver = self._routeros_version()
+        routing_mark_key = "routing-table" if ros_ver >= 7 else "routing-mark"
 
         for i, wan in enumerate(wan_configs):
-            iface = wan["interface"]
             mark = f"wan{i+1}"
 
-            # Mark new connections per WAN using PCC
+            # Mark new connections per WAN using PCC (no interface filter needed)
             conn_rule = {
                 "chain": "prerouting",
-                "in-interface": "!"+iface,
                 "connection-state": "new",
                 "action": "mark-connection",
                 "new-connection-mark": f"{mark}_conn",
@@ -697,7 +707,7 @@ class MikrotikService:
                 "comment": f"guaynet-lb-conn-{mark}",
                 "passthrough": "yes",
             }
-            # Mark packets for marked connections
+            # Mark routing for marked connections
             pkt_rule = {
                 "chain": "prerouting",
                 "connection-mark": f"{mark}_conn",
@@ -716,17 +726,25 @@ class MikrotikService:
             gateway = wan.get("gateway")
             if not gateway:
                 continue
+            # Remove existing guaynet route for this mark before adding
+            try:
+                existing_routes = self._call("/ip/route/print")
+                for r in existing_routes:
+                    if str(r.get("comment", "")).startswith(f"guaynet-lb-route-{mark}"):
+                        self._call("/ip/route/remove", **{".id": r[".id"]})
+            except Exception:
+                pass
             try:
                 self._call("/ip/route/add", **{
                     "dst-address": "0.0.0.0/0",
                     "gateway": gateway,
-                    "routing-mark": f"{mark}_route",
+                    routing_mark_key: f"{mark}_route",
                     "comment": f"guaynet-lb-route-{mark}",
                     "distance": str(i + 1),
                 })
                 added += 1
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[wan] route add error for {mark}: {e}", flush=True)
 
         return {"rules_added": added}
 
