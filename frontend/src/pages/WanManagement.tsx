@@ -28,6 +28,7 @@ import {
 import {
   PlusOutlined,
   DeleteOutlined,
+  EditOutlined,
   ThunderboltOutlined,
   ClockCircleOutlined,
   ApiOutlined,
@@ -61,8 +62,10 @@ function formatBytes(bytes: number): string {
 function WanCard({ wan, routerId }: { wan: WanInterface; routerId: number }) {
   const qc = useQueryClient();
   const [schedModal, setSchedModal] = useState(false);
+  const [editingSched, setEditingSched] = useState<WanSchedule | null>(null);
   const [lbGateway, setLbGateway] = useState("");
   const [schedForm] = Form.useForm();
+  const [editForm] = Form.useForm();
 
   const toggleMut = useMutation({
     mutationFn: () => wanApi.toggle(routerId, wan.id),
@@ -102,6 +105,21 @@ function WanCard({ wan, routerId }: { wan: WanInterface; routerId: number }) {
   const delSchedMut = useMutation({
     mutationFn: (schedId: number) => wanApi.deleteSchedule(routerId, wan.id, schedId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["wan", routerId] }),
+  });
+
+  const editSchedMut = useMutation({
+    mutationFn: (vals: { action: string; days: string[]; time_start: string; time_end: string }) =>
+      wanApi.updateSchedule(routerId, wan.id, editingSched!.id, {
+        ...vals,
+        days: vals.days.join(","),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["wan", routerId] });
+      setEditingSched(null);
+      editForm.resetFields();
+      message.success("Programación actualizada");
+    },
+    onError: () => message.error("Error al actualizar programación"),
   });
 
   const liveRunning = wan.live?.running ?? wan.enabled;
@@ -221,12 +239,27 @@ function WanCard({ wan, routerId }: { wan: WanInterface; routerId: number }) {
             { title: "Fin", dataIndex: "time_end" },
             {
               title: "",
-              key: "del",
-              width: 40,
+              key: "actions",
+              width: 70,
               render: (_: unknown, s: WanSchedule) => (
-                <Popconfirm title="¿Eliminar?" onConfirm={() => delSchedMut.mutate(s.id)} okText="Sí" cancelText="No">
-                  <Button size="small" danger icon={<DeleteOutlined />} />
-                </Popconfirm>
+                <Space>
+                  <Button
+                    size="small"
+                    icon={<EditOutlined />}
+                    onClick={() => {
+                      setEditingSched(s);
+                      editForm.setFieldsValue({
+                        action: s.action,
+                        days: s.days.split(","),
+                        time_start: dayjs(s.time_start, "HH:mm:ss"),
+                        time_end: dayjs(s.time_end, "HH:mm:ss"),
+                      });
+                    }}
+                  />
+                  <Popconfirm title="¿Eliminar?" onConfirm={() => delSchedMut.mutate(s.id)} okText="Sí" cancelText="No">
+                    <Button size="small" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                </Space>
               ),
             },
           ]}
@@ -245,6 +278,47 @@ function WanCard({ wan, routerId }: { wan: WanInterface; routerId: number }) {
           layout="vertical"
           initialValues={{ action: "enable", days: ["mon","tue","wed","thu","fri"] }}
           onFinish={(vals) => addSchedMut.mutate({
+            action: vals.action,
+            days: vals.days,
+            time_start: dayjs(vals.time_start).format("HH:mm:00"),
+            time_end: dayjs(vals.time_end).format("HH:mm:00"),
+          })}
+        >
+          <Form.Item name="action" label="Acción" rules={[{ required: true }]}>
+            <Select options={[
+              { value: "enable", label: "Habilitar interfaz" },
+              { value: "disable", label: "Deshabilitar interfaz" },
+            ]} />
+          </Form.Item>
+          <Form.Item name="days" label="Días" rules={[{ required: true }]}>
+            <Select mode="multiple" options={DAY_OPTIONS} />
+          </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="time_start" label="Hora inicio" rules={[{ required: true }]}>
+                <TimePicker format="HH:mm" style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="time_end" label="Hora fin" rules={[{ required: true }]}>
+                <TimePicker format="HH:mm" style={{ width: "100%" }} />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="Editar programación horaria"
+        open={editingSched !== null}
+        onCancel={() => { setEditingSched(null); editForm.resetFields(); }}
+        onOk={() => editForm.submit()}
+        confirmLoading={editSchedMut.isPending}
+      >
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={(vals) => editSchedMut.mutate({
             action: vals.action,
             days: vals.days,
             time_start: dayjs(vals.time_start).format("HH:mm:00"),

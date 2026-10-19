@@ -45,6 +45,13 @@ class WanScheduleCreate(BaseModel):
     time_end: str
 
 
+class WanScheduleUpdate(BaseModel):
+    action: Optional[str] = None
+    days: Optional[str] = None
+    time_start: Optional[str] = None
+    time_end: Optional[str] = None
+
+
 class LbWanConfig(BaseModel):
     wan_interface_id: int
     gateway: str
@@ -349,6 +356,50 @@ async def delete_wan_schedule(
             pass
     await db.delete(s)
     await db.commit()
+
+
+@router.put("/{router_id}/wan/{wan_id}/schedules/{sched_id}")
+async def update_wan_schedule(
+    router_id: int,
+    wan_id: int,
+    sched_id: int,
+    body: WanScheduleUpdate,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    s = await db.get(WanSchedule, sched_id)
+    if not s or s.wan_interface_id != wan_id:
+        raise HTTPException(status_code=404)
+    w = await db.get(WanInterface, wan_id)
+    if not w or w.router_id != router_id:
+        raise HTTPException(status_code=404)
+    rt = await db.get(MikrotikRouter, router_id)
+    if not rt:
+        raise HTTPException(status_code=404)
+
+    for field, value in body.model_dump(exclude_none=True).items():
+        setattr(s, field, value)
+    await db.commit()
+    await db.refresh(s)
+
+    iface = w.interface_name
+    action_script = f"/interface {'enable' if s.action == 'enable' else 'disable'} {iface}"
+    inverse_script = f"/interface {'disable' if s.action == 'enable' else 'enable'} {iface}"
+
+    def _update_schedules():
+        svc = build_service_from_router(rt)
+        with svc:
+            svc.set_scheduler_entry(_scheduler_name(wan_id, s.id, "start"), s.time_start, "24:00:00", action_script)
+            svc.set_scheduler_entry(_scheduler_name(wan_id, s.id, "end"), s.time_end, "24:00:00", inverse_script)
+
+    try:
+        await asyncio.to_thread(_update_schedules)
+    except Exception as e:
+        tb = traceback.format_exc()
+        logger.error(f"[wan] schedule update error: {type(e).__name__}: {e}\n{tb}")
+        raise HTTPException(status_code=503, detail=f"{type(e).__name__}: {e}")
+
+    return _sched_to_dict(s)
 
 
 # ── Load Balancing Wizard ─────────────────────────────────────────────────────

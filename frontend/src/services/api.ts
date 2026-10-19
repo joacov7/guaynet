@@ -470,6 +470,8 @@ export const wanApi = {
     http.post<WanSchedule>(`/routers/${routerId}/wan/${wanId}/schedules`, data).then(r => r.data),
   deleteSchedule: (routerId: number, wanId: number, schedId: number) =>
     http.delete(`/routers/${routerId}/wan/${wanId}/schedules/${schedId}`),
+  updateSchedule: (routerId: number, wanId: number, schedId: number, data: { action?: string; days?: string; time_start?: string; time_end?: string }) =>
+    http.put<WanSchedule>(`/routers/${routerId}/wan/${wanId}/schedules/${schedId}`, data).then(r => r.data),
   applyLoadBalance: (routerId: number, wans: { wan_interface_id: number; gateway: string }[]) =>
     http.post(`/routers/${routerId}/wan/apply-load-balance`, { wans }).then(r => r.data),
   removeLoadBalance: (routerId: number) =>
