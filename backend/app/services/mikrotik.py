@@ -695,8 +695,23 @@ class MikrotikService:
             raise MikrotikError("Necesitás al menos 2 interfaces WAN para balanceo")
 
         ros_ver = self._routeros_version()
+        # In routes: routing-table (v7) vs routing-mark (v6)
         routing_mark_key = "routing-table" if ros_ver >= 7 else "routing-mark"
-        new_routing_mark_key = "new-routing-table" if ros_ver >= 7 else "new-routing-mark"
+
+        # RouterOS v7 requires routing tables to exist before referencing them in mangle
+        if ros_ver >= 7:
+            try:
+                existing_tables = self._call("/routing/table/print")
+                existing_table_names = {t.get("name", "") for t in existing_tables}
+            except Exception:
+                existing_table_names = set()
+            for i in range(n):
+                table_name = f"wan{i+1}_route"
+                if table_name not in existing_table_names:
+                    try:
+                        self._call("/routing/table/add", name=table_name, fib="")
+                    except Exception as e:
+                        logger.warning(f"[wan] routing table {table_name}: {e}")
 
         for i, wan in enumerate(wan_configs):
             mark = f"wan{i+1}"
@@ -711,12 +726,12 @@ class MikrotikService:
                 "comment": f"guaynet-lb-conn-{mark}",
                 "passthrough": "yes",
             }
-            # Mark routing for marked connections
+            # Mark routing for marked connections — field name is new-routing-mark in both v6 and v7
             pkt_rule = {
                 "chain": "prerouting",
                 "connection-mark": f"{mark}_conn",
                 "action": "mark-routing",
-                new_routing_mark_key: f"{mark}_route",
+                "new-routing-mark": f"{mark}_route",
                 "comment": f"guaynet-lb-pkt-{mark}",
                 "passthrough": "yes",
             }
@@ -758,7 +773,10 @@ class MikrotikService:
         mangle = self._call("/ip/firewall/mangle/print")
         for rule in mangle:
             if str(rule.get("comment", "")).startswith("guaynet-lb-"):
-                self._call("/ip/firewall/mangle/remove", **{".id": rule[".id"]})
+                try:
+                    self._call("/ip/firewall/mangle/remove", **{".id": rule[".id"]})
+                except Exception:
+                    pass
         routes = self._call("/ip/route/print")
         for route in routes:
             if str(route.get("comment", "")).startswith("guaynet-lb-route-"):
@@ -766,6 +784,17 @@ class MikrotikService:
                     self._call("/ip/route/remove", **{".id": route[".id"]})
                 except Exception:
                     pass
+        # Remove routing tables (RouterOS v7)
+        try:
+            tables = self._call("/routing/table/print")
+            for t in tables:
+                if str(t.get("name", "")).startswith("wan") and t.get("name", "").endswith("_route"):
+                    try:
+                        self._call("/routing/table/remove", **{".id": t[".id"]})
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
 
 def build_service_from_router(router) -> MikrotikService:
