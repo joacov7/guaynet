@@ -658,10 +658,12 @@ class MikrotikService:
             "on-event": script,
             "day-of-week": days,
         }
+        logger.error(f"[scheduler] entry={entry_name} existing={existing is not None} params={params}")
         if existing:
-            self._call("/system/scheduler/set", **{".id": existing.get(".id"), **params})
+            result = self._call("/system/scheduler/set", **{".id": existing.get(".id"), **params})
         else:
-            self._call("/system/scheduler/add", **{"name": entry_name, **params})
+            result = self._call("/system/scheduler/add", **{"name": entry_name, **params})
+        logger.error(f"[scheduler] result={result}")
 
     def remove_scheduler_entry(self, entry_name: str) -> None:
         all_entries = self._call("/system/scheduler/print")
