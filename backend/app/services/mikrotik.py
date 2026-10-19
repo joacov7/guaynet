@@ -622,25 +622,25 @@ class MikrotikService:
     # ── WAN / Interface control ───────────────────────────────────────────────
 
     def enable_interface(self, name: str) -> None:
-        ifaces = self._call("/interface/print", **{"?name": name})
-        if not ifaces:
+        all_ifaces = self._call("/interface/print")
+        iface = next((i for i in all_ifaces if i.get("name") == name), None)
+        if not iface:
             raise MikrotikError(f"Interface '{name}' not found")
-        iface_id = ifaces[0].get(".id")
-        self._call("/interface/enable", **{".id": iface_id})
+        self._call("/interface/enable", **{".id": iface[".id"]})
 
     def disable_interface(self, name: str) -> None:
-        ifaces = self._call("/interface/print", **{"?name": name})
-        if not ifaces:
+        all_ifaces = self._call("/interface/print")
+        iface = next((i for i in all_ifaces if i.get("name") == name), None)
+        if not iface:
             raise MikrotikError(f"Interface '{name}' not found")
-        iface_id = ifaces[0].get(".id")
-        self._call("/interface/disable", **{".id": iface_id})
+        self._call("/interface/disable", **{".id": iface[".id"]})
 
     def get_interface_bytes(self, name: str) -> Dict[str, int]:
         """Return current rx-byte / tx-byte counters for one interface."""
-        ifaces = self._call("/interface/print", **{"?name": name})
-        if not ifaces:
+        all_ifaces = self._call("/interface/print")
+        r = next((i for i in all_ifaces if i.get("name") == name), None)
+        if not r:
             return {"rx_byte": 0, "tx_byte": 0, "running": False}
-        r = ifaces[0]
         return {
             "rx_byte": int(r.get("rx-byte", 0) or 0),
             "tx_byte": int(r.get("tx-byte", 0) or 0),
@@ -650,7 +650,8 @@ class MikrotikService:
 
     def set_scheduler_entry(self, entry_name: str, start_time: str, interval: str, script: str, days: str = "mon,tue,wed,thu,fri,sat,sun") -> None:
         """Create or replace a scheduler entry."""
-        existing = self._call("/system/scheduler/print", **{"?name": entry_name})
+        all_entries = self._call("/system/scheduler/print")
+        existing = next((e for e in all_entries if e.get("name") == entry_name), None)
         params = {
             "start-time": start_time,
             "interval": interval,
@@ -658,15 +659,15 @@ class MikrotikService:
             "day-of-week": days,
         }
         if existing:
-            self._call("/system/scheduler/set", **{".id": existing[0].get(".id"), **params})
+            self._call("/system/scheduler/set", **{".id": existing.get(".id"), **params})
         else:
             self._call("/system/scheduler/add", **{"name": entry_name, **params})
 
     def remove_scheduler_entry(self, entry_name: str) -> None:
-        existing = self._call("/system/scheduler/print", **{"?name": entry_name})
+        all_entries = self._call("/system/scheduler/print")
+        existing = next((e for e in all_entries if e.get("name") == entry_name), None)
         if existing:
-            entry_id = existing[0].get(".id")
-            self._call("/system/scheduler/remove", **{".id": entry_id})
+            self._call("/system/scheduler/remove", **{".id": existing.get(".id")})
 
     def get_scheduler_entries(self, prefix: str = "") -> List[Dict]:
         entries = self._call("/system/scheduler/print")
@@ -698,28 +699,24 @@ class MikrotikService:
         # In routes: routing-table (v7) vs routing-mark (v6)
         routing_mark_key = "routing-table" if ros_ver >= 7 else "routing-mark"
 
-        logger.info(f"[wan] RouterOS version: {ros_ver}, routing key: {routing_mark_key}")
+        logger.error(f"[wan] RouterOS version: {ros_ver}, routing key: {routing_mark_key}")
 
-        # RouterOS v7 requires routing tables to exist before referencing them in mangle
-        if ros_ver >= 7:
-            try:
-                existing_tables = self._call("/routing/table/print")
-                existing_table_names = {t.get("name", "") for t in existing_tables}
-                logger.info(f"[wan] existing routing tables: {existing_table_names}")
-            except Exception as e:
-                logger.error(f"[wan] could not list routing tables: {e}")
-                existing_table_names = set()
+        # RouterOS v7 requires routing tables to exist before mangle rules reference them.
+        # Try unconditionally — silently ignored on v6 where /routing/table doesn't exist.
+        try:
+            existing_tables = self._call("/routing/table/print")
+            existing_table_names = {t.get("name", "") for t in existing_tables}
+            logger.error(f"[wan] existing routing tables: {existing_table_names}")
             for i in range(n):
                 table_name = f"wan{i+1}_route"
                 if table_name not in existing_table_names:
                     try:
                         self._call("/routing/table/add", name=table_name)
-                        logger.info(f"[wan] created routing table: {table_name}")
+                        logger.error(f"[wan] created routing table: {table_name}")
                     except Exception as e:
-                        logger.error(f"[wan] failed to create routing table {table_name}: {e}")
-                        raise MikrotikError(f"No se pudo crear routing table {table_name}: {e}")
-                else:
-                    logger.info(f"[wan] routing table already exists: {table_name}")
+                        logger.error(f"[wan] routing table add failed (may already exist): {e}")
+        except Exception as e:
+            logger.error(f"[wan] /routing/table not available (probably v6): {e}")
 
         for i, wan in enumerate(wan_configs):
             mark = f"wan{i+1}"
