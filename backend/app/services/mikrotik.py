@@ -770,6 +770,24 @@ class MikrotikService:
                 logger.error(f"[wan] route add error for {mark}: {e}")
                 raise
 
+        # Add NAT masquerade per WAN interface so traffic is properly NATted
+        for i, wan in enumerate(wan_configs):
+            mark = f"wan{i+1}"
+            nat_comment = f"guaynet-lb-nat-{mark}"
+            existing_nat = self._call("/ip/firewall/nat/print")
+            if not any(r.get("comment") == nat_comment for r in existing_nat):
+                try:
+                    self._call("/ip/firewall/nat/add", **{
+                        "chain": "srcnat",
+                        "out-interface": wan["interface"],
+                        "action": "masquerade",
+                        "comment": nat_comment,
+                    })
+                    added += 1
+                    logger.error(f"[wan] added NAT masquerade for {wan['interface']}")
+                except Exception as e:
+                    logger.error(f"[wan] NAT masquerade error for {wan['interface']}: {e}")
+
         return {"rules_added": added}
 
     def remove_pcc_load_balance(self) -> None:
@@ -788,6 +806,17 @@ class MikrotikService:
                     self._call("/ip/route/remove", **{".id": route[".id"]})
                 except Exception:
                     pass
+        # Remove NAT rules
+        try:
+            nat_rules = self._call("/ip/firewall/nat/print")
+            for rule in nat_rules:
+                if str(rule.get("comment", "")).startswith("guaynet-lb-nat-"):
+                    try:
+                        self._call("/ip/firewall/nat/remove", **{".id": rule[".id"]})
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         # Remove routing tables (RouterOS v7)
         try:
             tables = self._call("/routing/table/print")
