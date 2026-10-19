@@ -718,10 +718,21 @@ class MikrotikService:
         except Exception as e:
             logger.error(f"[wan] /routing/table not available (probably v6): {e}")
 
+        # Accept established/related first so they follow their existing connection mark
+        bypass = {
+            "chain": "prerouting",
+            "connection-state": "established,related",
+            "action": "accept",
+            "comment": "guaynet-lb-bypass-estab",
+            "passthrough": "no",
+        }
+        self._ensure_mangle_rule(bypass)
+        added += 1
+
         for i, wan in enumerate(wan_configs):
             mark = f"wan{i+1}"
 
-            # Mark new connections per WAN using PCC (no interface filter needed)
+            # Mark new connections per WAN using PCC
             conn_rule = {
                 "chain": "prerouting",
                 "connection-state": "new",
