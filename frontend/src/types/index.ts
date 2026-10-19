@@ -294,6 +294,8 @@ export interface OnlineClient {
   client_id?: number;
   client_name?: string;
   ip_address: string;
+  new_ip?: string;
+  ip_changed?: boolean;
   mac_address: string;
   status?: string;
   online: boolean;

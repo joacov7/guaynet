@@ -249,6 +249,12 @@ class MikrotikService:
     def remove_queue(self, queue_id: str) -> None:
         self._call("/queue/simple/remove", **{".id": queue_id})
 
+    def update_queue_target(self, queue_name: str, new_ip: str) -> None:
+        all_queues = self._call("/queue/simple/print")
+        q = next((x for x in all_queues if x.get("name") == queue_name), None)
+        if q:
+            self._call("/queue/simple/set", **{".id": q[".id"], "target": f"{new_ip}/32"})
+
     # ── DHCP ──────────────────────────────────────────────────────────────────
 
     def get_dhcp_leases(self) -> List[Dict]:

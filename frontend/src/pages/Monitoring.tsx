@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Badge,
   Button,
@@ -13,6 +13,7 @@ import {
   Tabs,
   Tooltip,
   Typography,
+  message,
 } from "antd";
 import { ReloadOutlined, WifiOutlined, ThunderboltOutlined, SyncOutlined, WarningOutlined } from "@ant-design/icons";
 import { routersApi, clientsApi } from "@/services/api";
@@ -61,7 +62,19 @@ export default function Monitoring() {
     refetchInterval: 30_000,
   });
 
+  const qc = useQueryClient();
+  const updateIpMut = useMutation({
+    mutationFn: ({ clientId, newIp }: { clientId: number; newIp: string }) =>
+      routersApi.updateClientIp(routerId!, clientId, newIp),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["online-clients", routerId] });
+      message.success(`IP actualizada a ${vars.newIp}`);
+    },
+    onError: () => message.error("Error al actualizar IP"),
+  });
+
   const onlineCount = online.filter((c) => c.online).length;
+  const ipChangedCount = online.filter((c) => c.ip_changed).length;
   const missingQueueCount = bandwidth.filter((b) => b.missing_queue).length;
 
   const [syncingId, setSyncingId] = useState<number | null>(null);
@@ -161,6 +174,20 @@ export default function Monitoring() {
         <Space>
           <Badge status={r.online ? "success" : "default"} />
           <span>{v}</span>
+          {r.ip_changed && r.new_ip && (
+            <Tooltip title={`Nueva IP detectada: ${r.new_ip}. Hacé clic para actualizar.`}>
+              <Button
+                size="small"
+                type="link"
+                icon={<WarningOutlined style={{ color: "#faad14" }} />}
+                style={{ padding: 0, height: "auto" }}
+                loading={updateIpMut.isPending && updateIpMut.variables?.clientId === r.client_id}
+                onClick={() => r.client_id && updateIpMut.mutate({ clientId: r.client_id, newIp: r.new_ip! })}
+              >
+                <span style={{ color: "#faad14", fontSize: 11 }}>{r.new_ip}</span>
+              </Button>
+            </Tooltip>
+          )}
         </Space>
       ),
     },

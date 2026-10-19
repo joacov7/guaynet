@@ -2,7 +2,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -363,25 +363,113 @@ async def get_online_clients(
     except MikrotikError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
-    online_ips = {
-        e.get("address"): e.get("mac-address", "")
-        for e in arp_table
-        if e.get("address") and e.get("complete", "true") != "false"
+    online_ips: dict = {}   # {ip: mac}
+    online_macs: dict = {}  # {mac_upper: ip}
+    for e in arp_table:
+        if e.get("address") and e.get("complete", "true") != "false":
+            ip = e["address"]
+            mac = (e.get("mac-address") or "").upper()
+            online_ips[ip] = mac
+            if mac:
+                online_macs[mac] = ip
+
+    mac_to_client = {
+        c.mac_address.upper(): c
+        for c in client_map.values()
+        if c.mac_address
     }
 
     items = []
+    handled_ips: set = set()
+    handled_client_ids: set = set()
+
     for ip, client in client_map.items():
+        if ip in online_ips:
+            items.append({
+                "client_id": client.id,
+                "client_name": client.full_name,
+                "ip_address": ip,
+                "mac_address": online_ips[ip] or client.mac_address or "",
+                "status": client.status,
+                "online": True,
+                "ip_changed": False,
+            })
+            handled_ips.add(ip)
+        else:
+            stored_mac = (client.mac_address or "").upper()
+            if stored_mac and stored_mac in online_macs:
+                new_ip = online_macs[stored_mac]
+                items.append({
+                    "client_id": client.id,
+                    "client_name": client.full_name,
+                    "ip_address": ip,
+                    "new_ip": new_ip,
+                    "mac_address": stored_mac,
+                    "status": client.status,
+                    "online": True,
+                    "ip_changed": True,
+                })
+                handled_ips.add(new_ip)
+            else:
+                items.append({
+                    "client_id": client.id,
+                    "client_name": client.full_name,
+                    "ip_address": ip,
+                    "mac_address": client.mac_address or "",
+                    "status": client.status,
+                    "online": False,
+                    "ip_changed": False,
+                })
+        handled_client_ids.add(client.id)
+
+    # Unregistered devices in ARP not matched to any client
+    for ip, mac in online_ips.items():
+        if ip in handled_ips:
+            continue
+        if mac and mac in mac_to_client and mac_to_client[mac].id in handled_client_ids:
+            continue
         items.append({
-            "client_id": client.id,
-            "client_name": client.full_name,
+            "client_id": None,
+            "client_name": None,
             "ip_address": ip,
-            "mac_address": online_ips.get(ip) or client.mac_address or "",
-            "status": client.status,
-            "online": ip in online_ips,
+            "mac_address": mac,
+            "status": None,
+            "online": True,
+            "ip_changed": False,
         })
 
     items.sort(key=lambda x: (not x["online"], x["ip_address"]))
     return items
+
+
+@router.post("/{router_id}/clients/{client_id}/update-ip")
+async def update_client_ip(
+    router_id: int,
+    client_id: int,
+    new_ip: str = Body(..., embed=True),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    client = await db.get(Client, client_id)
+    if not client or client.router_id != router_id:
+        raise HTTPException(status_code=404)
+    old_ip = client.ip_address
+    client.ip_address = new_ip
+    await db.commit()
+
+    rt = await db.get(MikrotikRouter, router_id)
+    if rt:
+        qname = client.mikrotik_queue_name
+        def _update():
+            svc = build_service_from_router(rt)
+            with svc:
+                svc.update_queue_target(qname, new_ip)
+        try:
+            await asyncio.to_thread(_update)
+        except Exception:
+            pass
+
+    return {"updated": True, "old_ip": old_ip, "new_ip": new_ip}
 
 
 @router.post("/{router_id}/setup-qos")
