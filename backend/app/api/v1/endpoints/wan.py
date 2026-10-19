@@ -111,9 +111,11 @@ async def list_wan_interfaces(
     )
     wans = result.scalars().all()
 
-    # Fetch live stats from MikroTik
+    # Fetch live stats from MikroTik — short timeout so a dead router doesn't block the list
     def _get_live(iface_name: str):
-        svc = build_service_from_router(rt)
+        from app.services.mikrotik import MikrotikService
+        from app.core.security import decrypt_value
+        svc = MikrotikService(rt.host, rt.port, rt.username, decrypt_value(rt.password_encrypted), timeout=4)
         with svc:
             return svc.get_interface_bytes(iface_name)
 
