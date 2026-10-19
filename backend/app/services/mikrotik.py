@@ -3,10 +3,13 @@ Mikrotik RouterOS API service.
 Wraps librouteros for Simple Queue management across RouterOS 6 and 7.
 All methods are synchronous — call via asyncio.to_thread() from async endpoints.
 """
+import logging
 import socket
 from typing import Any, Dict, List, Optional
 
 import librouteros
+
+logger = logging.getLogger(__name__)
 from librouteros.exceptions import ConnectionClosed, FatalError
 
 
@@ -744,7 +747,8 @@ class MikrotikService:
                 })
                 added += 1
             except Exception as e:
-                print(f"[wan] route add error for {mark}: {e}", flush=True)
+                logger.error(f"[wan] route add error for {mark}: {e}")
+                raise
 
         return {"rules_added": added}
 
