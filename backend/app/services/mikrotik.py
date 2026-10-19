@@ -648,23 +648,16 @@ class MikrotikService:
     def set_scheduler_entry(self, entry_name: str, start_time: str, interval: str, script: str, days: str = "mon,tue,wed,thu,fri,sat,sun") -> None:
         """Create or replace a scheduler entry."""
         existing = self._call("/system/scheduler/print", **{"?name": entry_name})
+        params = {
+            "start-time": start_time,
+            "interval": interval,
+            "on-event": script,
+            "day-of-week": days,
+        }
         if existing:
-            entry_id = existing[0].get(".id")
-            self._call("/system/scheduler/set", **{
-                ".id": entry_id,
-                "start-time": start_time,
-                "interval": interval,
-                "on-event": script,
-                "days": days,
-            })
+            self._call("/system/scheduler/set", **{".id": existing[0].get(".id"), **params})
         else:
-            self._call("/system/scheduler/add", **{
-                "name": entry_name,
-                "start-time": start_time,
-                "interval": interval,
-                "on-event": script,
-                "days": days,
-            })
+            self._call("/system/scheduler/add", **{"name": entry_name, **params})
 
     def remove_scheduler_entry(self, entry_name: str) -> None:
         existing = self._call("/system/scheduler/print", **{"?name": entry_name})
