@@ -42,6 +42,11 @@ export interface RouterUtilization {
   uplink_upload_mbps?: number;
   queue_total_download_bytes: number;
   queue_total_upload_bytes: number;
+  free_hdd_space?: number;
+  total_hdd_space?: number;
+  free_memory?: number;
+  total_memory?: number;
+  cpu_load?: number;
 }
 
 export interface Router {

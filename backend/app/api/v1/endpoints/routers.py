@@ -433,10 +433,11 @@ async def get_utilization(
         with svc:
             interfaces = svc.get_interface_stats()
             queues = svc.get_simple_queues()
-            return interfaces, queues
+            resources = svc.get_system_resources()
+            return interfaces, queues, resources
 
     try:
-        interfaces, queues = await asyncio.to_thread(_get)
+        interfaces, queues, resources = await asyncio.to_thread(_get)
     except MikrotikError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -455,6 +456,7 @@ async def get_utilization(
         "uplink_upload_mbps": rt.uplink_upload_mbps,
         "queue_total_download_bytes": total_dl_bytes,
         "queue_total_upload_bytes": total_ul_bytes,
+        **resources,
     }
 
 

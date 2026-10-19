@@ -286,6 +286,17 @@ class MikrotikService:
             })
         return result
 
+    def get_system_resources(self) -> Dict:
+        raw = self._call("/system/resource/print")
+        r = raw[0] if raw else {}
+        return {
+            "free_hdd_space": int(r.get("free-hdd-space", 0) or 0),
+            "total_hdd_space": int(r.get("total-hdd-space", 0) or 0),
+            "free_memory": int(r.get("free-memory", 0) or 0),
+            "total_memory": int(r.get("total-memory", 0) or 0),
+            "cpu_load": int(r.get("cpu-load", 0) or 0),
+        }
+
     # ── Firewall Filter ───────────────────────────────────────────────────────
 
     def get_firewall_filter_rules(self) -> List[Dict]:

@@ -427,6 +427,11 @@ function UtilizationPanel({ data }: { data: RouterUtilization }) {
     return `${(bytes / 1e3).toFixed(0)} KB`;
   };
 
+  const hddUsed = (data.total_hdd_space ?? 0) - (data.free_hdd_space ?? 0);
+  const hddPct = data.total_hdd_space ? Math.round((hddUsed / data.total_hdd_space) * 100) : 0;
+  const ramUsed = (data.total_memory ?? 0) - (data.free_memory ?? 0);
+  const ramPct = data.total_memory ? Math.round((ramUsed / data.total_memory) * 100) : 0;
+
   return (
     <>
       {(data.uplink_download_mbps || data.uplink_upload_mbps) && (
@@ -462,6 +467,53 @@ function UtilizationPanel({ data }: { data: RouterUtilization }) {
               />
             </div>
           )}
+        </Card>
+      )}
+
+      {(data.total_hdd_space || data.total_memory) && (
+        <Card size="small" title="Recursos del sistema" style={{ marginBottom: 16 }}>
+          {data.total_hdd_space ? (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span>Flash (almacenamiento)</span>
+                <span>{fmtGB(hddUsed)} / {fmtGB(data.total_hdd_space)}</span>
+              </div>
+              <Progress
+                percent={hddPct}
+                size="small"
+                strokeColor={hddPct > 90 ? "#f5222d" : hddPct > 70 ? "#faad14" : "#52c41a"}
+                format={p => `${p}%`}
+              />
+            </div>
+          ) : null}
+          {data.total_memory ? (
+            <div style={{ marginBottom: data.cpu_load !== undefined ? 8 : 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span>RAM</span>
+                <span>{fmtGB(ramUsed)} / {fmtGB(data.total_memory)}</span>
+              </div>
+              <Progress
+                percent={ramPct}
+                size="small"
+                strokeColor={ramPct > 90 ? "#f5222d" : ramPct > 70 ? "#faad14" : "#1677ff"}
+                format={p => `${p}%`}
+              />
+            </div>
+          ) : null}
+          {data.cpu_load !== undefined ? (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span>CPU</span>
+                <span>{data.cpu_load}%</span>
+              </div>
+              <Progress
+                percent={data.cpu_load}
+                size="small"
+                strokeColor={data.cpu_load > 90 ? "#f5222d" : data.cpu_load > 70 ? "#faad14" : "#722ed1"}
+                format={p => `${p}%`}
+              />
+            </div>
+          ) : null}
         </Card>
       )}
 
