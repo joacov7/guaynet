@@ -309,7 +309,7 @@ async def create_wan_schedule(
 
     try:
         await asyncio.to_thread(_write_schedules)
-    except MikrotikError as e:
+    except Exception as e:
         import traceback; traceback.print_exc()
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -370,7 +370,7 @@ async def apply_load_balance(
 
     try:
         result = await asyncio.to_thread(_apply)
-    except MikrotikError as e:
+    except Exception as e:
         import traceback; traceback.print_exc()
         raise HTTPException(status_code=503, detail=str(e))
 
