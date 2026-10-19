@@ -1,7 +1,10 @@
 import asyncio
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -310,7 +313,7 @@ async def create_wan_schedule(
     try:
         await asyncio.to_thread(_write_schedules)
     except Exception as e:
-        print(f"[wan] schedule error: {e}", flush=True)
+        logger.error(f"[wan] schedule error: {type(e).__name__}: {e}")
         raise HTTPException(status_code=503, detail=str(e))
 
     return _sched_to_dict(s)
@@ -363,15 +366,19 @@ async def apply_load_balance(
         wan_configs.append({"interface": w.interface_name, "gateway": item.gateway, "weight": w.weight})
 
     def _apply():
-        svc = build_service_from_router(rt)
-        with svc:
-            svc.remove_pcc_load_balance()
-            return svc.apply_pcc_load_balance(wan_configs)
+        try:
+            svc = build_service_from_router(rt)
+            with svc:
+                svc.remove_pcc_load_balance()
+                return svc.apply_pcc_load_balance(wan_configs)
+        except Exception as e:
+            logger.error(f"[wan] _apply thread error: {type(e).__name__}: {e}")
+            raise
 
     try:
         result = await asyncio.to_thread(_apply)
     except Exception as e:
-        print(f"[wan] load-balance error: {e}", flush=True)
+        logger.error(f"[wan] load-balance error: {type(e).__name__}: {e}")
         raise HTTPException(status_code=503, detail=str(e))
 
     return result
