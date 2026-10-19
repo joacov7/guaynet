@@ -302,7 +302,7 @@ async def create_wan_schedule(
             svc.set_scheduler_entry(
                 _scheduler_name(wan_id, s.id, "start"),
                 body.time_start,
-                "1:00:00:00",
+                "24:00:00",
                 action_script,
                 body.days,
             )
@@ -310,7 +310,7 @@ async def create_wan_schedule(
             svc.set_scheduler_entry(
                 _scheduler_name(wan_id, s.id, "end"),
                 body.time_end,
-                "1:00:00:00",
+                "24:00:00",
                 inverse_script,
                 body.days,
             )
