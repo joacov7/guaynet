@@ -718,16 +718,21 @@ class MikrotikService:
         except Exception as e:
             logger.error(f"[wan] /routing/table not available (probably v6): {e}")
 
-        # Accept established/related first so they follow their existing connection mark
-        bypass = {
-            "chain": "prerouting",
-            "connection-state": "established,related",
-            "action": "accept",
-            "comment": "guaynet-lb-bypass-estab",
-            "passthrough": "no",
-        }
-        self._ensure_mangle_rule(bypass)
-        added += 1
+        # Bypass established/related replies coming FROM each WAN interface.
+        # These packets are internet→LAN replies; they must NOT get routing marks
+        # because the WAN routing tables have no LAN routes (only a default gateway).
+        for i, wan in enumerate(wan_configs):
+            mark = f"wan{i+1}"
+            bypass = {
+                "chain": "prerouting",
+                "in-interface": wan["interface"],
+                "connection-state": "established,related",
+                "action": "accept",
+                "comment": f"guaynet-lb-bypass-{mark}",
+                "passthrough": "no",
+            }
+            self._ensure_mangle_rule(bypass)
+            added += 1
 
         for i, wan in enumerate(wan_configs):
             mark = f"wan{i+1}"
@@ -742,6 +747,7 @@ class MikrotikService:
                 "comment": f"guaynet-lb-conn-{mark}",
                 "passthrough": "yes",
             }
+            # Mark routing for LAN→internet packets (both new and established upstream)
             pkt_rule = {
                 "chain": "prerouting",
                 "connection-mark": f"{mark}_conn",
