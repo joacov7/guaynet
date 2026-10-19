@@ -698,20 +698,28 @@ class MikrotikService:
         # In routes: routing-table (v7) vs routing-mark (v6)
         routing_mark_key = "routing-table" if ros_ver >= 7 else "routing-mark"
 
+        logger.info(f"[wan] RouterOS version: {ros_ver}, routing key: {routing_mark_key}")
+
         # RouterOS v7 requires routing tables to exist before referencing them in mangle
         if ros_ver >= 7:
             try:
                 existing_tables = self._call("/routing/table/print")
                 existing_table_names = {t.get("name", "") for t in existing_tables}
-            except Exception:
+                logger.info(f"[wan] existing routing tables: {existing_table_names}")
+            except Exception as e:
+                logger.error(f"[wan] could not list routing tables: {e}")
                 existing_table_names = set()
             for i in range(n):
                 table_name = f"wan{i+1}_route"
                 if table_name not in existing_table_names:
                     try:
-                        self._call("/routing/table/add", name=table_name, fib="")
+                        self._call("/routing/table/add", name=table_name)
+                        logger.info(f"[wan] created routing table: {table_name}")
                     except Exception as e:
-                        logger.warning(f"[wan] routing table {table_name}: {e}")
+                        logger.error(f"[wan] failed to create routing table {table_name}: {e}")
+                        raise MikrotikError(f"No se pudo crear routing table {table_name}: {e}")
+                else:
+                    logger.info(f"[wan] routing table already exists: {table_name}")
 
         for i, wan in enumerate(wan_configs):
             mark = f"wan{i+1}"
