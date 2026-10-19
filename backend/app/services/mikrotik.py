@@ -656,7 +656,6 @@ class MikrotikService:
             "start-time": start_time,
             "interval": interval,
             "on-event": script,
-            "day-of-week": days,
         }
         logger.error(f"[scheduler] entry={entry_name} existing={existing is not None} params={params}")
         if existing:
