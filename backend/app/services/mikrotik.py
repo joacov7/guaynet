@@ -699,9 +699,7 @@ class MikrotikService:
         # In routes: routing-table (v7) vs routing-mark (v6)
         routing_mark_key = "routing-table" if ros_ver >= 7 else "routing-mark"
 
-        # In v7 mangle mark-routing uses new-routing-table; v6 uses new-routing-mark
-        new_routing_mark_key = "new-routing-table" if ros_ver >= 7 else "new-routing-mark"
-        logger.error(f"[wan] RouterOS version: {ros_ver}, routing key: {routing_mark_key}, mangle key: {new_routing_mark_key}")
+        logger.error(f"[wan] RouterOS version: {ros_ver}, routing key: {routing_mark_key}")
 
         # RouterOS v7 requires routing tables to exist before mangle rules reference them.
         # Try unconditionally — silently ignored on v6 where /routing/table doesn't exist.
@@ -713,7 +711,7 @@ class MikrotikService:
                 table_name = f"wan{i+1}_route"
                 if table_name not in existing_table_names:
                     try:
-                        self._call("/routing/table/add", name=table_name)
+                        self._call("/routing/table/add", name=table_name, fib="yes")
                         logger.error(f"[wan] created routing table: {table_name}")
                     except Exception as e:
                         logger.error(f"[wan] routing table add failed (may already exist): {e}")
@@ -733,12 +731,11 @@ class MikrotikService:
                 "comment": f"guaynet-lb-conn-{mark}",
                 "passthrough": "yes",
             }
-            # mark-routing: v7 uses new-routing-table, v6 uses new-routing-mark
             pkt_rule = {
                 "chain": "prerouting",
                 "connection-mark": f"{mark}_conn",
                 "action": "mark-routing",
-                new_routing_mark_key: f"{mark}_route",
+                "new-routing-mark": f"{mark}_route",
                 "comment": f"guaynet-lb-pkt-{mark}",
                 "passthrough": "yes",
             }
