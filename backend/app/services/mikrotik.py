@@ -696,6 +696,7 @@ class MikrotikService:
 
         ros_ver = self._routeros_version()
         routing_mark_key = "routing-table" if ros_ver >= 7 else "routing-mark"
+        new_routing_mark_key = "new-routing-table" if ros_ver >= 7 else "new-routing-mark"
 
         for i, wan in enumerate(wan_configs):
             mark = f"wan{i+1}"
@@ -715,7 +716,7 @@ class MikrotikService:
                 "chain": "prerouting",
                 "connection-mark": f"{mark}_conn",
                 "action": "mark-routing",
-                "new-routing-mark": f"{mark}_route",
+                new_routing_mark_key: f"{mark}_route",
                 "comment": f"guaynet-lb-pkt-{mark}",
                 "passthrough": "yes",
             }
