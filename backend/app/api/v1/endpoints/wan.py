@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_current_user, get_db
 from app.models.router import MikrotikRouter
@@ -98,7 +99,9 @@ async def list_wan_interfaces(
     if not rt:
         raise HTTPException(status_code=404, detail="Router no encontrado")
     result = await db.execute(
-        select(WanInterface).where(WanInterface.router_id == router_id)
+        select(WanInterface)
+        .where(WanInterface.router_id == router_id)
+        .options(selectinload(WanInterface.schedules))
     )
     wans = result.scalars().all()
 
@@ -138,7 +141,10 @@ async def create_wan_interface(
     )
     db.add(w)
     await db.commit()
-    await db.refresh(w)
+    result2 = await db.execute(
+        select(WanInterface).where(WanInterface.id == w.id).options(selectinload(WanInterface.schedules))
+    )
+    w = result2.scalar_one()
     return _wan_to_dict(w)
 
 
@@ -156,7 +162,10 @@ async def update_wan_interface(
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(w, field, value)
     await db.commit()
-    await db.refresh(w)
+    result2 = await db.execute(
+        select(WanInterface).where(WanInterface.id == wan_id).options(selectinload(WanInterface.schedules))
+    )
+    w = result2.scalar_one()
     return _wan_to_dict(w)
 
 
@@ -167,18 +176,22 @@ async def delete_wan_interface(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    w = await db.get(WanInterface, wan_id)
+    result = await db.execute(
+        select(WanInterface).where(WanInterface.id == wan_id).options(selectinload(WanInterface.schedules))
+    )
+    w = result.scalar_one_or_none()
     if not w or w.router_id != router_id:
         raise HTTPException(status_code=404)
     # Remove scheduler entries from MikroTik
     rt = await db.get(MikrotikRouter, router_id)
     if rt:
+        schedules_snapshot = [(s.id,) for s in w.schedules]
         def _remove_schedules():
             svc = build_service_from_router(rt)
             with svc:
-                for s in (w.schedules or []):
-                    for act in ("enable", "disable"):
-                        svc.remove_scheduler_entry(_scheduler_name(wan_id, s.id, act))
+                for (sid,) in schedules_snapshot:
+                    for act in ("start", "end"):
+                        svc.remove_scheduler_entry(_scheduler_name(wan_id, sid, act))
         try:
             await asyncio.to_thread(_remove_schedules)
         except Exception:
