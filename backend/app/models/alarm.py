@@ -29,8 +29,8 @@ class Alarm(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     router_id: Mapped[int] = mapped_column(ForeignKey("mikrotik_routers.id"), index=True)
-    type: Mapped[AlarmType] = mapped_column(SAEnum(AlarmType), index=True)
-    status: Mapped[AlarmStatus] = mapped_column(SAEnum(AlarmStatus), default=AlarmStatus.active, index=True)
+    type: Mapped[AlarmType] = mapped_column(SAEnum(AlarmType, native_enum=False), index=True)
+    status: Mapped[AlarmStatus] = mapped_column(SAEnum(AlarmStatus, native_enum=False), default=AlarmStatus.active, index=True)
     triggered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     details: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
