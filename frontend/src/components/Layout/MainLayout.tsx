@@ -64,7 +64,7 @@ export default function MainLayout() {
         >
           {collapsed ? "G" : "Guaynet WISP"}
         </div>
-        <div style={{ height: "calc(100vh - 48px)", overflowY: "auto" }}>
+        <div style={{ height: "calc(100vh - 96px)", overflowY: "auto" }}>
           <Sidebar />
         </div>
       </Sider>
