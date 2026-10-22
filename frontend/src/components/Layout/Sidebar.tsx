@@ -57,11 +57,13 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const { canView, isAdmin } = usePermissions();
 
+  console.log('[Sidebar] isAdmin=', isAdmin, 'data loaded=', canView('clients'));
   const visibleItems = ALL_ITEMS.filter((item) => {
     if (item.adminOnly) return isAdmin;
     if (!item.section) return true;
     return canView(item.section);
   });
+  console.log('[Sidebar] visibleItems=', visibleItems.map(i => i.key));
 
   const selectedKey = visibleItems
     .map((i) => i.key)
