@@ -13,11 +13,16 @@ router = APIRouter()
 
 
 async def _enrich(alarm: Alarm, db: AsyncSession) -> AlarmResponse:
+    from app.models.alarm import AlarmType
     rt = await db.get(MikrotikRouter, alarm.router_id)
+    client_name = None
+    if alarm.type == AlarmType.client_device_offline and alarm.details:
+        client_name = alarm.details.get("client_name")
     return AlarmResponse(
         **{c.name: getattr(alarm, c.name) for c in Alarm.__table__.columns if hasattr(alarm, c.name)},
         router_name=rt.name if rt else None,
         router_host=rt.host if rt else None,
+        client_name=client_name,
     )
 
 

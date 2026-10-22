@@ -17,6 +17,7 @@ class AlarmType(str, enum.Enum):
     wan_down = "wan_down"
     uplink_saturated = "uplink_saturated"
     ram_high = "ram_high"
+    client_device_offline = "client_device_offline"
 
 
 class AlarmStatus(str, enum.Enum):

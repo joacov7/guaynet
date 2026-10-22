@@ -29,6 +29,10 @@ celery_app.conf.update(
             "task": "app.tasks.monitoring.check_routers_health",
             "schedule": crontab(minute="*/5"),
         },
+        "check-ubiquiti-health": {
+            "task": "app.tasks.monitoring.check_ubiquiti_health",
+            "schedule": crontab(minute="*/10"),
+        },
         "collect-bandwidth-samples": {
             "task": "app.tasks.monitoring.collect_bandwidth_samples",
             "schedule": crontab(minute="*/5"),

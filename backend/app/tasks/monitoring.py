@@ -348,6 +348,127 @@ def check_routers_health():
     return _run(_execute())
 
 
+@celery_app.task(name="app.tasks.monitoring.check_ubiquiti_health")
+def check_ubiquiti_health():
+    async def _execute():
+        from datetime import datetime, timezone
+        from sqlalchemy import select
+        from app.core.database import AsyncSessionLocal
+        from app.models.alarm import Alarm, AlarmStatus, AlarmType
+        from app.models.client import Client, ClientStatus
+        from app.models.router import DeviceStatus, UbiquitiDevice
+
+        now = datetime.now(timezone.utc)
+        alarm_events = []  # (client_name, device, is_triggering)
+
+        async def _tcp_reachable(host: str, timeout: float = 4.0) -> bool:
+            for port in (80, 443, 22):
+                try:
+                    _, writer = await asyncio.wait_for(
+                        asyncio.open_connection(host, port), timeout=timeout
+                    )
+                    writer.close()
+                    try:
+                        await writer.wait_closed()
+                    except Exception:
+                        pass
+                    return True
+                except Exception:
+                    continue
+            return False
+
+        # Load all devices assigned to at least one active client
+        async with AsyncSessionLocal() as db:
+            rows = (await db.execute(
+                select(UbiquitiDevice, Client)
+                .join(Client, Client.ubiquiti_device_id == UbiquitiDevice.id)
+                .where(Client.status == ClientStatus.active)
+            )).all()
+            # unique devices; keep first active client per device
+            device_clients: dict[int, tuple] = {}
+            for dev, client in rows:
+                if dev.id not in device_clients:
+                    device_clients[dev.id] = (dev, client)
+
+        # Load all currently active client_device_offline alarms keyed by device_id
+        async with AsyncSessionLocal() as db:
+            active_alarms: dict[int, Alarm] = {}
+            for alarm in (await db.execute(
+                select(Alarm).where(
+                    Alarm.type == AlarmType.client_device_offline,
+                    Alarm.status == AlarmStatus.active,
+                )
+            )).scalars().all():
+                if alarm.details:
+                    did = alarm.details.get("device_id")
+                    if did is not None:
+                        active_alarms[int(did)] = alarm
+
+        for dev_id, (dev, client) in device_clients.items():
+            is_reachable = await _tcp_reachable(dev.host)
+            new_status = DeviceStatus.online if is_reachable else DeviceStatus.offline
+
+            async with AsyncSessionLocal() as db:
+                d = await db.get(UbiquitiDevice, dev.id)
+                if d is None:
+                    continue
+                d.status = new_status
+                if new_status == DeviceStatus.online:
+                    d.last_seen = now
+                db.add(d)
+                await db.commit()
+
+            existing_alarm = active_alarms.get(dev_id)
+            client_fullname = f"{client.first_name} {client.last_name}"
+
+            if new_status == DeviceStatus.offline and not existing_alarm:
+                async with AsyncSessionLocal() as db:
+                    db.add(Alarm(
+                        router_id=client.router_id,
+                        type=AlarmType.client_device_offline,
+                        status=AlarmStatus.active,
+                        triggered_at=now,
+                        details={
+                            "client_id": client.id,
+                            "client_name": client_fullname,
+                            "device_id": dev.id,
+                            "device_name": dev.name,
+                            "device_host": dev.host,
+                        },
+                    ))
+                    await db.commit()
+                alarm_events.append((client_fullname, dev, True))
+
+            elif new_status == DeviceStatus.online and existing_alarm:
+                async with AsyncSessionLocal() as db:
+                    a = await db.get(Alarm, existing_alarm.id)
+                    if a:
+                        a.status = AlarmStatus.resolved
+                        a.resolved_at = now
+                        db.add(a)
+                        await db.commit()
+                alarm_events.append((client_fullname, dev, False))
+
+        for client_name, device, is_trigger in alarm_events:
+            if is_trigger:
+                msg = (
+                    f"⚠️ *Antena offline — cliente activo sin conexión*\n"
+                    f"Cliente: {client_name}\n"
+                    f"Antena: {device.name} ({device.host})"
+                )
+            else:
+                msg = (
+                    f"✅ *Antena recuperada*\n"
+                    f"Cliente: {client_name}\n"
+                    f"Antena: {device.name} ({device.host})"
+                )
+            await _send_telegram(msg)
+
+        return {"devices_checked": len(device_clients), "alarm_events": len(alarm_events)}
+
+    return _run(_execute())
+
+
 @celery_app.task(name="app.tasks.monitoring.collect_bandwidth_samples")
 def collect_bandwidth_samples():
     async def _execute():

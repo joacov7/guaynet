@@ -13,6 +13,7 @@ const TYPE_LABEL: Record<string, string> = {
   wan_down: "WAN caída",
   uplink_saturated: "Uplink saturado",
   ram_high: "RAM alta",
+  client_device_offline: "Antena offline",
 };
 const TYPE_COLOR: Record<string, string> = {
   router_offline: "red",
@@ -20,6 +21,7 @@ const TYPE_COLOR: Record<string, string> = {
   wan_down: "volcano",
   uplink_saturated: "purple",
   ram_high: "magenta",
+  client_device_offline: "gold",
 };
 
 function formatDetails(details?: Record<string, unknown>): string {
@@ -31,14 +33,26 @@ function formatDetails(details?: Record<string, unknown>): string {
 
 const columns = [
   {
-    title: "Router",
+    title: "Origen",
     key: "router",
-    render: (_: unknown, r: Alarm) => (
-      <Space direction="vertical" size={0}>
-        <Text strong>{r.router_name ?? `#${r.router_id}`}</Text>
-        <Text type="secondary" style={{ fontSize: 12 }}>{r.router_host}</Text>
-      </Space>
-    ),
+    render: (_: unknown, r: Alarm) => {
+      if (r.type === "client_device_offline") {
+        const deviceHost = r.details?.device_host as string | undefined;
+        const deviceName = r.details?.device_name as string | undefined;
+        return (
+          <Space direction="vertical" size={0}>
+            <Text strong>{r.client_name ?? "—"}</Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>{deviceName}{deviceHost ? ` (${deviceHost})` : ""}</Text>
+          </Space>
+        );
+      }
+      return (
+        <Space direction="vertical" size={0}>
+          <Text strong>{r.router_name ?? `#${r.router_id}`}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>{r.router_host}</Text>
+        </Space>
+      );
+    },
   },
   {
     title: "Tipo",

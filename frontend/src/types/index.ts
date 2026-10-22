@@ -533,7 +533,7 @@ export interface WorkOrder {
   created_at: string;
 }
 
-export type AlarmType = "router_offline" | "cpu_high" | "wan_down" | "uplink_saturated" | "ram_high";
+export type AlarmType = "router_offline" | "cpu_high" | "wan_down" | "uplink_saturated" | "ram_high" | "client_device_offline";
 export type AlarmStatus = "active" | "resolved";
 
 export interface Alarm {
@@ -541,6 +541,7 @@ export interface Alarm {
   router_id: number;
   router_name?: string;
   router_host?: string;
+  client_name?: string;
   type: AlarmType;
   status: AlarmStatus;
   triggered_at: string;
