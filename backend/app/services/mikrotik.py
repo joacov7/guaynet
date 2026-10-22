@@ -448,11 +448,13 @@ class MikrotikService:
     # ── Queue Tree ────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _parse_limit_bps(limit: str) -> int:
+    def _parse_limit_bps(limit) -> int:
         """'100M' → 100_000_000 bps, '1G' → 1_000_000_000, '512k' → 512_000."""
         if not limit:
             return 0
-        s = limit.strip()
+        if isinstance(limit, (int, float)):
+            return int(limit)
+        s = str(limit).strip()
         try:
             if s.endswith("G"):
                 return int(float(s[:-1]) * 1_000_000_000)
