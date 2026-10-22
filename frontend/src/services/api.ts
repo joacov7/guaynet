@@ -441,11 +441,24 @@ export interface RolePermission {
   can_edit: boolean;
 }
 
+export interface UserPermissionEntry {
+  section: string;
+  can_view: boolean;
+  can_edit: boolean;
+  is_override: boolean;
+}
+
 export const permissionsApi = {
   my: () => http.get<MyPermissions>("/permissions/my").then((r) => r.data),
   list: () => http.get<RolePermission[]>("/permissions/").then((r) => r.data),
   update: (role: string, section: string, can_view: boolean, can_edit: boolean) =>
     http.put<RolePermission>(`/permissions/${role}/${section}`, { can_view, can_edit }).then((r) => r.data),
+  getUserPerms: (userId: number) =>
+    http.get<UserPermissionEntry[]>(`/permissions/users/${userId}`).then((r) => r.data),
+  setUserPerm: (userId: number, section: string, can_view: boolean, can_edit: boolean) =>
+    http.put<UserPermissionEntry>(`/permissions/users/${userId}/${section}`, { can_view, can_edit }).then((r) => r.data),
+  deleteUserPerm: (userId: number, section: string) =>
+    http.delete(`/permissions/users/${userId}/${section}`),
 };
 
 export const alarmsApi = {
