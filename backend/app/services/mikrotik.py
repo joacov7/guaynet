@@ -5,6 +5,7 @@ All methods are synchronous — call via asyncio.to_thread() from async endpoint
 """
 import logging
 import socket
+import unicodedata
 from typing import Any, Dict, List, Optional
 
 import librouteros
@@ -73,11 +74,19 @@ class MikrotikService:
     def __exit__(self, *_):
         self.disconnect()
 
+    @staticmethod
+    def _ascii_safe(s: str) -> str:
+        return unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+
     def _call(self, cmd: str, **params) -> List[Dict]:
         if not self._api:
             raise MikrotikError("No hay conexión activa")
+        safe_params = {
+            k: self._ascii_safe(v) if isinstance(v, str) else v
+            for k, v in params.items()
+        }
         try:
-            return list(self._api(cmd, **params))
+            return list(self._api(cmd, **safe_params))
         except ConnectionClosed as e:
             raise MikrotikError(f"Conexión cerrada: {e}")
         except FatalError as e:
@@ -591,7 +600,7 @@ class MikrotikService:
             ("Juegos",    "game.pkt",      "3", "Gaming"),
             ("WhatsApp",  "whatsapp.pkt",  "3", "WhatsApp"),
             ("HTTP",      "http.pkt",      "6", "HTTP"),
-            ("Resto",     "resto.pkt",     "8", "Resto del tráfico"),
+            ("Resto",     "resto.pkt",     "8", "Resto del trafico"),
         ]
 
         existing = {t["name"]: t for t in self.get_queue_trees()}
