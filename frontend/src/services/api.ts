@@ -173,6 +173,8 @@ export const clientsApi = {
     http.post<{ status: string }>(`/clients/${id}/sync-pppoe`).then((r) => r.data),
   invoices: (id: number) =>
     http.get<Invoice[]>(`/clients/${id}/invoices`).then((r) => r.data),
+  resolveLocation: (url: string) =>
+    http.get<{ resolved_url: string }>("/clients/resolve-location", { params: { url } }).then((r) => r.data),
 };
 
 // ── Invoices ──────────────────────────────────────────────────────────────────

@@ -447,6 +447,21 @@ async def cancel_client(
     return client
 
 
+@router.get("/resolve-location")
+async def resolve_location_url(
+    url: str,
+    _=Depends(get_current_user),
+):
+    """Follow redirects on a shortened Maps URL and return the final URL so the frontend can parse coordinates."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=6.0) as client:
+            r = await client.head(url)
+            return {"resolved_url": str(r.url)}
+    except Exception as e:
+        raise HTTPException(400, f"No se pudo resolver la URL: {e}")
+
+
 @router.get("/{client_id}/invoices", response_model=List[InvoiceResponse])
 async def get_client_invoices(
     client_id: int,

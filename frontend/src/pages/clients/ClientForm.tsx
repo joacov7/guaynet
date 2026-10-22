@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -14,12 +14,34 @@ import {
   Select,
   Space,
   Spin,
+  Tooltip,
   Typography,
   message,
 } from "antd";
+import { EnvironmentOutlined, LinkOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { clientsApi, plansApi, routersApi, ubiquitiApi, zonesApi } from "@/services/api";
 import type { Client } from "@/types";
+
+function parseCoordinatesFromUrl(url: string): { lat: number; lng: number } | null {
+  try {
+    // Format: ?q=LAT,LNG or ?q=LAT%2CLNG
+    const qMatch = url.match(/[?&]q=(-?\d+\.?\d*)[,+%2C]+(-?\d+\.?\d*)/i);
+    if (qMatch) return { lat: parseFloat(qMatch[1]), lng: parseFloat(qMatch[2]) };
+    // Format: @LAT,LNG,zoom or /place/.../@LAT,LNG
+    const atMatch = url.match(/@(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+    if (atMatch) return { lat: parseFloat(atMatch[1]), lng: parseFloat(atMatch[2]) };
+    // Format: ll=LAT,LNG (Apple Maps)
+    const llMatch = url.match(/[?&]ll=(-?\d+\.?\d*),(-?\d+\.?\d*)/);
+    if (llMatch) return { lat: parseFloat(llMatch[1]), lng: parseFloat(llMatch[2]) };
+    // Format: /maps/place/NAME/@LAT,LNG or coordinates in path
+    const pathMatch = url.match(/\/(-?\d{1,3}\.\d+),(-?\d{1,3}\.\d+)/);
+    if (pathMatch) return { lat: parseFloat(pathMatch[1]), lng: parseFloat(pathMatch[2]) };
+  } catch {}
+  return null;
+}
+
+const SHORTENED_HOSTS = ["goo.gl", "maps.app.goo.gl", "bit.ly", "t.co"];
 
 const { Title } = Typography;
 
@@ -108,6 +130,46 @@ export default function ClientForm() {
 
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
 
+  const [locationUrl, setLocationUrl] = useState("");
+  const [resolvingUrl, setResolvingUrl] = useState(false);
+
+  const applyCoords = (lat: number, lng: number) => {
+    form.setFieldsValue({ latitude: lat, longitude: lng });
+    message.success(`Coordenadas cargadas: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+    setLocationUrl("");
+  };
+
+  const handleLocationUrl = async (url: string) => {
+    setLocationUrl(url);
+    const trimmed = url.trim();
+    if (!trimmed) return;
+
+    // Try parsing directly first
+    const coords = parseCoordinatesFromUrl(trimmed);
+    if (coords) { applyCoords(coords.lat, coords.lng); return; }
+
+    // If shortened URL, resolve server-side
+    try {
+      const host = new URL(trimmed).hostname.replace("www.", "");
+      if (SHORTENED_HOSTS.some((h) => host.includes(h))) {
+        setResolvingUrl(true);
+        try {
+          const { resolved_url } = await clientsApi.resolveLocation(trimmed);
+          const resolved = parseCoordinatesFromUrl(resolved_url);
+          if (resolved) { applyCoords(resolved.lat, resolved.lng); return; }
+        } finally {
+          setResolvingUrl(false);
+        }
+      }
+    } catch {}
+  };
+
+  const currentLat = Form.useWatch("latitude", form);
+  const currentLng = Form.useWatch("longitude", form);
+  const mapsUrl = currentLat && currentLng
+    ? `https://www.google.com/maps?q=${currentLat},${currentLng}`
+    : null;
+
   return (
     <div style={{ maxWidth: 900 }}>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 16, gap: 8 }}>
@@ -158,13 +220,48 @@ export default function ClientForm() {
                     <Input />
                   </Form.Item>
                 </Col>
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    label={
+                      <Space size={4}>
+                        Ubicación (enlace de WhatsApp / Google Maps)
+                        <Tooltip title="Pegá el enlace de ubicación compartido por WhatsApp o cualquier enlace de Google Maps. Las coordenadas se extraen automáticamente.">
+                          <LinkOutlined style={{ color: "#8c8c8c" }} />
+                        </Tooltip>
+                      </Space>
+                    }
+                  >
+                    <Input
+                      value={locationUrl}
+                      onChange={(e) => handleLocationUrl(e.target.value)}
+                      placeholder="https://maps.google.com/?q=-34.6037,-58.3816"
+                      prefix={<EnvironmentOutlined style={{ color: "#8c8c8c" }} />}
+                      disabled={resolvingUrl}
+                      suffix={resolvingUrl ? <Spin size="small" /> : null}
+                      allowClear
+                      onClear={() => setLocationUrl("")}
+                    />
+                  </Form.Item>
+                </Col>
                 <Col xs={24} sm={6}>
                   <Form.Item name="latitude" label="Latitud">
                     <InputNumber style={{ width: "100%" }} placeholder="-34.6037" step={0.0001} />
                   </Form.Item>
                 </Col>
                 <Col xs={24} sm={6}>
-                  <Form.Item name="longitude" label="Longitud">
+                  <Form.Item
+                    name="longitude"
+                    label={
+                      <Space size={4}>
+                        Longitud
+                        {mapsUrl && (
+                          <a href={mapsUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>
+                            Ver en mapa ↗
+                          </a>
+                        )}
+                      </Space>
+                    }
+                  >
                     <InputNumber style={{ width: "100%" }} placeholder="-58.3816" step={0.0001} />
                   </Form.Item>
                 </Col>
