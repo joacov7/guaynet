@@ -17,6 +17,7 @@ import type {
   OverdueReport,
   PCQQueue,
   Plan,
+  QueueTreeEntry,
   Router,
   RouterStats,
   RouterUtilization,
@@ -318,6 +319,10 @@ export const firewallApi = {
     http.post<{ added: number }>(`/firewall/${routerId}/pcq/setup`).then((r) => r.data),
   dhcpImport: (routerId: number, items: { address: string; mac_address: string; hostname?: string }[], plan_id: number) =>
     http.post<{ created: number; skipped: number }>(`/firewall/${routerId}/dhcp-import`, { items, plan_id }).then((r) => r.data),
+  getQueueTreeStats: (routerId: number) =>
+    http.get<QueueTreeEntry[]>(`/firewall/${routerId}/queue-tree-stats`).then((r) => r.data),
+  applyProfessionalTree: (routerId: number, download_mbps: number, upload_mbps: number) =>
+    http.post<{ added: number; message: string }>(`/firewall/${routerId}/queue-tree-professional`, { download_mbps, upload_mbps }).then((r) => r.data),
 };
 
 // ── Tickets ───────────────────────────────────────────────────────────────────

@@ -278,6 +278,21 @@ export interface TemplateResult {
   message: string;
 }
 
+export interface QueueTreeEntry {
+  id: string;
+  name: string;
+  parent: string;
+  packet_mark?: string | null;
+  priority: string;
+  limit_at?: string | null;
+  max_limit?: string | null;
+  max_limit_bps: number;
+  rate_bps: number;
+  total_bytes: number;
+  disabled: boolean;
+  comment?: string | null;
+}
+
 export interface BandwidthEntry {
   queue_name: string;
   client_id?: number;

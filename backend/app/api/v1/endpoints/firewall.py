@@ -263,6 +263,49 @@ async def apply_template(
     return TemplateResult(template=template, rules_added=added, rules_enabled=enabled, rules_skipped=skipped, message=msg)
 
 
+# ── Queue Tree with stats ─────────────────────────────────────────────────
+
+@router.get("/{router_id}/queue-tree-stats")
+async def get_queue_tree_stats(router_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    mt_router = await _get_router_or_404(router_id, db)
+    svc = build_service_from_router(mt_router)
+
+    def _get():
+        with svc:
+            return svc.get_queue_tree_with_stats()
+
+    try:
+        return await asyncio.to_thread(_get)
+    except MikrotikError as e:
+        raise HTTPException(502, str(e))
+
+
+class ProfessionalTreeRequest(BaseModel):
+    download_mbps: int
+    upload_mbps: int
+
+
+@router.post("/{router_id}/queue-tree-professional")
+async def apply_professional_tree(
+    router_id: int,
+    body: ProfessionalTreeRequest,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    mt_router = await _get_router_or_404(router_id, db)
+    svc = build_service_from_router(mt_router)
+
+    def _apply():
+        with svc:
+            return svc.apply_professional_qos_tree(body.download_mbps, body.upload_mbps)
+
+    try:
+        result = await asyncio.to_thread(_apply)
+    except MikrotikError as e:
+        raise HTTPException(502, str(e))
+    return {**result, "message": f"Árbol QoS profesional aplicado ({result['added']} entradas creadas)"}
+
+
 # ── PCQ ───────────────────────────────────────────────────────────────────────
 
 @router.get("/{router_id}/pcq", response_model=List[PCQQueue])

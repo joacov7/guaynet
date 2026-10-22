@@ -447,6 +447,23 @@ class MikrotikService:
 
     # ── Queue Tree ────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _parse_limit_bps(limit: str) -> int:
+        """'100M' → 100_000_000 bps, '1G' → 1_000_000_000, '512k' → 512_000."""
+        if not limit:
+            return 0
+        s = limit.strip()
+        try:
+            if s.endswith("G"):
+                return int(float(s[:-1]) * 1_000_000_000)
+            if s.endswith("M"):
+                return int(float(s[:-1]) * 1_000_000)
+            if s.lower().endswith("k"):
+                return int(float(s[:-1]) * 1_000)
+            return int(s)
+        except (ValueError, TypeError):
+            return 0
+
     def get_queue_trees(self) -> List[Dict]:
         raw = self._call("/queue/tree/print")
         result = []
@@ -461,6 +478,159 @@ class MikrotikService:
                 "disabled": r.get("disabled", "false") in ("true", "yes"),
             })
         return result
+
+    def get_queue_tree_with_stats(self) -> List[Dict]:
+        """Queue tree entries with live rate/bytes stats for visualization."""
+        raw = self._call("/queue/tree/print")
+        result = []
+        for r in raw:
+            max_limit_str = r.get("max-limit", "") or ""
+            limit_at_str = r.get("limit-at", "") or ""
+            try:
+                rate_bps = int(r.get("rate", "0") or "0")
+            except (ValueError, TypeError):
+                rate_bps = 0
+            try:
+                total_bytes = int(r.get("bytes", "0") or "0")
+            except (ValueError, TypeError):
+                total_bytes = 0
+            result.append({
+                "id": r.get(".id", ""),
+                "name": r.get("name", ""),
+                "parent": r.get("parent", "global"),
+                "packet_mark": r.get("packet-mark", "") or None,
+                "priority": r.get("priority", "8"),
+                "limit_at": limit_at_str or None,
+                "max_limit": max_limit_str or None,
+                "max_limit_bps": self._parse_limit_bps(max_limit_str),
+                "rate_bps": rate_bps,
+                "total_bytes": total_bytes,
+                "disabled": r.get("disabled", "false") in ("true", "yes"),
+                "comment": r.get("comment", "") or None,
+            })
+        return result
+
+    def apply_professional_qos_tree(self, download_mbps: int, upload_mbps: int) -> Dict[str, int]:
+        """Deploy a clean professional QoS queue tree + matching mangle marks.
+
+        Marks (mangle prerouting, connection-based for both directions):
+          prior.pkt  → ICMP + DNS UDP/53          priority 1
+          voip.pkt   → SIP/RTP UDP 5060/10000-20000  priority 1
+          https.pkt  → TCP 443                    priority 2
+          game.pkt   → common gaming ports        priority 3
+          whatsapp.pkt → TCP 5222/5223            priority 3
+          http.pkt   → TCP 80                     priority 6
+          resto.pkt  → everything else            priority 8
+
+        Tree:
+          DOWNLOAD (max=download_mbps) / UPLOAD (max=upload_mbps) — parent=global
+            children per mark, same structure for both directions
+        """
+        added = 0
+
+        # ── 1. Mangle connection marks (prerouting) ─────────────────────────
+        CONN_MARKS = [
+            # (conn-mark-name, filter-params)
+            ("cm-prior",    {"protocol": "icmp"}),
+            ("cm-prior",    {"protocol": "udp", "dst-port": "53"}),
+            ("cm-voip",     {"protocol": "udp", "dst-port": "5060,5061,10000-20000"}),
+            ("cm-https",    {"protocol": "tcp", "dst-port": "443"}),
+            ("cm-game",     {"protocol": "udp", "dst-port": "3478-3481,3658,27015-27030"}),
+            ("cm-game",     {"protocol": "tcp", "dst-port": "27015-27030,7777,25565"}),
+            ("cm-whatsapp", {"protocol": "tcp", "dst-port": "5222,5223"}),
+            ("cm-http",     {"protocol": "tcp", "dst-port": "80"}),
+        ]
+        for conn_mark, extra in CONN_MARKS:
+            self._ensure_mangle_rule({
+                "chain": "prerouting",
+                "action": "mark-connection",
+                "new-connection-mark": conn_mark,
+                "passthrough": "yes",
+                "comment": f"guaynet-pro: conn {conn_mark}",
+                **extra,
+            })
+
+        # mark resto for unclassified (must be last)
+        self._ensure_mangle_rule({
+            "chain": "prerouting",
+            "action": "mark-connection",
+            "new-connection-mark": "cm-resto",
+            "connection-mark": "no-mark",
+            "passthrough": "yes",
+            "comment": "guaynet-pro: conn resto",
+        })
+
+        # ── 2. Mangle packet marks from connection marks ────────────────────
+        PKT_MARKS = [
+            ("cm-prior",    "prior.pkt"),
+            ("cm-voip",     "voip.pkt"),
+            ("cm-https",    "https.pkt"),
+            ("cm-game",     "game.pkt"),
+            ("cm-whatsapp", "whatsapp.pkt"),
+            ("cm-http",     "http.pkt"),
+            ("cm-resto",    "resto.pkt"),
+        ]
+        for conn_mark, pkt_mark in PKT_MARKS:
+            self._ensure_mangle_rule({
+                "chain": "prerouting",
+                "action": "mark-packet",
+                "connection-mark": conn_mark,
+                "new-packet-mark": pkt_mark,
+                "passthrough": "no",
+                "comment": f"guaynet-pro: pkt {pkt_mark}",
+            })
+
+        # ── 3. Queue tree structure ─────────────────────────────────────────
+        CHILDREN = [
+            # (suffix, packet_mark, priority, comment)
+            ("Prior",     "prior.pkt",     "1", "DNS + ICMP"),
+            ("VoIP",      "voip.pkt",      "1", "VoIP SIP/RTP"),
+            ("HTTPS",     "https.pkt",     "2", "HTTPS"),
+            ("Juegos",    "game.pkt",      "3", "Gaming"),
+            ("WhatsApp",  "whatsapp.pkt",  "3", "WhatsApp"),
+            ("HTTP",      "http.pkt",      "6", "HTTP"),
+            ("Resto",     "resto.pkt",     "8", "Resto del tráfico"),
+        ]
+
+        existing = {t["name"]: t for t in self.get_queue_trees()}
+
+        def _ensure_tree_entry(name: str, parent: str, max_limit: str,
+                               packet_mark: Optional[str], priority: str, comment: str) -> None:
+            nonlocal added
+            params: Dict[str, str] = {
+                "name": name,
+                "parent": parent,
+                "priority": priority,
+                "comment": comment,
+            }
+            if max_limit:
+                params["max-limit"] = max_limit
+            if packet_mark:
+                params["packet-mark"] = packet_mark
+
+            entry = existing.get(name)
+            if entry:
+                set_params = {".id": entry["id"]}
+                if max_limit:
+                    set_params["max-limit"] = max_limit
+                if packet_mark:
+                    set_params["packet-mark"] = packet_mark
+                set_params["priority"] = priority
+                self._call("/queue/tree/set", **set_params)
+            else:
+                self._call("/queue/tree/add", **params)
+                added += 1
+
+        for direction, max_mbps in [("DOWNLOAD", download_mbps), ("UPLOAD", upload_mbps)]:
+            root = f"guaynet-{direction}"
+            _ensure_tree_entry(root, "global", f"{max_mbps}M", None, "8", f"guaynet-pro: {direction}")
+            for suffix, mark, prio, desc in CHILDREN:
+                _ensure_tree_entry(
+                    f"{root}-{suffix}", root, "",
+                    mark, prio, f"guaynet-pro: {desc}"
+                )
+
+        return {"added": added}
 
     def setup_queue_tree(
         self,
