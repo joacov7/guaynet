@@ -27,6 +27,7 @@ import Zones from "@/pages/Zones";
 import WorkOrders from "@/pages/WorkOrders";
 import Alarms from "@/pages/Alarms";
 import WanManagement from "@/pages/WanManagement";
+import Help from "@/pages/Help";
 import TechLayout from "@/pages/tech/TechLayout";
 import TechLogin from "@/pages/tech/TechLogin";
 import TechHome from "@/pages/tech/TechHome";
@@ -89,6 +90,7 @@ export default function App() {
           <Route path="alarms" element={<Alarms />} />
           <Route path="wan" element={<WanManagement />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="help" element={<Help />} />
         </Route>
 
         {/* Client self-service portal — public, no auth */}

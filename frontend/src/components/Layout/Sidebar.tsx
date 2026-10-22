@@ -23,6 +23,7 @@ import {
   CustomerServiceOutlined,
   DatabaseOutlined,
   BarChartOutlined,
+  QuestionCircleOutlined,
 } from "@ant-design/icons";
 import { usePermissions } from "@/contexts/PermissionsContext";
 
@@ -50,6 +51,7 @@ const ALL_ITEMS = [
   { key: "/users",      icon: <UserOutlined />,        label: "Usuarios",        section: null, adminOnly: true },
   { key: "/permissions",icon: <SettingOutlined />,    label: "Permisos",        section: null, adminOnly: true },
   { key: "/settings",   icon: <SettingOutlined />,    label: "Configuración",   section: null, adminOnly: true },
+  { key: "/help",       icon: <QuestionCircleOutlined />, label: "Ayuda",          section: null, adminOnly: false },
 ];
 
 export default function Sidebar() {
