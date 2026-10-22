@@ -248,7 +248,7 @@ export default function Firewall() {
   });
 
   const {
-    data: filterRules = [],
+    data: filterResp,
     isLoading: filterLoading,
     refetch: refetchFilter,
   } = useQuery({
@@ -256,9 +256,11 @@ export default function Firewall() {
     queryFn: () => firewallApi.getFilterRules(routerId!),
     enabled: routerId != null,
   });
+  const filterRules = filterResp?.rules ?? [];
+  const filterError = filterResp?.error ?? null;
 
   const {
-    data: mangleRules = [],
+    data: mangleResp,
     isLoading: mangleLoading,
     refetch: refetchMangle,
   } = useQuery({
@@ -266,9 +268,11 @@ export default function Firewall() {
     queryFn: () => firewallApi.getMangleRules(routerId!),
     enabled: routerId != null,
   });
+  const mangleRules = mangleResp?.rules ?? [];
+  const mangleError = mangleResp?.error ?? null;
 
   const {
-    data: pcqQueues = [],
+    data: pcqResp,
     isLoading: pcqLoading,
     refetch: refetchPcq,
   } = useQuery({
@@ -276,6 +280,8 @@ export default function Firewall() {
     queryFn: () => firewallApi.getPCQQueues(routerId!),
     enabled: routerId != null,
   });
+  const pcqQueues = pcqResp?.queues ?? [];
+  const pcqError = pcqResp?.error ?? null;
 
   const deleteFilterMutation = useMutation({
     mutationFn: (ruleId: string) => firewallApi.deleteFilterRule(routerId!, ruleId),
@@ -658,6 +664,13 @@ export default function Firewall() {
               ),
               children: (
                 <div>
+                  {filterError && (
+                    <div style={{ marginBottom: 12 }}>
+                      <Text type="danger" style={{ fontSize: 13 }}>
+                        ⚠️ Error del router: <code>{filterError}</code>
+                      </Text>
+                    </div>
+                  )}
                   <div style={{ marginBottom: 12 }}>
                     <Text strong style={{ marginRight: 12 }}>
                       Aplicar template:
@@ -705,6 +718,13 @@ export default function Firewall() {
               ),
               children: (
                 <div>
+                  {mangleError && (
+                    <div style={{ marginBottom: 12 }}>
+                      <Text type="danger" style={{ fontSize: 13 }}>
+                        ⚠️ Error del router: <code>{mangleError}</code>
+                      </Text>
+                    </div>
+                  )}
                   <div style={{ marginBottom: 12 }}>
                     <Tooltip title="Agrega mangle rules para marcar VoIP (SIP/RTP), DNS, HTTPS y HTTP. También crea queue types PCQ.">
                       <Popconfirm
@@ -823,6 +843,13 @@ export default function Firewall() {
               label: "PCQ Queues",
               children: (
                 <div>
+                  {pcqError && (
+                    <div style={{ marginBottom: 12 }}>
+                      <Text type="danger" style={{ fontSize: 13 }}>
+                        ⚠️ Error del router: <code>{pcqError}</code>
+                      </Text>
+                    </div>
+                  )}
                   <div style={{ marginBottom: 16 }}>
                     <Space>
                       <Text type="secondary">

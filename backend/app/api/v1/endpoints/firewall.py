@@ -169,7 +169,7 @@ async def dhcp_import(
 
 # ── Firewall Filter ───────────────────────────────────────────────────────────
 
-@router.get("/{router_id}/filter", response_model=List[FirewallRule])
+@router.get("/{router_id}/filter")
 async def get_filter_rules(router_id: int, db: AsyncSession = Depends(get_db)):
     mt_router = await _get_router_or_404(router_id, db)
     svc = build_service_from_router(mt_router)
@@ -180,9 +180,11 @@ async def get_filter_rules(router_id: int, db: AsyncSession = Depends(get_db)):
 
     try:
         rules = await asyncio.to_thread(_get)
+        return {"rules": [FirewallRule(**r) for r in rules], "error": None}
     except MikrotikError as e:
-        raise HTTPException(502, str(e))
-    return [FirewallRule(**r) for r in rules]
+        return {"rules": [], "error": str(e)}
+    except Exception as e:
+        return {"rules": [], "error": f"Error inesperado: {e}"}
 
 
 @router.delete("/{router_id}/filter/{rule_id}")
@@ -205,7 +207,7 @@ async def delete_filter_rule(
 
 # ── Mangle ────────────────────────────────────────────────────────────────────
 
-@router.get("/{router_id}/mangle", response_model=List[MangleRule])
+@router.get("/{router_id}/mangle")
 async def get_mangle_rules(router_id: int, db: AsyncSession = Depends(get_db)):
     mt_router = await _get_router_or_404(router_id, db)
     svc = build_service_from_router(mt_router)
@@ -216,9 +218,11 @@ async def get_mangle_rules(router_id: int, db: AsyncSession = Depends(get_db)):
 
     try:
         rules = await asyncio.to_thread(_get)
+        return {"rules": [MangleRule(**r) for r in rules], "error": None}
     except MikrotikError as e:
-        raise HTTPException(502, str(e))
-    return [MangleRule(**r) for r in rules]
+        return {"rules": [], "error": str(e)}
+    except Exception as e:
+        return {"rules": [], "error": f"Error inesperado: {e}"}
 
 
 @router.delete("/{router_id}/mangle/{rule_id}")
@@ -311,7 +315,7 @@ async def apply_professional_tree(
 
 # ── PCQ ───────────────────────────────────────────────────────────────────────
 
-@router.get("/{router_id}/pcq", response_model=List[PCQQueue])
+@router.get("/{router_id}/pcq")
 async def get_pcq_queues(router_id: int, db: AsyncSession = Depends(get_db)):
     mt_router = await _get_router_or_404(router_id, db)
     svc = build_service_from_router(mt_router)
@@ -322,9 +326,11 @@ async def get_pcq_queues(router_id: int, db: AsyncSession = Depends(get_db)):
 
     try:
         queues = await asyncio.to_thread(_get)
+        return {"queues": [PCQQueue(**q) for q in queues], "error": None}
     except MikrotikError as e:
-        raise HTTPException(502, str(e))
-    return [PCQQueue(**q) for q in queues]
+        return {"queues": [], "error": str(e)}
+    except Exception as e:
+        return {"queues": [], "error": f"Error inesperado: {e}"}
 
 
 @router.post("/{router_id}/pcq/setup")
