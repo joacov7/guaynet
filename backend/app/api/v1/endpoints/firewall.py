@@ -33,7 +33,7 @@ async def _get_router_or_404(router_id: int, db: AsyncSession) -> MikrotikRouter
 
 # ── DHCP Scan ─────────────────────────────────────────────────────────────────
 
-@router.get("/{router_id}/dhcp-scan", response_model=DHCPScanResponse)
+@router.get("/{router_id}/dhcp-scan")
 async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
     mt_router = await _get_router_or_404(router_id, db)
     svc = build_service_from_router(mt_router)
@@ -45,7 +45,9 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
     try:
         leases_raw = await asyncio.to_thread(_scan)
     except MikrotikError as e:
-        raise HTTPException(502, str(e))
+        return DHCPScanResponse(total=0, registered=0, unregistered=0, leases=[], error=str(e))
+    except Exception as e:
+        return DHCPScanResponse(total=0, registered=0, unregistered=0, leases=[], error=f"Error inesperado: {e}")
 
     rows = await db.execute(
         select(Client.ip_address, Client.id, Client.first_name, Client.last_name)

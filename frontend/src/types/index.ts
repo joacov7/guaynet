@@ -229,6 +229,7 @@ export interface DHCPScanResponse {
   registered: number;
   unregistered: number;
   leases: DHCPLease[];
+  error?: string | null;
 }
 
 export interface FirewallRule {

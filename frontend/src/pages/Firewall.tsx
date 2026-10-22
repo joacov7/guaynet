@@ -584,8 +584,15 @@ export default function Firewall() {
               ),
               children: (
                 <div>
+                  {dhcpData?.error && (
+                    <div style={{ marginBottom: 12 }}>
+                      <Text type="danger" style={{ fontSize: 13 }}>
+                        ⚠️ Error del router: <code>{dhcpData.error}</code>
+                      </Text>
+                    </div>
+                  )}
                   <Space style={{ marginBottom: 12 }} wrap>
-                    {dhcpData && (
+                    {dhcpData && !dhcpData.error && (
                       <>
                         <Tag color="green">Registrados: {dhcpData.registered}</Tag>
                         <Tag color="orange">Sin registrar: {dhcpData.unregistered}</Tag>

@@ -18,6 +18,7 @@ class DHCPScanResponse(BaseModel):
     registered: int
     unregistered: int
     leases: List[DHCPLease]
+    error: Optional[str] = None
 
 
 class FirewallRule(BaseModel):
