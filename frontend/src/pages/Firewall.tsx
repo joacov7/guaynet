@@ -314,7 +314,7 @@ export default function Firewall() {
   const [queueTreeActive, setQueueTreeActive] = useState(false);
 
   const {
-    data: queueTreeData = [],
+    data: queueTreeResp,
     isLoading: queueTreeLoading,
     refetch: refetchQueueTree,
   } = useQuery({
@@ -323,6 +323,8 @@ export default function Firewall() {
     enabled: routerId != null && queueTreeActive,
     refetchInterval: queueTreeActive ? 5000 : false,
   });
+  const queueTreeData = queueTreeResp?.entries ?? [];
+  const queueTreeError = queueTreeResp?.error ?? null;
 
   const proTreeMutation = useMutation({
     mutationFn: () => firewallApi.applyProfessionalTree(routerId!, proDownMbps, proUpMbps),
@@ -742,6 +744,13 @@ export default function Firewall() {
               ),
               children: (
                 <div>
+                  {queueTreeError && (
+                    <div style={{ marginBottom: 12 }}>
+                      <Text type="danger" style={{ fontSize: 13 }}>
+                        ⚠️ Error del router: <code>{queueTreeError}</code>
+                      </Text>
+                    </div>
+                  )}
                   {!queueTreeActive ? (
                     <div style={{ textAlign: "center", padding: 40 }}>
                       <Button

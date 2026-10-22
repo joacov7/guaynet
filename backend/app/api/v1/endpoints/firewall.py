@@ -275,9 +275,12 @@ async def get_queue_tree_stats(router_id: int, db: AsyncSession = Depends(get_db
             return svc.get_queue_tree_with_stats()
 
     try:
-        return await asyncio.to_thread(_get)
+        entries = await asyncio.to_thread(_get)
+        return {"entries": entries, "error": None}
     except MikrotikError as e:
-        raise HTTPException(502, str(e))
+        return {"entries": [], "error": str(e)}
+    except Exception as e:
+        return {"entries": [], "error": f"Error inesperado: {e}"}
 
 
 class ProfessionalTreeRequest(BaseModel):
@@ -301,7 +304,7 @@ async def apply_professional_tree(
 
     try:
         result = await asyncio.to_thread(_apply)
-    except MikrotikError as e:
+    except (MikrotikError, Exception) as e:
         raise HTTPException(502, str(e))
     return {**result, "message": f"Árbol QoS profesional aplicado ({result['added']} entradas creadas)"}
 
