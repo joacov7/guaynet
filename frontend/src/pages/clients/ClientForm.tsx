@@ -126,12 +126,18 @@ export default function ClientForm() {
     else createMutation.mutate(payload);
   };
 
+  const [locationUrl, setLocationUrl] = useState("");
+  const [resolvingUrl, setResolvingUrl] = useState(false);
+
+  const currentLat = Form.useWatch("latitude", form);
+  const currentLng = Form.useWatch("longitude", form);
+  const mapsUrl = currentLat && currentLng
+    ? `https://www.google.com/maps?q=${currentLat},${currentLng}`
+    : null;
+
   if (isEdit && loadingClient) return <Spin />;
 
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
-
-  const [locationUrl, setLocationUrl] = useState("");
-  const [resolvingUrl, setResolvingUrl] = useState(false);
 
   const applyCoords = (lat: number, lng: number) => {
     form.setFieldsValue({ latitude: lat, longitude: lng });
@@ -163,12 +169,6 @@ export default function ClientForm() {
       }
     } catch {}
   };
-
-  const currentLat = Form.useWatch("latitude", form);
-  const currentLng = Form.useWatch("longitude", form);
-  const mapsUrl = currentLat && currentLng
-    ? `https://www.google.com/maps?q=${currentLat},${currentLng}`
-    : null;
 
   return (
     <div style={{ maxWidth: 900 }}>
