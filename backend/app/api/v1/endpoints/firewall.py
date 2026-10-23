@@ -310,9 +310,11 @@ async def apply_professional_tree(
 
     try:
         result = await asyncio.to_thread(_apply)
-    except (MikrotikError, Exception) as e:
+        return {**result, "message": f"Arbol QoS profesional aplicado ({result['added']} entradas creadas)"}
+    except MikrotikError as e:
         raise HTTPException(502, str(e))
-    return {**result, "message": f"Árbol QoS profesional aplicado ({result['added']} entradas creadas)"}
+    except Exception as e:
+        raise HTTPException(502, f"Error inesperado: {e}")
 
 
 # ── PCQ ───────────────────────────────────────────────────────────────────────

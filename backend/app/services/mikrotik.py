@@ -389,11 +389,13 @@ class MikrotikService:
     def disable_mangle_rule(self, rule_id: str) -> None:
         self._call("/ip/firewall/mangle/set", **{".id": rule_id, "disabled": "yes"})
 
-    def _ensure_mangle_rule(self, rule: dict) -> str:
+    def _ensure_mangle_rule(self, rule: dict, _cache: Optional[List[Dict]] = None) -> str:
         """Add a mangle rule only if none with the same comment exists.
-        Re-enables it if it was disabled. Returns 'added'|'enabled'|'exists'."""
+        Re-enables it if it was disabled. Returns 'added'|'enabled'|'exists'.
+        Pass _cache to avoid re-fetching the full mangle list on every call."""
         comment = rule.get("comment", "")
-        for r in self.get_mangle_rules():
+        rules = _cache if _cache is not None else self.get_mangle_rules()
+        for r in rules:
             if r.get("comment") == comment:
                 if r.get("disabled"):
                     self.enable_mangle_rule(r["id"])
@@ -539,6 +541,9 @@ class MikrotikService:
         """
         added = 0
 
+        # Pre-fetch once to avoid one API round-trip per rule
+        mangle_cache = self.get_mangle_rules()
+
         # ── 1. Mangle connection marks (prerouting) ─────────────────────────
         CONN_MARKS = [
             # (conn-mark-name, filter-params)
@@ -559,7 +564,7 @@ class MikrotikService:
                 "passthrough": "yes",
                 "comment": f"guaynet-pro: conn {conn_mark}",
                 **extra,
-            })
+            }, _cache=mangle_cache)
 
         # mark resto for unclassified (must be last)
         self._ensure_mangle_rule({
@@ -569,7 +574,7 @@ class MikrotikService:
             "connection-mark": "no-mark",
             "passthrough": "yes",
             "comment": "guaynet-pro: conn resto",
-        })
+        }, _cache=mangle_cache)
 
         # ── 2. Mangle packet marks from connection marks ────────────────────
         PKT_MARKS = [
@@ -589,7 +594,7 @@ class MikrotikService:
                 "new-packet-mark": pkt_mark,
                 "passthrough": "no",
                 "comment": f"guaynet-pro: pkt {pkt_mark}",
-            })
+            }, _cache=mangle_cache)
 
         # ── 3. Queue tree structure ─────────────────────────────────────────
         CHILDREN = [
