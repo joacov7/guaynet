@@ -27,7 +27,8 @@ from app.schemas.ubiquiti import (
     WirelessConfig,
     WirelessUpdate,
 )
-from app.services.ubiquiti import UbiquitiError, build_service_from_device, quick_probe
+from app.services.ubiquiti import UbiquitiError, build_service_from_device, quick_probe, ssh_exec as _ssh_exec
+from pydantic import BaseModel as _BaseModel
 
 router = APIRouter()
 
@@ -478,6 +479,33 @@ async def upload_firmware(
         return await asyncio.to_thread(_upload)
     except UbiquitiError as e:
         raise HTTPException(503, str(e))
+
+
+class SshExecRequest(_BaseModel):
+    command: str
+
+
+@router.post("/{device_id}/ssh-exec")
+async def ssh_exec_command(
+    device_id: int,
+    body: SshExecRequest,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Execute a command on the device via SSH. Returns stdout, stderr, exit_code."""
+    device = await _get_or_404(device_id, db)
+    from app.core.security import decrypt_value
+    password = decrypt_value(device.password_encrypted) if device.password_encrypted else "ubnt"
+    username = device.username or "ubnt"
+
+    def _run():
+        return _ssh_exec(device.host, username, password, body.command)
+
+    try:
+        result = await asyncio.to_thread(_run)
+        return result
+    except UbiquitiError as e:
+        raise HTTPException(502, str(e))
 
 
 @router.get("/{device_id}/clients")

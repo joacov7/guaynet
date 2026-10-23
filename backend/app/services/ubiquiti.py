@@ -415,3 +415,30 @@ def build_service_from_device(device) -> UbiquitiAirOSService:
         username=device.username or "ubnt",
         password=password,
     )
+
+
+def ssh_exec(host: str, username: str, password: str, command: str, timeout: float = 15.0) -> Dict:
+    """Execute a command on a Ubiquiti device via SSH. Returns stdout, stderr, exit_code."""
+    import paramiko
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            hostname=host,
+            username=username,
+            password=password,
+            timeout=timeout,
+            allow_agent=False,
+            look_for_keys=False,
+        )
+        _, stdout, stderr = client.exec_command(command, timeout=timeout)
+        exit_code = stdout.channel.recv_exit_status()
+        return {
+            "stdout": stdout.read().decode("utf-8", errors="replace"),
+            "stderr": stderr.read().decode("utf-8", errors="replace"),
+            "exit_code": exit_code,
+        }
+    except Exception as e:
+        raise UbiquitiError(f"SSH error: {e}")
+    finally:
+        client.close()

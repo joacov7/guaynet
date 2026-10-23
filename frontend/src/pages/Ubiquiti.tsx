@@ -85,6 +85,119 @@ function secondsToUptime(s: number): string {
   return d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m`;
 }
 
+// ── SSH Terminal ──────────────────────────────────────────────────────────────
+
+function SshTab({ deviceId }: { deviceId: number }) {
+  const [input, setInput] = useState("");
+  const [history, setHistory] = useState<{ cmd: string; stdout: string; stderr: string; exit_code: number }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const endRef = { current: null as HTMLDivElement | null };
+
+  const run = async () => {
+    const cmd = input.trim();
+    if (!cmd) return;
+    setInput("");
+    setLoading(true);
+    try {
+      const res = await ubiquitiApi.sshExec(deviceId, cmd);
+      setHistory((h) => [...h, { cmd, ...res }]);
+    } catch (e: any) {
+      setHistory((h) => [...h, { cmd, stdout: "", stderr: e.response?.data?.detail ?? String(e), exit_code: -1 }]);
+    } finally {
+      setLoading(false);
+      setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+    }
+  };
+
+  const QUICK = [
+    { label: "info del sistema", cmd: "cat /proc/version" },
+    { label: "uptime", cmd: "uptime" },
+    { label: "interfaces", cmd: "ifconfig" },
+    { label: "tabla de rutas", cmd: "route -n" },
+    { label: "estadísticas wireless", cmd: "iwconfig ath0 2>/dev/null || iwconfig" },
+    { label: "señal", cmd: "wstalist 2>/dev/null | head -40" },
+    { label: "uso disco", cmd: "df -h" },
+    { label: "memoria", cmd: "free" },
+    { label: "logs recientes", cmd: "logread | tail -30" },
+    { label: "reiniciar", cmd: "reboot" },
+  ];
+
+  return (
+    <div>
+      <div style={{ marginBottom: 8 }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>
+          Comandos rápidos:
+        </Text>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+          {QUICK.map((q) => (
+            <Tag
+              key={q.cmd}
+              style={{ cursor: "pointer", fontSize: 11 }}
+              color={q.cmd === "reboot" ? "red" : "default"}
+              onClick={() => { setInput(q.cmd); }}
+            >
+              {q.label}
+            </Tag>
+          ))}
+        </div>
+      </div>
+
+      <div
+        style={{
+          background: "#0d0d0d",
+          color: "#d4d4d4",
+          fontFamily: "monospace",
+          fontSize: 12,
+          borderRadius: 6,
+          padding: "10px 14px",
+          minHeight: 200,
+          maxHeight: 400,
+          overflowY: "auto",
+          marginBottom: 8,
+        }}
+      >
+        {history.length === 0 && (
+          <span style={{ color: "#666" }}>~ Escribí un comando o usá los accesos rápidos de arriba</span>
+        )}
+        {history.map((h, i) => (
+          <div key={i} style={{ marginBottom: 8 }}>
+            <div style={{ color: "#4ec9b0" }}>$ {h.cmd}</div>
+            {h.stdout && (
+              <pre style={{ margin: 0, color: "#d4d4d4", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{h.stdout}</pre>
+            )}
+            {h.stderr && (
+              <pre style={{ margin: 0, color: "#f48771", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{h.stderr}</pre>
+            )}
+            {h.exit_code !== 0 && (
+              <span style={{ color: "#f48771", fontSize: 11 }}>[exit {h.exit_code}]</span>
+            )}
+          </div>
+        ))}
+        <div ref={(el) => { endRef.current = el; }} />
+      </div>
+
+      <Space.Compact style={{ width: "100%" }}>
+        <Input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onPressEnter={run}
+          placeholder="Comando SSH..."
+          prefix={<span style={{ color: "#999", fontFamily: "monospace" }}>$</span>}
+          disabled={loading}
+        />
+        <Button type="primary" onClick={run} loading={loading}>
+          Ejecutar
+        </Button>
+        {history.length > 0 && (
+          <Button onClick={() => setHistory([])} title="Limpiar">
+            ✕
+          </Button>
+        )}
+      </Space.Compact>
+    </div>
+  );
+}
+
 // ── Device detail drawer ──────────────────────────────────────────────────────
 
 function DeviceDrawer({
@@ -583,6 +696,11 @@ function DeviceDrawer({
                 )}
               </div>
             ),
+          },
+          {
+            key: "ssh",
+            label: "SSH",
+            children: <SshTab deviceId={device.id} />,
           },
         ]}
       />

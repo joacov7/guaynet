@@ -297,6 +297,12 @@ export const ubiquitiApi = {
       password,
       device_type: deviceType,
     }, { timeout: 300000 }).then(r => r.data),
+  sshExec: (id: number, command: string) =>
+    http.post<{ stdout: string; stderr: string; exit_code: number }>(
+      `/ubiquiti/${id}/ssh-exec`,
+      { command },
+      { timeout: 30000 },
+    ).then(r => r.data),
 };
 
 // ── Firewall & QoS ────────────────────────────────────────────────────────────
