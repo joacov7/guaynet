@@ -134,6 +134,7 @@ export interface InvoiceItem {
 export interface Invoice {
   id: number;
   client_id: number;
+  client_name?: string;
   period: string;
   amount: number;
   issue_date: string;

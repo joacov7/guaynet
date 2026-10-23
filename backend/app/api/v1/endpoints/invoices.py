@@ -31,7 +31,15 @@ async def list_invoices(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    q = select(Invoice).options(selectinload(Invoice.payments), selectinload(Invoice.items)).order_by(Invoice.due_date.desc())
+    q = (
+        select(Invoice)
+        .options(
+            selectinload(Invoice.payments),
+            selectinload(Invoice.items),
+            selectinload(Invoice.client),
+        )
+        .order_by(Invoice.due_date.desc())
+    )
     if status:
         q = q.where(Invoice.status == status)
     if period:
@@ -39,7 +47,8 @@ async def list_invoices(
     if client_id:
         q = q.where(Invoice.client_id == client_id)
     result = await db.execute(q.offset(skip).limit(limit))
-    return result.scalars().all()
+    invoices = result.scalars().all()
+    return [InvoiceResponse.from_orm_with_client(inv) for inv in invoices]
 
 
 @router.post("/", response_model=InvoiceResponse, status_code=201)

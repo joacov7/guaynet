@@ -172,6 +172,12 @@ export default function Invoices() {
 
   const columns = [
     { title: "ID", dataIndex: "id", key: "id", width: 60 },
+    {
+      title: "Cliente",
+      dataIndex: "client_name",
+      key: "client_name",
+      render: (v: string, r: Invoice) => v || `Cliente #${r.client_id}`,
+    },
     { title: "Período", dataIndex: "period", key: "period" },
     {
       title: "Monto",
@@ -493,7 +499,7 @@ export default function Invoices() {
       </Modal>
 
       <Modal
-        title="Registrar pago"
+        title={payModal ? `Registrar pago — ${payModal.client_name ?? `Cliente #${payModal.client_id}`} (${payModal.period})` : "Registrar pago"}
         open={payModal != null}
         onCancel={() => { setPayModal(null); payForm.resetFields(); }}
         onOk={() => payForm.submit()}
