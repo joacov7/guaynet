@@ -599,6 +599,30 @@ export interface WanInterface {
   } | null;
 }
 
+export type ExpenseCategory =
+  | "hosting"
+  | "equipment"
+  | "energy"
+  | "labor"
+  | "internet"
+  | "transport"
+  | "software"
+  | "maintenance"
+  | "other";
+
+export interface Expense {
+  id: number;
+  description: string;
+  amount: number;
+  category: ExpenseCategory;
+  expense_date: string;
+  vendor?: string | null;
+  invoice_number?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface MapDataPoint {
   id: number;
   name?: string;

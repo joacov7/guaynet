@@ -26,6 +26,7 @@ import Reports from "@/pages/Reports";
 import Zones from "@/pages/Zones";
 import WorkOrders from "@/pages/WorkOrders";
 import Alarms from "@/pages/Alarms";
+import Expenses from "@/pages/Expenses";
 import WanManagement from "@/pages/WanManagement";
 import Help from "@/pages/Help";
 import TechLayout from "@/pages/tech/TechLayout";
@@ -89,6 +90,7 @@ export default function App() {
           <Route path="work-orders" element={<WorkOrders />} />
           <Route path="alarms" element={<Alarms />} />
           <Route path="wan" element={<WanManagement />} />
+          <Route path="expenses" element={<Expenses />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
         </Route>

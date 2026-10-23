@@ -1,6 +1,8 @@
 import axios from "axios";
 import type {
   AuditLogEntry,
+  Expense,
+  ExpenseCategory,
   BandwidthEntry,
   BandwidthHistoryEntry,
   Client,
@@ -504,6 +506,21 @@ export const wanApi = {
     http.post(`/routers/${routerId}/wan/apply-load-balance`, { wans }).then(r => r.data),
   removeLoadBalance: (routerId: number) =>
     http.post(`/routers/${routerId}/wan/remove-load-balance`).then(r => r.data),
+};
+
+// ── Expenses ──────────────────────────────────────────────────────────────────
+export const expensesApi = {
+  list: (params?: { category?: ExpenseCategory; date_from?: string; date_to?: string }) =>
+    http.get<Expense[]>("/expenses/", { params }).then((r) => r.data),
+  create: (data: Omit<Expense, "id" | "created_at" | "updated_at">) =>
+    http.post<Expense>("/expenses/", data).then((r) => r.data),
+  update: (id: number, data: Partial<Omit<Expense, "id" | "created_at" | "updated_at">>) =>
+    http.put<Expense>(`/expenses/${id}`, data).then((r) => r.data),
+  delete: (id: number) => http.delete(`/expenses/${id}`),
+  summary: (params?: { year?: number; month?: number }) =>
+    http.get<{ total: number; by_category: Record<string, number> }>("/expenses/summary", { params }).then((r) => r.data),
+  monthlyTotals: (year?: number) =>
+    http.get<{ year: number; months: { month: number; total: number }[] }>("/expenses/monthly-totals", { params: year ? { year } : undefined }).then((r) => r.data),
 };
 
 export default http;

@@ -17,6 +17,7 @@ from app.models.zone import Zone
 from app.models.work_order import WorkOrder, WorkOrderType, WorkOrderStatus
 from app.models.alarm import Alarm, AlarmType, AlarmStatus
 from app.models.wan import WanInterface, WanSchedule
+from app.models.expense import Expense, ExpenseCategory
 
 __all__ = [
     "Base",
