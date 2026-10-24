@@ -1,7 +1,18 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import admin, alarms, auth, clients, dashboard, expenses, firewall, inventory, invoices, notifications, permissions, plans, portal, push, reports, routers, tickets, ubiquiti, vpn, wan, work_orders, zones
-from app.api.v1.endpoints.security import alerts, entry_sessions, events, properties, subscriptions
+from app.api.v1.endpoints.security import (
+    alerts as sec_alerts,
+    devices as sec_devices,
+    entry_sessions as sec_entry_sessions,
+    events as sec_events,
+    members as sec_members,
+    pins as sec_pins,
+    plans as sec_plans,
+    properties as sec_properties,
+    subscriptions as sec_subscriptions,
+    vacation as sec_vacation,
+)
 
 api_router = APIRouter()
 
@@ -28,9 +39,14 @@ api_router.include_router(alarms.router, prefix="/alarms", tags=["alarms"])
 api_router.include_router(expenses.router, prefix="/expenses", tags=["expenses"])
 api_router.include_router(wan.router, prefix="/routers", tags=["wan"])
 
-# ── Guaynet Seguridad (Stage 2 — endpoints return 501 until implemented) ─────
-api_router.include_router(properties.router, prefix="/security/properties", tags=["security"])
-api_router.include_router(subscriptions.router, prefix="/security/subscriptions", tags=["security"])
-api_router.include_router(alerts.router, prefix="/security/alerts", tags=["security"])
-api_router.include_router(entry_sessions.router, prefix="/security/entry-sessions", tags=["security"])
-api_router.include_router(events.router, prefix="/security/events", tags=["security"])
+# ── Guaynet Seguridad ─────────────────────────────────────────────────────────
+api_router.include_router(sec_properties.router, prefix="/security/properties", tags=["security"])
+api_router.include_router(sec_subscriptions.router, prefix="/security/subscriptions", tags=["security"])
+api_router.include_router(sec_alerts.router, prefix="/security/alerts", tags=["security"])
+api_router.include_router(sec_entry_sessions.router, prefix="/security/entry-sessions", tags=["security"])
+api_router.include_router(sec_events.router, prefix="/security/events", tags=["security"])
+api_router.include_router(sec_members.router, prefix="/security/members", tags=["security"])
+api_router.include_router(sec_devices.router, prefix="/security/devices", tags=["security"])
+api_router.include_router(sec_pins.router, prefix="/security/pins", tags=["security"])
+api_router.include_router(sec_vacation.router, prefix="/security/vacation", tags=["security"])
+api_router.include_router(sec_plans.router, prefix="/security/plans", tags=["security"])

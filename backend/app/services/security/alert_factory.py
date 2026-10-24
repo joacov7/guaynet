@@ -36,6 +36,10 @@ async def create_entry_timeout_alert(
     )
     db.add(alert)
     await db.flush()
+
+    from app.services.security.notifications import dispatch_alert
+    await dispatch_alert(alert, db)
+
     return alert
 
 
@@ -64,6 +68,10 @@ async def create_duress_alert(
     db.add(alert)
     await db.commit()
     await db.refresh(alert)
+
+    from app.services.security.notifications import dispatch_alert
+    await dispatch_alert(alert, db)
+
     return alert
 
 

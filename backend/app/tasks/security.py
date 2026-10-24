@@ -205,6 +205,9 @@ def poll_beat_events(self):
                                 db.add(alert)
                                 event.processed = True
                                 new_alerts += 1
+                                await db.flush()
+                                from app.services.security.notifications import dispatch_alert
+                                await dispatch_alert(alert, db)
 
                 await db.commit()
 

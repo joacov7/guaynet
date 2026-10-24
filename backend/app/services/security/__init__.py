@@ -6,6 +6,12 @@ from app.services.security import (  # noqa: F401
     entry_sessions,
     events,
     alert_factory,
+    notifications,
+    members,
+    devices,
+    pins,
+    vacation,
+    plans,
 )
 
 __all__ = [
@@ -16,4 +22,10 @@ __all__ = [
     "entry_sessions",
     "events",
     "alert_factory",
+    "notifications",
+    "members",
+    "devices",
+    "pins",
+    "vacation",
+    "plans",
 ]

@@ -56,10 +56,10 @@ export const subscriptionsApi = {
   toggleFeature: (
     id: number,
     feature_name: SecurityFeatureName,
-    is_enabled: boolean
+    enabled: boolean
   ): Promise<void> =>
     api
-      .post(`/security/subscriptions/${id}/features`, { feature_name, is_enabled })
+      .post(`/security/subscriptions/${id}/features`, { feature_name, enabled })
       .then(() => undefined),
 
   beatStatus: (id: number): Promise<BeatAccountStatus> =>
@@ -77,7 +77,7 @@ export const alertsApi = {
 
   update: (
     id: number,
-    data: { status: SecurityAlert["status"]; resolution_notes?: string }
+    data: { status: SecurityAlert["status"]; operator_notes?: string }
   ): Promise<SecurityAlert> =>
     api.patch(`/security/alerts/${id}`, data).then((r) => r.data),
 };
@@ -96,8 +96,8 @@ export const entrySessionsApi = {
   listActive: (): Promise<EntrySession[]> =>
     api.get("/security/entry-sessions/active").then((r) => r.data),
 
-  cancel: (id: number): Promise<EntrySession> =>
-    api.post(`/security/entry-sessions/${id}/cancel`).then((r) => r.data),
+  cancel: (id: number, pin: string): Promise<EntrySession> =>
+    api.post(`/security/entry-sessions/${id}/cancel`, { pin }).then((r) => r.data),
 };
 
 // ── Events ─────────────────────────────────────────────────────────────────
