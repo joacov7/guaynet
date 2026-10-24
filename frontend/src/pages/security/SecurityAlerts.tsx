@@ -101,6 +101,20 @@ export default function SecurityAlerts() {
       render: (v: string) => new Date(v).toLocaleString("es-AR"),
     },
     {
+      title: "Confirmación",
+      key: "confirmation",
+      render: (_: unknown, r: SecurityAlert) => {
+        if (r.confirmation_sent_at && !r.resolved_at && r.status === "new") {
+          const expires = r.confirmation_expires_at ? new Date(r.confirmation_expires_at) : null;
+          const remaining = expires ? Math.max(0, Math.round((expires.getTime() - Date.now()) / 1000)) : 0;
+          return remaining > 0
+            ? <Tag color="orange">Esperando respuesta ({remaining}s)</Tag>
+            : <Tag color="red">Sin respuesta</Tag>;
+        }
+        return <span style={{ color: "#aaa" }}>—</span>;
+      },
+    },
+    {
       title: "Resuelta",
       dataIndex: "resolved_at",
       key: "resolved",

@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -73,6 +73,11 @@ class SecurityAlert(Base, TimestampMixin):
 
     # Idempotency key to prevent duplicate alerts for the same event
     idempotency_key: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, unique=True)
+
+    # Client confirmation flow ("¿Estás bien?")
+    confirmation_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    confirmation_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    confirmation_telegram_msg_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     subscription: Mapped["SecuritySubscription"] = relationship(
         "SecuritySubscription", back_populates="alerts"

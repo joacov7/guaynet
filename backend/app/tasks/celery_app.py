@@ -77,6 +77,11 @@ celery_app.conf.update(
             "schedule": crontab(minute="*/1"),  # every minute
             "options": {"queue": "critical"},
         },
+        "check-confirmation-timeouts": {
+            "task": "app.tasks.security.check_confirmation_timeouts",
+            "schedule": crontab(minute="*/1"),  # every minute
+            "options": {"queue": "critical"},
+        },
         "poll-beat-events": {
             "task": "app.tasks.security.poll_beat_events",
             "schedule": crontab(minute="*/2"),  # every 2 minutes while awaiting webhook support

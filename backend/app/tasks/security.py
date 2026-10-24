@@ -225,6 +225,97 @@ def poll_beat_events(self):
 
 
 @celery_app.task(
+    name="app.tasks.security.check_confirmation_timeouts",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=10,
+)
+def check_confirmation_timeouts(self):
+    """
+    Escalate alerts whose client confirmation window has expired without a response.
+    Runs every minute alongside process_expired_entry_sessions.
+    """
+    async def _execute():
+        from datetime import datetime, timezone
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        from app.core.database import AsyncSessionLocal
+        from app.models.security.alert import SecurityAlert, SecurityAlertStatus
+        from app.models.security.subscription import SecuritySubscription
+        from app.models.security.property import Property
+        from app.services.security.notifications import dispatch_alert_operator
+
+        now = datetime.now(timezone.utc)
+        escalated = 0
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(SecurityAlert)
+                .options(selectinload(SecurityAlert.confirmations))
+                .where(
+                    SecurityAlert.confirmation_expires_at.is_not(None),
+                    SecurityAlert.confirmation_expires_at <= now,
+                    SecurityAlert.status == SecurityAlertStatus.new,
+                )
+                .with_for_update(skip_locked=True)
+            )
+            alerts = result.scalars().all()
+
+            for alert in alerts:
+                if alert.confirmations:
+                    # Already answered — clear confirmation fields and skip
+                    alert.confirmation_expires_at = None
+                    db.add(alert)
+                    continue
+
+                # Window expired, no response — check if the plan has monitoring
+                sub_result = await db.execute(
+                    select(SecuritySubscription)
+                    .options(selectinload(SecuritySubscription.plan))
+                    .where(SecuritySubscription.id == alert.subscription_id)
+                )
+                sub = sub_result.scalar_one_or_none()
+
+                property_name = ""
+                prop_result = await db.execute(
+                    select(Property.name).where(
+                        Property.id == sub.property_id
+                    ) if sub else select(Property.name).where(False)
+                )
+                prop_row = prop_result.first()
+                if prop_row:
+                    property_name = prop_row[0]
+
+                includes_monitoring = sub.plan.includes_monitoring if (sub and sub.plan) else True
+
+                # Clear the pending confirmation window
+                alert.confirmation_expires_at = None
+                db.add(alert)
+
+                if includes_monitoring:
+                    try:
+                        await dispatch_alert_operator(alert, property_name)
+                        escalated += 1
+                    except Exception as exc:
+                        logger.error("Failed to escalate alert %d after timeout: %s", alert.id, exc)
+                else:
+                    logger.warning(
+                        "Alert %d confirmation timed out but plan has no monitoring — no operator dispatch.",
+                        alert.id,
+                    )
+
+            await db.commit()
+
+        return {"escalated": escalated}
+
+    try:
+        return _run(_execute())
+    except Exception as exc:
+        logger.error("check_confirmation_timeouts failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
     name="app.tasks.security.generate_monthly_reports",
     bind=True,
     max_retries=1,

@@ -16,6 +16,8 @@ class SecurityAlertResponse(BaseModel):
     resolved_at: Optional[datetime] = None
     idempotency_key: Optional[str] = None
     operator_notes: Optional[str] = None
+    confirmation_sent_at: Optional[datetime] = None
+    confirmation_expires_at: Optional[datetime] = None
 
 
 class SecurityAlertUpdate(BaseModel):

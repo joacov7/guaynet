@@ -121,6 +121,8 @@ export interface SecurityAlert {
   resolved_at?: string;
   idempotency_key?: string;
   operator_notes?: string;
+  confirmation_sent_at?: string;
+  confirmation_expires_at?: string;
 }
 
 export interface SecurityEvent {
