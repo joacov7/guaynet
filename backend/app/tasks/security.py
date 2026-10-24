@@ -445,10 +445,56 @@ def generate_weekly_reports(self):
                     seen_zones.add(zone)
                     battery_warnings.append({
                         "zone_number": zone,
-                        "description": ev.description or f"Zona {zone}" if zone else "Zona desconocida",
+                        "description": ev.description or (f"Zona {zone}" if zone else "Zona desconocida"),
+                    })
+
+                # ── Power failures ─────────────────────────────────────────────
+                pf_result = await db.execute(
+                    select(SecurityEvent).where(
+                        SecurityEvent.subscription_id == sub.id,
+                        SecurityEvent.event_type == SecurityEventType.power_failure.value,
+                        SecurityEvent.occurred_at >= period_start,
+                        SecurityEvent.occurred_at <= period_end,
+                    ).order_by(SecurityEvent.occurred_at)
+                )
+                pf_events = pf_result.scalars().all()
+
+                pr_result = await db.execute(
+                    select(SecurityEvent).where(
+                        SecurityEvent.subscription_id == sub.id,
+                        SecurityEvent.event_type == SecurityEventType.power_restored.value,
+                        SecurityEvent.occurred_at >= period_start,
+                        SecurityEvent.occurred_at <= period_end,
+                    ).order_by(SecurityEvent.occurred_at)
+                )
+                pr_events = pr_result.scalars().all()
+
+                power_failures = []
+                for pf in pf_events:
+                    # Find the first power_restored event after this failure
+                    restored_at = next(
+                        (pr.occurred_at for pr in pr_events if pr.occurred_at > pf.occurred_at),
+                        None,
+                    )
+                    duration_minutes = (
+                        int((restored_at - pf.occurred_at).total_seconds() // 60)
+                        if restored_at else None
+                    )
+                    power_failures.append({
+                        "occurred_at": pf.occurred_at.isoformat(),
+                        "duration_minutes": duration_minutes,
+                        "restored": restored_at is not None,
                     })
 
                 # ── Build and send Telegram message ────────────────────────────
+                def _fmt_duration(minutes):
+                    if minutes is None:
+                        return "duración desconocida"
+                    if minutes < 60:
+                        return f"{minutes} min"
+                    h, m = divmod(minutes, 60)
+                    return f"{h} hs {m} min" if m else f"{h} hs"
+
                 now = datetime.now(timezone.utc)
                 start_str = monday.strftime("%d/%m")
                 end_str = sunday.strftime("%d/%m/%Y")
@@ -471,7 +517,23 @@ def generate_weekly_reports(self):
                 else:
                     lines.append("🔋 *Baterías:* ✅ Todas en buen estado")
 
+                if power_failures:
+                    lines.append(f"⚡ *Cortes de luz* ({len(power_failures)})")
+                    for pf in power_failures:
+                        dt = datetime.fromisoformat(pf["occurred_at"])
+                        dt_local = dt.astimezone()
+                        date_str = dt_local.strftime("%d/%m %H:%M")
+                        dur = _fmt_duration(pf["duration_minutes"])
+                        if pf["restored"]:
+                            lines.append(f"  · {date_str} — {dur}")
+                        else:
+                            lines.append(f"  · {date_str} — sin energía al cierre del reporte")
+                    lines.append("")
+                else:
+                    lines.append("⚡ *Energía eléctrica:* ✅ Sin cortes")
+
                 lines += [
+                    "━━━━━━━━━━━━━━━",
                     "📡 *Actividad de la semana*",
                     f"  Armados: {armed_count}  ·  Desarmados: {disarmed_count}",
                     f"  Alarmas: {alert_count}  ·  Pruebas: {test_count}",
@@ -479,12 +541,18 @@ def generate_weekly_reports(self):
                     "",
                 ]
 
-                if alert_count == 0 and not battery_warnings:
+                has_issues = battery_warnings or power_failures or alert_count > 0
+                if not has_issues:
                     lines.append("✅ *Tu sistema funcionó correctamente esta semana.*")
-                elif battery_warnings:
-                    lines.append("⚠️ *Revisá las baterías indicadas para mantener tu sistema activo.*")
                 else:
-                    lines.append("⚠️ *Hubo alertas esta semana. Revisá el historial en la app.*")
+                    callouts = []
+                    if battery_warnings:
+                        callouts.append("revisá las baterías")
+                    if power_failures:
+                        callouts.append("hubo cortes de luz")
+                    if alert_count > 0:
+                        callouts.append("hubo alertas")
+                    lines.append(f"⚠️ *Esta semana:* {', '.join(callouts)}.")
 
                 message = "\n".join(lines)
                 telegram_sent = False
@@ -518,6 +586,8 @@ def generate_weekly_reports(self):
                     test_count=test_count,
                     battery_warning_count=len(battery_warnings),
                     battery_warnings=battery_warnings or None,
+                    power_failure_count=len(power_failures),
+                    power_failures=power_failures or None,
                 )
                 db.add(report)
                 sent += 1

@@ -71,3 +71,7 @@ class SecurityWeeklyReport(Base):
 
     # JSON list of {zone_number, description} for battery_low events not yet restored
     battery_warnings: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+
+    power_failure_count: Mapped[int] = mapped_column(Integer, default=0)
+    # JSON list of {occurred_at: ISO str, duration_minutes: int|null, restored: bool}
+    power_failures: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
