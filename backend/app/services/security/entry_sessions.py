@@ -133,12 +133,22 @@ async def cancel_entry_session(
                 )
 
     matched_type: Optional[PinType] = None
+    matched_cred: Optional[PinCredential] = None
     for cred in pin_credentials:
         if verify_password(pin, cred.pin_hash):
+            matched_cred = cred
             matched_type = cred.pin_type
-            cred.failed_attempts = 0
-            cred.locked_until = None
             break
+
+    # Reject expired temporary PINs after constant-time verify
+    if matched_cred is not None and matched_type == PinType.temporary:
+        if matched_cred.expires_at and matched_cred.expires_at <= now:
+            matched_type = None
+            matched_cred = None
+
+    if matched_type is not None and matched_cred is not None:
+        matched_cred.failed_attempts = 0
+        matched_cred.locked_until = None
 
     if matched_type is None:
         # Increment failed attempts on normal PIN
@@ -152,7 +162,12 @@ async def cancel_entry_session(
 
     session.status = EntrySessionStatus.cancelled
     session.cancelled_at = now
-    session.cancel_reason = "pin_normal" if matched_type == PinType.normal else "pin_duress"
+    if matched_type == PinType.duress:
+        session.cancel_reason = "pin_duress"
+    elif matched_type == PinType.temporary:
+        session.cancel_reason = "pin_temporary"
+    else:
+        session.cancel_reason = "pin_normal"
     await db.commit()
     await db.refresh(session)
 

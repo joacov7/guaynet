@@ -4,10 +4,12 @@ import {
   Badge,
   Button,
   Col,
+  DatePicker,
   Form,
   Input,
   InputNumber,
   Modal,
+  Popconfirm,
   Row,
   Select,
   Space,
@@ -18,8 +20,9 @@ import {
   Typography,
   message,
 } from "antd";
-import { EyeOutlined, PlusOutlined, SettingOutlined } from "@ant-design/icons";
-import { subscriptionsApi } from "@/services/security/api";
+import { DeleteOutlined, EyeOutlined, KeyOutlined, PlusOutlined, SettingOutlined } from "@ant-design/icons";
+import dayjs from "dayjs";
+import { subscriptionsApi, pinsApi } from "@/services/security/api";
 import type { SecuritySubscription, SecurityFeatureName } from "@/types/security";
 
 const { Title } = Typography;
@@ -63,8 +66,10 @@ export default function SecuritySubscriptions() {
   const [createOpen, setCreateOpen] = useState(false);
   const [featuresModal, setFeaturesModal] = useState<SecuritySubscription | null>(null);
   const [editModal, setEditModal] = useState<SecuritySubscription | null>(null);
+  const [pinsModal, setPinsModal] = useState<SecuritySubscription | null>(null);
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
+  const [pinForm] = Form.useForm();
 
   const { data = [], isLoading } = useQuery({
     queryKey: ["security-subscriptions"],
@@ -99,6 +104,35 @@ export default function SecuritySubscriptions() {
       subscriptionsApi.toggleFeature(id, feature_name, enabled) as Promise<void>,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["security-subscriptions"] }),
     onError: () => message.error("Error al cambiar funcionalidad"),
+  });
+
+  const { data: temporaryPins = [], refetch: refetchPins } = useQuery({
+    queryKey: ["security-temp-pins", pinsModal?.id],
+    queryFn: () => pinsApi.listTemporary(pinsModal!.id),
+    enabled: !!pinsModal,
+  });
+
+  const createPinMutation = useMutation({
+    mutationFn: (values: { new_pin: string; label?: string; expires_at: dayjs.Dayjs }) =>
+      pinsApi.setPin({
+        subscription_id: pinsModal!.id,
+        pin_type: "temporary",
+        new_pin: values.new_pin,
+        label: values.label,
+        expires_at: values.expires_at.toISOString(),
+      }),
+    onSuccess: () => {
+      refetchPins();
+      pinForm.resetFields();
+      message.success("PIN temporal creado");
+    },
+    onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al crear PIN"),
+  });
+
+  const deletePinMutation = useMutation({
+    mutationFn: (pinId: number) => pinsApi.deleteTemporary(pinId, pinsModal!.id),
+    onSuccess: () => { refetchPins(); message.success("PIN revocado"); },
+    onError: () => message.error("Error al revocar PIN"),
   });
 
   const columns = [
@@ -156,22 +190,31 @@ export default function SecuritySubscriptions() {
     },
     {
       title: "",
-      key: "edit",
+      key: "actions",
       render: (_: unknown, r: SecuritySubscription) => (
-        <Button
-          size="small"
-          icon={<EyeOutlined />}
-          onClick={() => {
-            setEditModal(r);
-            editForm.setFieldsValue({
-              beat_account_id: r.beat_account_id,
-              client_telegram_id: r.client_telegram_id,
-              notes: r.notes,
-            });
-          }}
-        >
-          Editar
-        </Button>
+        <Space>
+          <Button
+            size="small"
+            icon={<KeyOutlined />}
+            onClick={() => setPinsModal(r)}
+          >
+            PINs
+          </Button>
+          <Button
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => {
+              setEditModal(r);
+              editForm.setFieldsValue({
+                beat_account_id: r.beat_account_id,
+                client_telegram_id: r.client_telegram_id,
+                notes: r.notes,
+              });
+            }}
+          >
+            Editar
+          </Button>
+        </Space>
       ),
     },
   ];
@@ -266,6 +309,108 @@ export default function SecuritySubscriptions() {
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Temporary PINs modal */}
+      <Modal
+        open={!!pinsModal}
+        title={`PINs Temporales — Suscripción #${pinsModal?.id}`}
+        onCancel={() => { setPinsModal(null); pinForm.resetFields(); }}
+        footer={<Button onClick={() => { setPinsModal(null); pinForm.resetFields(); }}>Cerrar</Button>}
+        width={540}
+      >
+        {pinsModal && (
+          <div>
+            <Table
+              dataSource={temporaryPins}
+              rowKey="id"
+              size="small"
+              pagination={false}
+              style={{ marginBottom: 16 }}
+              locale={{ emptyText: "Sin PINs temporales activos" }}
+              columns={[
+                {
+                  title: "Etiqueta",
+                  dataIndex: "label",
+                  key: "label",
+                  render: (v: string) => v ?? <span style={{ color: "#aaa" }}>Sin etiqueta</span>,
+                },
+                {
+                  title: "Expira",
+                  dataIndex: "expires_at",
+                  key: "expires_at",
+                  render: (v: string) => {
+                    const d = dayjs(v);
+                    const expired = d.isBefore(dayjs());
+                    return (
+                      <Tag color={expired ? "red" : "blue"}>
+                        {d.format("DD/MM/YY HH:mm")}
+                        {expired ? " (expirado)" : ""}
+                      </Tag>
+                    );
+                  },
+                },
+                {
+                  title: "",
+                  key: "delete",
+                  render: (_: unknown, row: { id: number }) => (
+                    <Popconfirm
+                      title="¿Revocar este PIN?"
+                      onConfirm={() => deletePinMutation.mutate(row.id)}
+                      okText="Revocar"
+                      cancelText="Cancelar"
+                    >
+                      <Button size="small" danger icon={<DeleteOutlined />} />
+                    </Popconfirm>
+                  ),
+                },
+              ]}
+            />
+
+            <Form
+              form={pinForm}
+              layout="vertical"
+              onFinish={(v) => createPinMutation.mutate(v)}
+            >
+              <Row gutter={12}>
+                <Col span={12}>
+                  <Form.Item
+                    name="new_pin"
+                    label="PIN (4+ dígitos)"
+                    rules={[
+                      { required: true, message: "Ingresá el PIN" },
+                      { pattern: /^\d{4,}$/, message: "Solo dígitos, mínimo 4" },
+                    ]}
+                  >
+                    <Input placeholder="Ej: 7391" maxLength={8} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="label" label="Etiqueta (opcional)">
+                    <Input placeholder="Ej: Técnico 27/10" />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Form.Item
+                name="expires_at"
+                label="Expira el"
+                rules={[{ required: true, message: "Seleccioná fecha de expiración" }]}
+              >
+                <DatePicker
+                  showTime
+                  format="DD/MM/YYYY HH:mm"
+                  style={{ width: "100%" }}
+                  disabledDate={(d) => d.isBefore(dayjs(), "day")}
+                />
+              </Form.Item>
+              <Form.Item style={{ marginBottom: 0 }}>
+                <Button type="primary" htmlType="submit" loading={createPinMutation.isPending}>
+                  Crear PIN temporal
+                </Button>
+              </Form.Item>
+            </Form>
+          </div>
+        )}
       </Modal>
 
       {/* Features modal */}

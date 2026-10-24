@@ -12,8 +12,9 @@ if TYPE_CHECKING:
 
 
 class PinType(str, enum.Enum):
-    normal = "normal"   # Standard cancel PIN for Entrada Segura
-    duress = "duress"   # Coercion PIN — triggers silent alert on use
+    normal = "normal"       # Standard cancel PIN for Entrada Segura
+    duress = "duress"       # Coercion PIN — triggers silent alert on use
+    temporary = "temporary" # Time-limited PIN for technicians / visitors
 
 
 class PinCredential(Base, TimestampMixin):
@@ -38,6 +39,9 @@ class PinCredential(Base, TimestampMixin):
     pin_hash: Mapped[str] = mapped_column(String(255))
     failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Temporary PINs only
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
 
 class SafeWord(Base, TimestampMixin):

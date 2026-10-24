@@ -8,6 +8,15 @@ export type SecuritySubscriptionStatus =
   | "cancelled"
   | "pending_install";
 
+export type PinType = "normal" | "duress" | "temporary";
+
+export interface TemporaryPin {
+  id: number;
+  label?: string;
+  expires_at: string;
+  created_at: string;
+}
+
 export type SecurityFeatureName =
   | "entry_secure"
   | "panic_button"

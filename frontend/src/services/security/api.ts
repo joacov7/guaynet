@@ -12,6 +12,7 @@ import type {
   EntrySession,
   BeatAccountStatus,
   SecurityFeatureName,
+  TemporaryPin,
 } from "../../types/security";
 
 // ── Properties ─────────────────────────────────────────────────────────────
@@ -98,6 +99,28 @@ export const entrySessionsApi = {
 
   cancel: (id: number, pin: string): Promise<EntrySession> =>
     api.post(`/security/entry-sessions/${id}/cancel`, { pin }).then((r) => r.data),
+};
+
+// ── PINs ───────────────────────────────────────────────────────────────────
+
+export const pinsApi = {
+  setPin: (data: {
+    subscription_id: number;
+    pin_type: "normal" | "duress" | "temporary";
+    new_pin: string;
+    current_pin?: string;
+    expires_at?: string; // ISO string, required for temporary
+    label?: string;
+  }): Promise<void> =>
+    api.post("/security/pins/set", data).then(() => undefined),
+
+  listTemporary: (subscription_id: number): Promise<TemporaryPin[]> =>
+    api.get(`/security/pins/temporary/${subscription_id}`).then((r) => r.data),
+
+  deleteTemporary: (pin_id: number, subscription_id: number): Promise<void> =>
+    api
+      .delete(`/security/pins/temporary/${pin_id}`, { params: { subscription_id } })
+      .then(() => undefined),
 };
 
 // ── Events ─────────────────────────────────────────────────────────────────
