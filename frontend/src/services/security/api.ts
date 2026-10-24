@@ -17,6 +17,13 @@ import type {
   TemporaryPin,
 } from "../../types/security";
 
+// ── Dashboard ──────────────────────────────────────────────────────────────
+
+export const securityDashboardApi = {
+  get: (): Promise<import("../../types/security").SecurityDashboardData> =>
+    api.get("/security/dashboard/").then((r) => r.data),
+};
+
 // ── Properties ─────────────────────────────────────────────────────────────
 
 export const propertiesApi = {

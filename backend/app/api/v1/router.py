@@ -4,6 +4,7 @@ from app.api.v1.endpoints import admin, alarms, auth, clients, dashboard, expens
 from app.api.v1.endpoints.security import (
     alerts as sec_alerts,
     certificates as sec_certificates,
+    dashboard as sec_dashboard,
     devices as sec_devices,
     elderly as sec_elderly,
     entry_sessions as sec_entry_sessions,
@@ -44,6 +45,7 @@ api_router.include_router(expenses.router, prefix="/expenses", tags=["expenses"]
 api_router.include_router(wan.router, prefix="/routers", tags=["wan"])
 
 # ── Guaynet Seguridad ─────────────────────────────────────────────────────────
+api_router.include_router(sec_dashboard.router, prefix="/security/dashboard", tags=["security"])
 api_router.include_router(sec_properties.router, prefix="/security/properties", tags=["security"])
 api_router.include_router(sec_subscriptions.router, prefix="/security/subscriptions", tags=["security"])
 api_router.include_router(sec_alerts.router, prefix="/security/alerts", tags=["security"])

@@ -233,6 +233,47 @@ export interface NeighborhoodMembership {
   subscription_id: number;
 }
 
+export interface SecurityDashboardData {
+  stats: {
+    active_subscriptions: number;
+    suspended_subscriptions: number;
+    pending_subscriptions: number;
+    open_alerts: number;
+    new_alerts: number;
+    acknowledged_alerts: number;
+    active_entry_sessions: number;
+    vacation_active: number;
+    alerts_today: number;
+    alerts_this_week: number;
+  };
+  open_alerts: {
+    id: number;
+    alert_type: string;
+    status: string;
+    triggered_at: string;
+    subscription_id: number;
+    property_name: string;
+    property_address: string;
+  }[];
+  active_entry_sessions: {
+    id: number;
+    subscription_id: number;
+    expires_at: string;
+    duration_minutes: number;
+    property_name: string;
+  }[];
+  recent_events: {
+    id: number;
+    event_type: string;
+    occurred_at: string;
+    zone_number?: number;
+    subscription_id: number;
+    property_name: string;
+  }[];
+  alerts_by_day: { date: string; count: number }[];
+  alerts_by_type: { type: string; count: number }[];
+}
+
 export interface VacationMode {
   id: number;
   subscription_id: number;
