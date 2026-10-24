@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 from typing import List, Optional
 
@@ -7,6 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.security.contract import VacationMode
+
+logger = logging.getLogger(__name__)
 
 
 class VacationModeCreate(BaseModel):
@@ -60,6 +63,24 @@ async def create_vacation_mode(
     db.add(vm)
     await db.commit()
     await db.refresh(vm)
+
+    # Notify client via Telegram
+    try:
+        from app.models.security.subscription import SecuritySubscription
+        from app.services.telegram import send_telegram_to
+        sub = await db.get(SecuritySubscription, body.subscription_id)
+        if sub and sub.client_telegram_id:
+            await send_telegram_to(
+                sub.client_telegram_id,
+                f"🏖️ *Modo ausencia activado*\n"
+                f"Tu propiedad quedará bajo monitoreo elevado desde el "
+                f"{body.start_date.strftime('%d/%m/%Y')} hasta el "
+                f"{body.end_date.strftime('%d/%m/%Y')}.\n"
+                f"Cualquier movimiento detectado generará una alerta inmediata.",
+            )
+    except Exception as exc:
+        logger.warning("Could not send vacation mode Telegram notification: %s", exc)
+
     return vm
 
 
@@ -74,6 +95,21 @@ async def cancel_vacation_mode(
     vm.active = False
     await db.commit()
     await db.refresh(vm)
+
+    # Notify client via Telegram
+    try:
+        from app.models.security.subscription import SecuritySubscription
+        from app.services.telegram import send_telegram_to
+        sub = await db.get(SecuritySubscription, vm.subscription_id)
+        if sub and sub.client_telegram_id:
+            await send_telegram_to(
+                sub.client_telegram_id,
+                "✅ *Modo ausencia cancelado*\n"
+                "El monitoreo volvió a su configuración normal.",
+            )
+    except Exception as exc:
+        logger.warning("Could not send vacation cancel Telegram notification: %s", exc)
+
     return vm
 
 

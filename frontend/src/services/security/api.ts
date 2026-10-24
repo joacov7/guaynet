@@ -228,6 +228,24 @@ export const neighborhoodApi = {
     api.delete(`/security/neighborhood-groups/${groupId}/members/${subscriptionId}`).then(() => undefined),
 };
 
+// ── Vacation mode ─────────────────────────────────────────────────────────
+
+export const vacationApi = {
+  list: (subscription_id: number): Promise<import("../../types/security").VacationMode[]> =>
+    api.get("/security/vacation/", { params: { subscription_id } }).then((r) => r.data),
+
+  create: (data: {
+    subscription_id: number;
+    start_date: string;
+    end_date: string;
+    notes?: string;
+  }): Promise<import("../../types/security").VacationMode> =>
+    api.post("/security/vacation/", data).then((r) => r.data),
+
+  cancel: (vacation_id: number): Promise<import("../../types/security").VacationMode> =>
+    api.post(`/security/vacation/${vacation_id}/cancel`).then((r) => r.data),
+};
+
 // ── Events ─────────────────────────────────────────────────────────────────
 
 export const eventsApi = {

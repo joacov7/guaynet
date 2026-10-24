@@ -380,3 +380,128 @@ async def portal_start_entry_session(
         "duration_minutes": session.duration_minutes,
         "status": session.status.value if hasattr(session.status, "value") else session.status,
     }
+
+
+class VacationRequest(BaseModel):
+    start_date: str       # YYYY-MM-DD
+    end_date: str         # YYYY-MM-DD
+    notes: Optional[str] = None
+    token: Optional[str] = None  # portal token for non-IP clients
+
+
+async def _resolve_portal_subscription(token: Optional[str], request: Request, db: AsyncSession):
+    """Resolve the security subscription from token or IP. Raises 404 on failure."""
+    if token:
+        from app.models.security.subscription import SecuritySubscription, SecuritySubscriptionStatus
+        from sqlalchemy.orm import selectinload as _sil
+        res = await db.execute(
+            select(SecuritySubscription)
+            .options(_sil(SecuritySubscription.features))
+            .where(
+                SecuritySubscription.portal_token == token,
+                SecuritySubscription.status == SecuritySubscriptionStatus.active,
+            )
+        )
+        sub = res.scalar_one_or_none()
+        if sub is None:
+            raise HTTPException(status_code=404, detail="Enlace inválido o suscripción inactiva")
+        return sub
+    else:
+        ip = _client_ip(request)
+        client = await _get_client_by_ip(ip, db)
+        if not client:
+            raise HTTPException(status_code=404, detail="Cliente no encontrado")
+        _, sub = await _get_security_subscription(client, db)
+        if sub is None:
+            raise HTTPException(status_code=404, detail="Sin suscripción de seguridad activa")
+        return sub
+
+
+@router.get("/security/vacation")
+async def portal_get_vacation(
+    token: Optional[str] = None,
+    request: Request = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the current active vacation mode for the client's subscription."""
+    from datetime import date
+    from app.models.security.contract import VacationMode
+
+    sub = await _resolve_portal_subscription(token, request, db)
+    today = date.today()
+
+    result = await db.execute(
+        select(VacationMode).where(
+            VacationMode.subscription_id == sub.id,
+            VacationMode.active == True,
+            VacationMode.start_date <= today,
+            VacationMode.end_date >= today,
+        )
+    )
+    vm = result.scalar_one_or_none()
+    return {
+        "active": vm is not None,
+        "start_date": vm.start_date.isoformat() if vm else None,
+        "end_date": vm.end_date.isoformat() if vm else None,
+        "vacation_mode_enabled": sub.has_feature("vacation_mode"),
+    }
+
+
+@router.post("/security/vacation")
+async def portal_activate_vacation(
+    body: VacationRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Client activates vacation mode from the portal."""
+    from datetime import date
+    from app.services.security.vacation import VacationModeCreate, create_vacation_mode
+
+    sub = await _resolve_portal_subscription(body.token, request, db)
+
+    if not sub.has_feature("vacation_mode"):
+        raise HTTPException(status_code=403, detail="Modo ausencia no está habilitado en tu plan")
+
+    vm_data = VacationModeCreate(
+        subscription_id=sub.id,
+        start_date=date.fromisoformat(body.start_date),
+        end_date=date.fromisoformat(body.end_date),
+        notes=body.notes,
+    )
+    vm = await create_vacation_mode(db, vm_data, created_by_user_id=0)
+    return {
+        "id": vm.id,
+        "start_date": vm.start_date.isoformat(),
+        "end_date": vm.end_date.isoformat(),
+        "active": vm.active,
+    }
+
+
+@router.delete("/security/vacation")
+async def portal_cancel_vacation(
+    token: Optional[str] = None,
+    request: Request = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Client cancels their active vacation mode from the portal."""
+    from datetime import date
+    from app.models.security.contract import VacationMode
+    from app.services.security.vacation import cancel_vacation_mode
+
+    sub = await _resolve_portal_subscription(token, request, db)
+    today = date.today()
+
+    result = await db.execute(
+        select(VacationMode).where(
+            VacationMode.subscription_id == sub.id,
+            VacationMode.active == True,
+            VacationMode.start_date <= today,
+            VacationMode.end_date >= today,
+        )
+    )
+    vm = result.scalar_one_or_none()
+    if vm is None:
+        raise HTTPException(status_code=404, detail="No hay modo ausencia activo")
+
+    cancelled = await cancel_vacation_mode(db, vm.id)
+    return {"cancelled": True, "id": cancelled.id}

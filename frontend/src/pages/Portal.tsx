@@ -10,7 +10,9 @@ import {
   Button,
   Card,
   Col,
+  DatePicker,
   Descriptions,
+  Form,
   Progress,
   Result,
   Row,
@@ -21,9 +23,11 @@ import {
   Tag,
   Typography,
 } from "antd";
+import dayjs from "dayjs";
 import {
   ArrowDownOutlined,
   ArrowUpOutlined,
+  CalendarOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
   SafetyOutlined,
@@ -231,6 +235,12 @@ export default function Portal() {
   const [entryResult, setEntryResult] = useState<{ expires_at: string; duration_minutes: number } | null>(null);
   const [entryError, setEntryError] = useState<string | null>(null);
 
+  const [vacation, setVacation] = useState<{ active: boolean; start_date: string | null; end_date: string | null; vacation_mode_enabled: boolean } | null>(null);
+  const [vacationLoading, setVacationLoading] = useState(false);
+  const [vacationError, setVacationError] = useState<string | null>(null);
+  const [showVacationForm, setShowVacationForm] = useState(false);
+  const [vacationForm] = Form.useForm();
+
   const [testing, setTesting] = useState(false);
   const [phase, setPhase] = useState<"idle" | "ping" | "download" | "upload" | "done">("idle");
   const [liveDown, setLiveDown] = useState<number | null>(null);
@@ -249,6 +259,11 @@ export default function Portal() {
         .then((r) => setSecurity(r.data))
         .catch((e) => setNotFound(e.response?.data?.detail ?? "Enlace inválido o suscripción inactiva"))
         .finally(() => setLoading(false));
+
+      axios
+        .get("/api/v1/portal/security/vacation", { params: { token: portalToken } })
+        .then((r) => setVacation(r.data))
+        .catch(() => {});
     } else {
       axios
         .get<PortalData>("/api/v1/portal/me")
@@ -260,8 +275,46 @@ export default function Portal() {
         .get<SecurityData>("/api/v1/portal/security")
         .then((r) => setSecurity(r.data))
         .catch(() => setSecurity(null));
+
+      axios
+        .get("/api/v1/portal/security/vacation")
+        .then((r) => setVacation(r.data))
+        .catch(() => {});
     }
   }, [portalToken]);
+
+  async function activateVacation(values: { start_date: dayjs.Dayjs; end_date: dayjs.Dayjs }) {
+    setVacationLoading(true);
+    setVacationError(null);
+    try {
+      const r = await axios.post("/api/v1/portal/security/vacation", {
+        start_date: values.start_date.format("YYYY-MM-DD"),
+        end_date: values.end_date.format("YYYY-MM-DD"),
+        ...(portalToken ? { token: portalToken } : {}),
+      });
+      setVacation({ active: true, start_date: r.data.start_date, end_date: r.data.end_date, vacation_mode_enabled: true });
+      setShowVacationForm(false);
+      vacationForm.resetFields();
+    } catch (e: any) {
+      setVacationError(e.response?.data?.detail ?? "Error al activar modo ausencia");
+    } finally {
+      setVacationLoading(false);
+    }
+  }
+
+  async function cancelVacation() {
+    setVacationLoading(true);
+    setVacationError(null);
+    try {
+      const params = portalToken ? { token: portalToken } : {};
+      await axios.delete("/api/v1/portal/security/vacation", { params });
+      setVacation((v) => v ? { ...v, active: false } : null);
+    } catch (e: any) {
+      setVacationError(e.response?.data?.detail ?? "Error al cancelar");
+    } finally {
+      setVacationLoading(false);
+    }
+  }
 
   async function startEntrySession() {
     setEntryLoading(true);
@@ -628,6 +681,67 @@ export default function Portal() {
                     >
                       Iniciar entrada segura
                     </Button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Vacation mode */}
+            {vacation?.vacation_mode_enabled && (
+              <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12, marginTop: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <Text strong><CalendarOutlined /> Modo ausencia</Text>
+                  {vacation.active ? (
+                    <Tag color="orange">Activo hasta {vacation.end_date ? new Date(vacation.end_date).toLocaleDateString("es-AR") : "—"}</Tag>
+                  ) : (
+                    <Tag color="default">Inactivo</Tag>
+                  )}
+                </div>
+                {vacationError && <Alert type="error" message={vacationError} showIcon style={{ marginBottom: 8 }} />}
+                {vacation.active ? (
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      El monitoreo está en modo elevado. Cualquier apertura de zona generará una alerta inmediata.
+                    </Text>
+                    <br />
+                    <Button
+                      size="small"
+                      danger
+                      loading={vacationLoading}
+                      style={{ marginTop: 8 }}
+                      onClick={cancelVacation}
+                    >
+                      Cancelar modo ausencia
+                    </Button>
+                  </div>
+                ) : (
+                  <>
+                    {!showVacationForm ? (
+                      <Button
+                        size="small"
+                        icon={<CalendarOutlined />}
+                        onClick={() => setShowVacationForm(true)}
+                      >
+                        Activar modo ausencia
+                      </Button>
+                    ) : (
+                      <Form form={vacationForm} layout="inline" onFinish={activateVacation} style={{ marginTop: 8, flexWrap: "wrap", gap: 8 }}>
+                        <Form.Item name="start_date" rules={[{ required: true }]} style={{ marginBottom: 8 }}>
+                          <DatePicker placeholder="Salida" format="DD/MM/YYYY" />
+                        </Form.Item>
+                        <Form.Item name="end_date" rules={[{ required: true }]} style={{ marginBottom: 8 }}>
+                          <DatePicker placeholder="Regreso" format="DD/MM/YYYY" />
+                        </Form.Item>
+                        <Space>
+                          <Button type="primary" htmlType="submit" size="small" loading={vacationLoading}>
+                            Confirmar
+                          </Button>
+                          <Button size="small" onClick={() => setShowVacationForm(false)}>
+                            Cancelar
+                          </Button>
+                        </Space>
+                      </Form>
+                    )}
                   </>
                 )}
               </div>

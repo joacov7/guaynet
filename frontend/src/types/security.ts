@@ -233,6 +233,15 @@ export interface NeighborhoodMembership {
   subscription_id: number;
 }
 
+export interface VacationMode {
+  id: number;
+  subscription_id: number;
+  start_date: string;  // YYYY-MM-DD
+  end_date: string;    // YYYY-MM-DD
+  notes?: string;
+  active: boolean;
+}
+
 export interface AlertPanelItem {
   id: number;
   alert_type: SecurityAlertType;

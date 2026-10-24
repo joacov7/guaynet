@@ -85,10 +85,13 @@ def process_expired_entry_sessions(self):
         raise self.retry(exc=exc)
 
 
-# Event types that should generate a SecurityAlert
+# Event types that always generate a SecurityAlert
 _ALERTABLE_EVENT_TYPES = {
     "intrusion", "panic", "duress", "tamper", "communication_lost",
 }
+
+# Event types that generate a SecurityAlert only when vacation mode is active
+_VACATION_ALERTABLE_EVENT_TYPES = {"zone_open"}
 
 # Map from SecurityEventType value to SecurityAlertType value
 _EVENT_TO_ALERT_TYPE = {
@@ -97,6 +100,7 @@ _EVENT_TO_ALERT_TYPE = {
     "duress":             "DURESS",
     "tamper":             "SYSTEM_FAULT",
     "communication_lost": "CONNECTION_LOST",
+    "zone_open":          "INTRUSION",  # elevated when vacation mode active
 }
 
 # Event types that trigger immediate power-state Telegram notifications
@@ -184,6 +188,9 @@ def poll_beat_events(self):
         new_alerts = 0
 
         async with AsyncSessionLocal() as db:
+            from datetime import date as _date
+            from app.models.security.contract import VacationMode
+
             result = await db.execute(
                 select(SecuritySubscription).where(
                     SecuritySubscription.status == SecuritySubscriptionStatus.active,
@@ -191,6 +198,17 @@ def poll_beat_events(self):
                 )
             )
             subscriptions = result.scalars().all()
+
+            # Preload subscription IDs with an active vacation mode today
+            today = _date.today()
+            vm_result = await db.execute(
+                select(VacationMode.subscription_id).where(
+                    VacationMode.active == True,
+                    VacationMode.start_date <= today,
+                    VacationMode.end_date >= today,
+                )
+            )
+            vacation_sub_ids: set[int] = {row[0] for row in vm_result.all()}
 
         for sub in subscriptions:
             try:
@@ -242,8 +260,13 @@ def poll_beat_events(self):
                     if beat_evt.event_type.value in _POWER_EVENT_TYPES:
                         await _notify_power_event(db, sub.id, beat_evt.event_type.value)
 
-                    # Generate alert for actionable event types
-                    if beat_evt.event_type.value in _ALERTABLE_EVENT_TYPES:
+                    # Generate alert for actionable event types (including vacation-elevated ones)
+                    in_vacation = sub.id in vacation_sub_ids
+                    is_alertable = (
+                        beat_evt.event_type.value in _ALERTABLE_EVENT_TYPES
+                        or (in_vacation and beat_evt.event_type.value in _VACATION_ALERTABLE_EVENT_TYPES)
+                    )
+                    if is_alertable:
                         alert_type_str = _EVENT_TO_ALERT_TYPE.get(beat_evt.event_type.value)
                         if alert_type_str:
                             alert_ikey = f"beat_alert:{ikey}"
@@ -897,4 +920,65 @@ def check_elderly_activity(self):
         return _run(_execute())
     except Exception as exc:
         logger.error("check_elderly_activity failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="app.tasks.security.expire_vacation_modes",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,
+)
+def expire_vacation_modes(self):
+    """
+    Daily task: auto-deactivate VacationMode records whose end_date < today.
+    Sends a Telegram notification to the client on expiry.
+    """
+    async def _execute():
+        from datetime import date
+        from sqlalchemy import select
+        from app.core.database import AsyncSessionLocal
+        from app.models.security.contract import VacationMode
+        from app.models.security.subscription import SecuritySubscription
+        from app.services.telegram import send_telegram_to
+
+        today = date.today()
+        expired = 0
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(VacationMode).where(
+                    VacationMode.active == True,
+                    VacationMode.end_date < today,
+                )
+            )
+            rows = result.scalars().all()
+
+            for vm in rows:
+                vm.active = False
+                expired += 1
+
+                try:
+                    sub = await db.get(SecuritySubscription, vm.subscription_id)
+                    if sub and sub.client_telegram_id:
+                        await send_telegram_to(
+                            sub.client_telegram_id,
+                            "✅ *Modo ausencia finalizado*\n"
+                            f"El período de ausencia configurado hasta el "
+                            f"{vm.end_date.strftime('%d/%m/%Y')} finalizó.\n"
+                            "El monitoreo volvió a su configuración normal.",
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "Vacation expiry notification failed for vm #%d: %s", vm.id, exc
+                    )
+
+            await db.commit()
+
+        return {"expired": expired}
+
+    try:
+        return _run(_execute())
+    except Exception as exc:
+        logger.error("expire_vacation_modes failed: %s", exc)
         raise self.retry(exc=exc)

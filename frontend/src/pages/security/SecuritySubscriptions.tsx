@@ -20,11 +20,11 @@ import {
   Typography,
   message,
 } from "antd";
-import { BarChartOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, TeamOutlined } from "@ant-design/icons";
+import { BarChartOutlined, CalendarOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, TeamOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
-import { subscriptionsApi, pinsApi, certificatesApi, elderlyApi, monthlyReportsApi } from "@/services/security/api";
-import type { ElderlyConfig, MonthlyReport } from "@/types/security";
+import { subscriptionsApi, pinsApi, certificatesApi, elderlyApi, monthlyReportsApi, vacationApi } from "@/services/security/api";
+import type { ElderlyConfig, MonthlyReport, VacationMode } from "@/types/security";
 import type { SecuritySubscription, SecurityFeatureName } from "@/types/security";
 
 const { Title } = Typography;
@@ -72,6 +72,8 @@ export default function SecuritySubscriptions() {
   const [pinsModal, setPinsModal] = useState<SecuritySubscription | null>(null);
   const [elderlyModal, setElderlyModal] = useState<SecuritySubscription | null>(null);
   const [reportsModal, setReportsModal] = useState<SecuritySubscription | null>(null);
+  const [vacationModal, setVacationModal] = useState<SecuritySubscription | null>(null);
+  const [vacationForm] = Form.useForm();
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
   const [pinForm] = Form.useForm();
@@ -205,6 +207,37 @@ export default function SecuritySubscriptions() {
     onError: (e: any) => message.error(e?.response?.data?.detail ?? "Error al generar enlace"),
   });
 
+  const { data: vacationModes = [], refetch: refetchVacations } = useQuery<VacationMode[]>({
+    queryKey: ["security-vacations", vacationModal?.id],
+    queryFn: () => vacationApi.list(vacationModal!.id),
+    enabled: !!vacationModal,
+  });
+
+  const createVacationMutation = useMutation({
+    mutationFn: (values: { start_date: dayjs.Dayjs; end_date: dayjs.Dayjs; notes?: string }) =>
+      vacationApi.create({
+        subscription_id: vacationModal!.id,
+        start_date: values.start_date.format("YYYY-MM-DD"),
+        end_date: values.end_date.format("YYYY-MM-DD"),
+        notes: values.notes,
+      }),
+    onSuccess: () => {
+      refetchVacations();
+      vacationForm.resetFields();
+      message.success("Modo ausencia activado");
+    },
+    onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al activar"),
+  });
+
+  const cancelVacationMutation = useMutation({
+    mutationFn: (id: number) => vacationApi.cancel(id),
+    onSuccess: () => {
+      refetchVacations();
+      message.success("Modo ausencia cancelado");
+    },
+    onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al cancelar"),
+  });
+
   const columns = [
     { title: "ID", dataIndex: "id", key: "id", width: 60 },
     {
@@ -334,6 +367,13 @@ export default function SecuritySubscriptions() {
               onClick={() => {
                 setElderlyModal(r);
               }}
+            />
+          </Tooltip>
+          <Tooltip title="Modo ausencia / viaje">
+            <Button
+              size="small"
+              icon={<CalendarOutlined />}
+              onClick={() => setVacationModal(r)}
             />
           </Tooltip>
           <Tooltip title="Generar certificado PDF para seguros">
@@ -712,6 +752,106 @@ export default function SecuritySubscriptions() {
               },
             ]}
           />
+        )}
+      </Modal>
+
+      {/* Vacation mode modal */}
+      <Modal
+        open={!!vacationModal}
+        title={`Modo Ausencia — Suscripción #${vacationModal?.id}`}
+        onCancel={() => { setVacationModal(null); vacationForm.resetFields(); }}
+        footer={<Button onClick={() => { setVacationModal(null); vacationForm.resetFields(); }}>Cerrar</Button>}
+        width={520}
+      >
+        {vacationModal && (
+          <div>
+            {/* Active or upcoming vacation modes */}
+            {vacationModes.filter((v) => v.active).length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                {vacationModes.filter((v) => v.active).map((v) => (
+                  <div
+                    key={v.id}
+                    style={{
+                      background: "#fff7e6",
+                      border: "1px solid #ffd591",
+                      borderRadius: 6,
+                      padding: "10px 12px",
+                      marginBottom: 8,
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div>
+                      <Tag color="orange" icon={<CalendarOutlined />}>Activo</Tag>
+                      <span style={{ marginLeft: 8 }}>
+                        {dayjs(v.start_date).format("DD/MM/YYYY")} → {dayjs(v.end_date).format("DD/MM/YYYY")}
+                      </span>
+                      {v.notes && <div style={{ fontSize: 12, color: "#595959", marginTop: 2 }}>{v.notes}</div>}
+                    </div>
+                    <Popconfirm
+                      title="¿Cancelar modo ausencia?"
+                      onConfirm={() => cancelVacationMutation.mutate(v.id)}
+                      okText="Sí"
+                      cancelText="No"
+                    >
+                      <Button
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        loading={cancelVacationMutation.isPending}
+                      >
+                        Cancelar
+                      </Button>
+                    </Popconfirm>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* New vacation form */}
+            {vacationModes.filter((v) => v.active).length === 0 && (
+              <Form form={vacationForm} layout="vertical" onFinish={(v) => createVacationMutation.mutate(v)}>
+                <Row gutter={12}>
+                  <Col span={12}>
+                    <Form.Item name="start_date" label="Fecha de salida" rules={[{ required: true }]}>
+                      <DatePicker style={{ width: "100%" }} format="DD/MM/YYYY" />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item name="end_date" label="Fecha de regreso" rules={[{ required: true }]}>
+                      <DatePicker style={{ width: "100%" }} format="DD/MM/YYYY" />
+                    </Form.Item>
+                  </Col>
+                </Row>
+                <Form.Item name="notes" label="Notas (opcional)">
+                  <Input placeholder="Ej: viaje a la costa" />
+                </Form.Item>
+                <div style={{ fontSize: 12, color: "#595959", marginBottom: 12 }}>
+                  Durante el modo ausencia, cualquier apertura de zona generará una alerta de intrusión inmediata.
+                  El cliente recibirá una notificación por Telegram al activar y al finalizar el período.
+                </div>
+                <Form.Item>
+                  <Button type="primary" htmlType="submit" icon={<CalendarOutlined />} loading={createVacationMutation.isPending}>
+                    Activar modo ausencia
+                  </Button>
+                </Form.Item>
+              </Form>
+            )}
+
+            {/* History */}
+            {vacationModes.filter((v) => !v.active).length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 12, color: "#8c8c8c", marginBottom: 4 }}>Historial</div>
+                {vacationModes.filter((v) => !v.active).map((v) => (
+                  <div key={v.id} style={{ fontSize: 12, color: "#8c8c8c", marginBottom: 2 }}>
+                    {dayjs(v.start_date).format("DD/MM/YYYY")} → {dayjs(v.end_date).format("DD/MM/YYYY")}
+                    {v.notes && ` · ${v.notes}`}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </Modal>
     </div>
