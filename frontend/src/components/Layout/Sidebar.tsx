@@ -25,6 +25,7 @@ import {
   DatabaseOutlined,
   BarChartOutlined,
   QuestionCircleOutlined,
+  ShieldOutlined,
 } from "@ant-design/icons";
 import { usePermissions } from "@/contexts/PermissionsContext";
 
@@ -53,6 +54,10 @@ const ALL_ITEMS = [
   { key: "/users",      icon: <UserOutlined />,        label: "Usuarios",        section: null, adminOnly: true },
   { key: "/permissions",icon: <SettingOutlined />,    label: "Permisos",        section: null, adminOnly: true },
   { key: "/settings",   icon: <SettingOutlined />,    label: "Configuración",   section: null, adminOnly: true },
+  { key: "/security",             icon: <ShieldOutlined />, label: "Seguridad",          section: null },
+  { key: "/security/subscriptions", icon: <ShieldOutlined />, label: "Abonados Seguridad", section: "security_subscriptions" },
+  { key: "/security/alerts",      icon: <BellOutlined />,   label: "Alertas Seguridad",  section: "security_alerts" },
+  { key: "/security/entry-secure",icon: <SafetyOutlined />, label: "Entrada Segura",     section: "security_entry_sessions" },
   { key: "/help",       icon: <QuestionCircleOutlined />, label: "Ayuda",          section: null, adminOnly: false },
 ];
 

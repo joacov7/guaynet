@@ -8,17 +8,14 @@ from sqlalchemy import select
 
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.core.database import AsyncSessionLocal, engine
+from app.core.database import AsyncSessionLocal
 from app.core.security import get_password_hash
-from app.models import Base
+from app.models import Base  # noqa: F401 — imported so Alembic detects all models
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create all tables (Alembic handles this in production via `alembic upgrade head`)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
+    # Tables are managed exclusively by Alembic (`alembic upgrade head` in the entrypoint).
     # Seed initial superuser if not present
     async with AsyncSessionLocal() as db:
         from app.models.user import User

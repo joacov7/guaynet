@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import admin, alarms, auth, clients, dashboard, expenses, firewall, inventory, invoices, notifications, permissions, plans, portal, push, reports, routers, tickets, ubiquiti, vpn, wan, work_orders, zones
+from app.api.v1.endpoints.security import alerts, entry_sessions, events, properties, subscriptions
 
 api_router = APIRouter()
 
@@ -26,3 +27,10 @@ api_router.include_router(work_orders.router, prefix="/work-orders", tags=["work
 api_router.include_router(alarms.router, prefix="/alarms", tags=["alarms"])
 api_router.include_router(expenses.router, prefix="/expenses", tags=["expenses"])
 api_router.include_router(wan.router, prefix="/routers", tags=["wan"])
+
+# ── Guaynet Seguridad (Stage 2 — endpoints return 501 until implemented) ─────
+api_router.include_router(properties.router, prefix="/security/properties", tags=["security"])
+api_router.include_router(subscriptions.router, prefix="/security/subscriptions", tags=["security"])
+api_router.include_router(alerts.router, prefix="/security/alerts", tags=["security"])
+api_router.include_router(entry_sessions.router, prefix="/security/entry-sessions", tags=["security"])
+api_router.include_router(events.router, prefix="/security/events", tags=["security"])

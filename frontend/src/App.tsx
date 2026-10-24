@@ -29,6 +29,10 @@ import Alarms from "@/pages/Alarms";
 import Expenses from "@/pages/Expenses";
 import WanManagement from "@/pages/WanManagement";
 import Help from "@/pages/Help";
+import SecurityDashboard from "@/pages/security/SecurityDashboard";
+import SecurityAlerts from "@/pages/security/SecurityAlerts";
+import SecuritySubscriptions from "@/pages/security/SecuritySubscriptions";
+import EntrySecure from "@/pages/security/EntrySecure";
 import TechLayout from "@/pages/tech/TechLayout";
 import TechLogin from "@/pages/tech/TechLogin";
 import TechHome from "@/pages/tech/TechHome";
@@ -91,6 +95,10 @@ export default function App() {
           <Route path="alarms" element={<Alarms />} />
           <Route path="wan" element={<WanManagement />} />
           <Route path="expenses" element={<Expenses />} />
+          <Route path="security" element={<SecurityDashboard />} />
+          <Route path="security/alerts" element={<SecurityAlerts />} />
+          <Route path="security/subscriptions" element={<SecuritySubscriptions />} />
+          <Route path="security/entry-secure" element={<EntrySecure />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
         </Route>

@@ -64,7 +64,42 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4
+    # default queue: network monitoring tasks
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4 -Q default
+
+  worker-critical:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # critical queue: security alerts, panic, entry timeout, duress
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2 -Q critical
+
+  worker-low:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # low queue: billing, report generation, non-urgent notifications
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2 -Q low
 
   beat:
     build:

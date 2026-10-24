@@ -1,5 +1,13 @@
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+
+_INSECURE_KEYS = {
+    "dev-secret-key-change-in-production",
+    "changeme",
+    "secret",
+    "",
+}
 
 
 class Settings(BaseSettings):
@@ -36,3 +44,17 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# Fail fast in production if insecure defaults are present.
+# Set GUAYNET_SKIP_SECURITY_CHECK=1 only in local development.
+if not os.getenv("GUAYNET_SKIP_SECURITY_CHECK"):
+    if settings.SECRET_KEY in _INSECURE_KEYS:
+        raise RuntimeError(
+            "SECRET_KEY is not set or uses the default insecure value. "
+            "Generate one with: openssl rand -hex 32"
+        )
+    if not settings.ENCRYPTION_KEY:
+        raise RuntimeError(
+            "ENCRYPTION_KEY is not set. Credentials would be stored in plain text. "
+            "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )

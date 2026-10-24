@@ -19,6 +19,23 @@ from app.models.alarm import Alarm, AlarmType, AlarmStatus
 from app.models.wan import WanInterface, WanSchedule
 from app.models.expense import Expense, ExpenseCategory
 
+# ── Security module ────────────────────────────────────────────────────────────
+from app.models.security import (  # noqa: F401
+    Property, PropertyType,
+    SecurityPlan, SecuritySubscription, SecuritySubscriptionStatus,
+    SecurityFeature, SecurityFeatureName,
+    SecurityDevice, SecurityDeviceType, DeviceZone,
+    SecurityEvent, SecurityEventType,
+    SecurityAlert, SecurityAlertType, SecurityAlertStatus,
+    AlertDelivery, AlertDeliveryChannel,
+    AlertConfirmation, AlertConfirmationResponse,
+    EntrySession, EntrySessionStatus,
+    PropertyMember, PropertyMemberRole, EmergencyContact,
+    PinCredential, PinType, SafeWord,
+    SecurityContract, VacationMode,
+    SecurityMonthlyReport, SecurityMonthlyReportStatus,
+)
+
 __all__ = [
     "Base",
     "TimestampMixin",
