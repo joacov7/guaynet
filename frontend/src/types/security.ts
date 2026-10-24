@@ -179,6 +179,14 @@ export interface PropertyMember {
   status: string;
 }
 
+export interface DeviceZone {
+  id?: number;
+  zone_number: number;
+  zone_name?: string;
+  zone_type?: string;
+  enabled: boolean;
+}
+
 export interface SecurityDevice {
   id: number;
   subscription_id: number;
@@ -186,9 +194,13 @@ export interface SecurityDevice {
   brand?: string;
   model?: string;
   serial_number?: string;
+  firmware_version?: string;
+  install_date?: string;  // YYYY-MM-DD
+  warranty_months?: number;
   location_description?: string;
   notes?: string;
   is_active: boolean;
+  zones: DeviceZone[];
 }
 
 export interface ElderlyConfig {
@@ -267,6 +279,7 @@ export interface SecurityDashboardData {
     event_type: string;
     occurred_at: string;
     zone_number?: number;
+    zone_name?: string;
     subscription_id: number;
     property_name: string;
   }[];
@@ -297,6 +310,8 @@ export interface AlertPanelItem {
   property_name: string;
   property_address: string;
   plan_name: string;
+  zone_number?: number;
+  zone_name?: string;
 }
 
 export interface BeatAccountStatus {

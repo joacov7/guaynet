@@ -14,6 +14,8 @@ async def list_panel_alerts(db: AsyncSession, limit: int = 100) -> List[AlertPan
     from app.models.security.subscription import SecuritySubscription
     from app.models.security.property import Property
     from app.models.security.plan import SecurityPlan
+    from app.models.security.event import SecurityEvent
+    from app.services.security.devices import zone_names_for
 
     priority = case(
         (SecurityAlert.alert_type == SecurityAlertType.PANIC, 0),
@@ -29,14 +31,19 @@ async def list_panel_alerts(db: AsyncSession, limit: int = 100) -> List[AlertPan
             Property.address.label("property_address"),
             SecuritySubscription.beat_account_id.label("beat_account_id"),
             SecurityPlan.name.label("plan_name"),
+            SecurityEvent.zone_number.label("zone_number"),
         )
         .join(SecuritySubscription, SecuritySubscription.id == SecurityAlert.subscription_id)
         .join(Property, Property.id == SecuritySubscription.property_id)
         .outerjoin(SecurityPlan, SecurityPlan.id == SecuritySubscription.plan_id)
+        .outerjoin(SecurityEvent, SecurityEvent.id == SecurityAlert.source_event_id)
         .where(SecurityAlert.status.in_(["new", "acknowledged"]))
         .order_by(priority.asc(), SecurityAlert.triggered_at.asc())
         .limit(limit)
     )
+
+    rows = result.all()
+    zone_names = await zone_names_for(db, {r[0].subscription_id for r in rows})
 
     return [
         AlertPanelItem(
@@ -53,8 +60,10 @@ async def list_panel_alerts(db: AsyncSession, limit: int = 100) -> List[AlertPan
             property_name=property_name or "—",
             property_address=property_address or "—",
             plan_name=plan_name or "—",
+            zone_number=zone_number,
+            zone_name=zone_names.get((alert.subscription_id, zone_number)) if zone_number is not None else None,
         )
-        for alert, property_name, property_address, beat_account_id, plan_name in result.all()
+        for alert, property_name, property_address, beat_account_id, plan_name, zone_number in rows
     ]
 
 

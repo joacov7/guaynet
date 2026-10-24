@@ -119,6 +119,11 @@ function AlertCard({
           <div style={{ fontSize: 12, color: "#595959" }}>
             {alert.property_address}
           </div>
+          {alert.zone_number != null && (
+            <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2 }}>
+              Zona {alert.zone_number}{alert.zone_name ? ` — ${alert.zone_name}` : ""}
+            </div>
+          )}
           {alert.beat_account_id && (
             <div style={{ fontSize: 11, color: "#8c8c8c", marginTop: 2 }}>
               Cuenta BEAT: {alert.beat_account_id}

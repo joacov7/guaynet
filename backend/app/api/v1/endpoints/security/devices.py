@@ -3,7 +3,12 @@ from typing import List
 from fastapi import APIRouter, Depends, Query
 
 from app.core.deps import get_current_user, get_db
-from app.schemas.security.device import SecurityDeviceCreate, SecurityDeviceResponse, SecurityDeviceUpdate
+from app.schemas.security.device import (
+    DeviceZoneBase,
+    SecurityDeviceCreate,
+    SecurityDeviceResponse,
+    SecurityDeviceUpdate,
+)
 from app.services.security import devices as svc
 
 router = APIRouter()
@@ -45,3 +50,13 @@ async def update_device(
     db=Depends(get_db),
 ):
     return await svc.update_device(db, device_id, body)
+
+
+@router.put("/{device_id}/zones", response_model=SecurityDeviceResponse)
+async def replace_device_zones(
+    device_id: int,
+    body: List[DeviceZoneBase],
+    _=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    return await svc.replace_zones(db, device_id, body)

@@ -40,3 +40,5 @@ class AlertPanelItem(BaseModel):
     property_name: str
     property_address: str
     plan_name: str
+    zone_number: Optional[int] = None
+    zone_name: Optional[str] = None

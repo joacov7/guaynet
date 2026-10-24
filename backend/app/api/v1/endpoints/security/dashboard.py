@@ -173,16 +173,21 @@ async def security_dashboard(
         .order_by(SecurityEvent.occurred_at.desc())
         .limit(8)
     )
+    from app.services.security.devices import zone_names_for
+
+    event_rows = events_result.all()
+    zone_names = await zone_names_for(db, {e.subscription_id for e, _ in event_rows})
     recent_events = [
         {
             "id": e.id,
             "event_type": e.event_type.value if hasattr(e.event_type, "value") else e.event_type,
             "occurred_at": e.occurred_at.isoformat(),
             "zone_number": e.zone_number,
+            "zone_name": zone_names.get((e.subscription_id, e.zone_number)),
             "subscription_id": e.subscription_id,
             "property_name": prop_name or "—",
         }
-        for e, prop_name in events_result.all()
+        for e, prop_name in event_rows
     ]
 
     return {

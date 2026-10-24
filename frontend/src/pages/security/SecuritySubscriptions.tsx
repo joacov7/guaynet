@@ -20,7 +20,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { BarChartOutlined, CalendarOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, TeamOutlined } from "@ant-design/icons";
+import { BarChartOutlined, CalendarOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, TeamOutlined, ToolOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
 import { subscriptionsApi, pinsApi, certificatesApi, elderlyApi, monthlyReportsApi, vacationApi } from "@/services/security/api";
@@ -351,6 +351,13 @@ export default function SecuritySubscriptions() {
               size="small"
               icon={<TeamOutlined />}
               onClick={() => navigate(`/security/members?property_id=${r.property_id}`)}
+            />
+          </Tooltip>
+          <Tooltip title="Equipos instalados">
+            <Button
+              size="small"
+              icon={<ToolOutlined />}
+              onClick={() => navigate(`/security/devices?subscription_id=${r.id}`)}
             />
           </Tooltip>
           <Tooltip title="Reportes mensuales">

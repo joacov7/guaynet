@@ -235,6 +235,24 @@ export const neighborhoodApi = {
     api.delete(`/security/neighborhood-groups/${groupId}/members/${subscriptionId}`).then(() => undefined),
 };
 
+// ── Devices ───────────────────────────────────────────────────────────────
+
+type DevicePayload = Omit<import("../../types/security").SecurityDevice, "id" | "subscription_id" | "is_active" | "zones">;
+
+export const devicesApi = {
+  list: (subscription_id: number, active_only = false): Promise<import("../../types/security").SecurityDevice[]> =>
+    api.get("/security/devices/", { params: { subscription_id, active_only } }).then((r) => r.data),
+
+  create: (data: DevicePayload & { subscription_id: number }): Promise<import("../../types/security").SecurityDevice> =>
+    api.post("/security/devices/", data).then((r) => r.data),
+
+  update: (id: number, data: Partial<DevicePayload> & { is_active?: boolean }): Promise<import("../../types/security").SecurityDevice> =>
+    api.patch(`/security/devices/${id}`, data).then((r) => r.data),
+
+  replaceZones: (id: number, zones: import("../../types/security").DeviceZone[]): Promise<import("../../types/security").SecurityDevice> =>
+    api.put(`/security/devices/${id}/zones`, zones).then((r) => r.data),
+};
+
 // ── Vacation mode ─────────────────────────────────────────────────────────
 
 export const vacationApi = {

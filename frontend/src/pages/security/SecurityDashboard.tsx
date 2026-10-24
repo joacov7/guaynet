@@ -388,7 +388,9 @@ export default function SecurityDashboard() {
                       </Tag>
                       <Text style={{ fontSize: 12 }}>{e.property_name}</Text>
                       {e.zone_number != null && (
-                        <Text type="secondary" style={{ fontSize: 11 }}>z{e.zone_number}</Text>
+                        <Text type="secondary" style={{ fontSize: 11 }}>
+                          {e.zone_name ? e.zone_name : `zona ${e.zone_number}`}
+                        </Text>
                       )}
                     </div>
                     <Text type="secondary" style={{ fontSize: 11 }}>
