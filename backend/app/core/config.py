@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     TELEGRAM_ALLOWED_CHAT_IDS: str = ""
 
     UPLOADS_DIR: str = "uploads"
+
+    # Firebase Cloud Messaging (mobile app push). Path to the service account
+    # JSON downloaded from Firebase. Empty = simulated push adapter (logs only).
+    FCM_SERVICE_ACCOUNT_FILE: str = ""
     PUBLIC_URL: str = "https://guaynet.local"
 
     @property

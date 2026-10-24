@@ -32,6 +32,7 @@ import {
   ArrowUpOutlined,
   CalendarOutlined,
   CheckCircleOutlined,
+  ReloadOutlined,
   FileProtectOutlined,
   ExclamationCircleOutlined,
   SafetyOutlined,
@@ -233,8 +234,9 @@ function SpeedGauge({
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-export default function Portal() {
-  const portalToken = new URLSearchParams(window.location.search).get("token");
+export default function Portal({ appMode = false }: { appMode?: boolean } = {}) {
+  // In the mobile app the device credential travels in the Authorization header
+  const portalToken = appMode ? null : new URLSearchParams(window.location.search).get("token");
 
   const [data, setData] = useState<PortalData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -269,7 +271,32 @@ export default function Portal() {
     ping_ms: null,
   });
 
+  function loadAppData() {
+    axios
+      .get<SecurityData>("/api/v1/mobile/security")
+      .then((r) => { setSecurity(r.data); setNotFound(null); })
+      .catch((e) => {
+        if (e.response?.status !== 401) setNotFound(e.response?.data?.detail ?? "No se pudo conectar con el servidor");
+      })
+      .finally(() => setLoading(false));
+    axios
+      .get("/api/v1/portal/security/vacation")
+      .then((r) => setVacation(r.data))
+      .catch(() => {});
+    loadContract();
+  }
+
   useEffect(() => {
+    if (!appMode) return;
+    loadAppData();
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") loadAppData();
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [appMode]);
+
+  useEffect(() => {
+    if (appMode) return;
     if (portalToken) {
       // Security-only client: identified by portal token, no internet service
       axios
@@ -301,7 +328,7 @@ export default function Portal() {
     }
 
     loadContract();
-  }, [portalToken]);
+  }, [portalToken, appMode]);
 
   function loadContract() {
     axios
@@ -442,7 +469,7 @@ export default function Portal() {
     );
   }
 
-  if (!portalToken && !data) return null;
+  if (!portalToken && !appMode && !data) return null;
 
   const plan = data?.plan ?? null;
   const statusInfo = data ? (STATUS_LABELS[data.client.status] ?? { label: data.client.status, color: "default" }) : null;
@@ -452,8 +479,13 @@ export default function Portal() {
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 16px" }}>
       {/* Header */}
       <div style={{ marginBottom: 24, textAlign: "center" }}>
-        <Title level={3} style={{ margin: 0 }}>Portal de clientes</Title>
-        <Text type="secondary">Guaynet WISP</Text>
+        <Title level={3} style={{ margin: 0 }}>{appMode ? "Mi propiedad" : "Portal de clientes"}</Title>
+        <Text type="secondary">{appMode ? "Guaynet Seguridad" : "Guaynet WISP"}</Text>
+        {appMode && (
+          <div style={{ marginTop: 8 }}>
+            <Button size="small" icon={<ReloadOutlined />} onClick={loadAppData}>Actualizar</Button>
+          </div>
+        )}
       </div>
 
       {/* Client info — internet clients only */}
@@ -842,7 +874,7 @@ export default function Portal() {
                   {contract.accepted ? (
                     <Space size={8} wrap>
                       <Tag color="green">Firmado el {dayjs(contract.accepted.accepted_at).format("DD/MM/YYYY")}</Tag>
-                      {contract.accepted.has_pdf && (
+                      {contract.accepted.has_pdf && !appMode && (
                         <a
                           href={`/api/v1/portal/security/contract/pdf${portalToken ? `?token=${encodeURIComponent(portalToken)}` : ""}`}
                           target="_blank"
@@ -943,7 +975,7 @@ export default function Portal() {
       </Modal>
 
       <div style={{ textAlign: "center", marginTop: 24 }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>Guaynet WISP — Portal del cliente</Text>
+        <Text type="secondary" style={{ fontSize: 12 }}>{appMode ? "Guaynet Seguridad" : "Guaynet WISP — Portal del cliente"}</Text>
       </div>
     </div>
   );

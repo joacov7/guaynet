@@ -20,10 +20,11 @@ import {
   Typography,
   message,
 } from "antd";
-import { BarChartOutlined, CalendarOutlined, ClockCircleOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, TeamOutlined, ToolOutlined } from "@ant-design/icons";
+import { BarChartOutlined, CalendarOutlined, ClockCircleOutlined, MobileOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, TeamOutlined, ToolOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
 import ScheduleModal from "./ScheduleModal";
+import AppDevicesModal from "./AppDevicesModal";
 import { subscriptionsApi, pinsApi, certificatesApi, elderlyApi, monthlyReportsApi, vacationApi } from "@/services/security/api";
 import type { ElderlyConfig, MonthlyReport, VacationMode } from "@/types/security";
 import type { SecuritySubscription, SecurityFeatureName } from "@/types/security";
@@ -75,6 +76,7 @@ export default function SecuritySubscriptions() {
   const [reportsModal, setReportsModal] = useState<SecuritySubscription | null>(null);
   const [vacationModal, setVacationModal] = useState<SecuritySubscription | null>(null);
   const [scheduleModal, setScheduleModal] = useState<SecuritySubscription | null>(null);
+  const [appDevicesModal, setAppDevicesModal] = useState<SecuritySubscription | null>(null);
   const [vacationForm] = Form.useForm();
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
@@ -376,6 +378,13 @@ export default function SecuritySubscriptions() {
               onClick={() => {
                 setElderlyModal(r);
               }}
+            />
+          </Tooltip>
+          <Tooltip title="Teléfonos con la app">
+            <Button
+              size="small"
+              icon={<MobileOutlined />}
+              onClick={() => setAppDevicesModal(r)}
             />
           </Tooltip>
           <Tooltip title="Horario comercial">
@@ -772,6 +781,7 @@ export default function SecuritySubscriptions() {
       </Modal>
 
       <ScheduleModal subscription={scheduleModal} onClose={() => setScheduleModal(null)} />
+      <AppDevicesModal subscription={appDevicesModal} onClose={() => setAppDevicesModal(null)} />
 
       {/* Vacation mode modal */}
       <Modal

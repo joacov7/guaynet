@@ -113,37 +113,15 @@ async def speedtest_upload(request: Request):
 
 # ── Security portal by token ─────────────────────────────────────────────────
 
-@router.get("/security/token/{token}")
-async def portal_security_by_token(token: str, db: AsyncSession = Depends(get_db)):
-    """
-    Return the client's security data identified by their portal token.
-    Used by clients who don't have internet service with Guaynet.
-    """
-    from sqlalchemy import select, func
-    from sqlalchemy.orm import selectinload
-    from app.models.security.subscription import SecuritySubscription, SecuritySubscriptionStatus
-    from app.models.security.property import Property
-    from app.models.security.event import SecurityEvent
+async def _security_payload(sub, prop, db: AsyncSession) -> dict:
+    """Security summary shown in the portal and the mobile app."""
+    from sqlalchemy import func
     from app.models.security.alert import SecurityAlert
+    from app.models.security.event import SecurityEvent
     from app.models.security.report import SecurityMonthlyReport
+    from app.models.security.subscription import SecurityPlan
 
-    result = await db.execute(
-        select(SecuritySubscription)
-        .options(
-            selectinload(SecuritySubscription.plan),
-            selectinload(SecuritySubscription.features),
-        )
-        .where(
-            SecuritySubscription.portal_token == token,
-            SecuritySubscription.status == SecuritySubscriptionStatus.active,
-        )
-    )
-    sub = result.scalar_one_or_none()
-    if sub is None:
-        raise HTTPException(status_code=404, detail="Enlace inválido o suscripción inactiva")
-
-    prop_result = await db.execute(select(Property).where(Property.id == sub.property_id))
-    prop = prop_result.scalar_one_or_none()
+    plan = await db.get(SecurityPlan, sub.plan_id)
 
     events_result = await db.execute(
         select(SecurityEvent)
@@ -177,7 +155,7 @@ async def portal_security_by_token(token: str, db: AsyncSession = Depends(get_db
         "subscription": {
             "id": sub.id,
             "status": sub.status.value if hasattr(sub.status, "value") else sub.status,
-            "plan_name": sub.plan.name if sub.plan else "—",
+            "plan_name": plan.name if plan else "—",
             "beat_account_id": sub.beat_account_id,
             "property_name": prop.name if prop else "—",
             "property_address": prop.address if prop else "—",
@@ -199,6 +177,19 @@ async def portal_security_by_token(token: str, db: AsyncSession = Depends(get_db
             "alert_count": last_report.alert_count,
         } if last_report else None,
     }
+
+
+@router.get("/security/token/{token}")
+async def portal_security_by_token(token: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Return the client's security data identified by their portal token.
+    Used by clients who don't have internet service with Guaynet.
+    """
+    from app.models.security.property import Property
+
+    sub = await _resolve_portal_subscription(token, request, db, allow_device=False)
+    prop = await db.get(Property, sub.property_id)
+    return await _security_payload(sub, prop, db)
 
 
 # ── Security helpers ──────────────────────────────────────────────────────────
@@ -241,12 +232,6 @@ async def portal_security(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Return the client's security subscription status, recent events, and active alerts.
     """
-    from datetime import datetime, timezone
-    from sqlalchemy import select, func
-    from app.models.security.event import SecurityEvent
-    from app.models.security.alert import SecurityAlert
-    from app.models.security.report import SecurityMonthlyReport
-
     ip = _client_ip(request)
     client = await _get_client_by_ip(ip, db)
     if not client:
@@ -255,64 +240,7 @@ async def portal_security(request: Request, db: AsyncSession = Depends(get_db)):
     prop, sub = await _get_security_subscription(client, db)
     if sub is None:
         return {"has_subscription": False}
-
-    # Recent events (last 5)
-    events_result = await db.execute(
-        select(SecurityEvent)
-        .where(SecurityEvent.subscription_id == sub.id)
-        .order_by(SecurityEvent.occurred_at.desc())
-        .limit(5)
-    )
-    events = events_result.scalars().all()
-
-    # Active alert count
-    alerts_result = await db.execute(
-        select(func.count()).select_from(SecurityAlert).where(
-            SecurityAlert.subscription_id == sub.id,
-            SecurityAlert.status.in_(["new", "acknowledged"]),
-        )
-    )
-    active_alerts = alerts_result.scalar() or 0
-
-    # Last monthly report
-    report_result = await db.execute(
-        select(SecurityMonthlyReport)
-        .where(
-            SecurityMonthlyReport.subscription_id == sub.id,
-            SecurityMonthlyReport.status == "ready",
-        )
-        .order_by(SecurityMonthlyReport.period.desc())
-        .limit(1)
-    )
-    last_report = report_result.scalar_one_or_none()
-
-    return {
-        "has_subscription": True,
-        "subscription": {
-            "id": sub.id,
-            "status": sub.status.value if hasattr(sub.status, "value") else sub.status,
-            "plan_name": sub.plan.name if sub.plan else "—",
-            "beat_account_id": sub.beat_account_id,
-            "property_name": prop.name if prop else "—",
-            "property_address": prop.address if prop else "—",
-            "entry_secure_enabled": sub.has_feature("entry_secure"),
-        },
-        "active_alerts": active_alerts,
-        "recent_events": [
-            {
-                "event_type": e.event_type.value if hasattr(e.event_type, "value") else e.event_type,
-                "occurred_at": e.occurred_at.isoformat(),
-                "zone_number": e.zone_number,
-                "description": e.description,
-            }
-            for e in events
-        ],
-        "last_report": {
-            "period": last_report.period,
-            "event_count": last_report.event_count,
-            "alert_count": last_report.alert_count,
-        } if last_report else None,
-    }
+    return await _security_payload(sub, prop, db)
 
 
 class EntrySessionRequest(BaseModel):
@@ -335,29 +263,7 @@ async def portal_start_entry_session(
     from app.schemas.security.entry_session import EntrySessionCreate
     from app.services.security.entry_sessions import start_entry_session
 
-    # Resolve subscription: by portal token (security-only clients) or by IP
-    if body.token:
-        from app.models.security.subscription import SecuritySubscription, SecuritySubscriptionStatus
-        from sqlalchemy.orm import selectinload as _sil
-        res = await db.execute(
-            select(SecuritySubscription)
-            .options(_sil(SecuritySubscription.features))
-            .where(
-                SecuritySubscription.portal_token == body.token,
-                SecuritySubscription.status == SecuritySubscriptionStatus.active,
-            )
-        )
-        sub = res.scalar_one_or_none()
-        if sub is None:
-            raise HTTPException(status_code=404, detail="Enlace inválido o suscripción inactiva")
-    else:
-        ip = _client_ip(request)
-        client = await _get_client_by_ip(ip, db)
-        if not client:
-            raise HTTPException(status_code=404, detail="Cliente no encontrado")
-        _, sub = await _get_security_subscription(client, db)
-        if sub is None:
-            raise HTTPException(status_code=404, detail="Sin suscripción de seguridad activa")
+    sub = await _resolve_portal_subscription(body.token, request, db)
 
     if not sub.has_feature("entry_secure"):
         raise HTTPException(status_code=403, detail="Entrada segura no está habilitada en tu plan")
@@ -392,8 +298,22 @@ class VacationRequest(BaseModel):
     token: Optional[str] = None  # portal token for non-IP clients
 
 
-async def _resolve_portal_subscription(token: Optional[str], request: Request, db: AsyncSession):
-    """Resolve the security subscription from token or IP. Raises 404 on failure."""
+async def _resolve_portal_subscription(
+    token: Optional[str], request: Request, db: AsyncSession, allow_device: bool = True
+):
+    """
+    Resolve the security subscription, in this order:
+    1. Mobile app device credential (Authorization: Device <id>.<secret>)
+    2. Portal token
+    3. Client IP (internet clients)
+    Raises 401/404 on failure.
+    """
+    if allow_device:
+        from app.services.security.app_devices import authenticate_device
+        auth = await authenticate_device(db, request.headers.get("Authorization"))
+        if auth is not None:
+            return auth[1]
+
     if token:
         from app.models.security.subscription import SecuritySubscription, SecuritySubscriptionStatus
         from sqlalchemy.orm import selectinload as _sil

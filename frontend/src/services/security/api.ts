@@ -253,6 +253,16 @@ export const devicesApi = {
     api.put(`/security/devices/${id}/zones`, zones).then((r) => r.data),
 };
 
+// ── Mobile app devices ────────────────────────────────────────────────────
+
+export const appDevicesApi = {
+  list: (subscription_id: number): Promise<import("../../types/security").AppDevice[]> =>
+    api.get(`/security/subscriptions/${subscription_id}/app-devices`).then((r) => r.data),
+
+  revoke: (id: number): Promise<import("../../types/security").AppDevice> =>
+    api.post(`/security/app-devices/${id}/revoke`).then((r) => r.data),
+};
+
 // ── Contracts ─────────────────────────────────────────────────────────────
 
 export const contractsApi = {

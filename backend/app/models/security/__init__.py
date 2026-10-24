@@ -15,6 +15,7 @@ from app.models.security.pin import PinCredential, PinType, SafeWord
 from app.models.security.contract import SecurityContract, SecurityContractTemplate, VacationMode
 from app.models.security.report import SecurityMonthlyReport, SecurityMonthlyReportStatus
 from app.models.security.schedule import SecuritySchedule
+from app.models.security.app_device import SecurityAppDevice
 
 __all__ = [
     "Property", "PropertyType",
@@ -31,4 +32,5 @@ __all__ = [
     "SecurityContract", "SecurityContractTemplate", "VacationMode",
     "SecurityMonthlyReport", "SecurityMonthlyReportStatus",
     "SecuritySchedule",
+    "SecurityAppDevice",
 ]

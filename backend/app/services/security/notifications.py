@@ -136,6 +136,48 @@ async def dispatch_alert_client(
         logger.warning("Client Telegram dispatch failed for alert %s: %s", getattr(alert, "id", "?"), exc)
 
 
+# Alert types shown as urgent (alarm channel, high priority) in the mobile app.
+_URGENT_APP_TYPES = {"PANIC", "INTRUSION", "ENTRY_TIMEOUT", "INACTIVITY", "CHECKIN_MISSED"}
+
+
+async def dispatch_alert_app(alert: "SecurityAlert", db, property_name: str = "") -> None:
+    """Push the alert to every non-revoked app device of the subscription."""
+    try:
+        from sqlalchemy import select
+        from app.models.security.app_device import SecurityAppDevice
+        from app.services.security.push import PushInvalidToken, PushMessage, get_push_provider
+
+        result = await db.execute(
+            select(SecurityAppDevice).where(
+                SecurityAppDevice.subscription_id == alert.subscription_id,
+                SecurityAppDevice.revoked_at.is_(None),
+                SecurityAppDevice.push_token.is_not(None),
+            )
+        )
+        devices = result.scalars().all()
+        if not devices:
+            return
+
+        atype = _alert_type_str(alert)
+        message = PushMessage(
+            title=f"{_ALERT_EMOJI.get(atype, '🔔')} {_ALERT_LABELS.get(atype, atype)}",
+            body=property_name or f"Suscripción #{alert.subscription_id}",
+            data={"alert_id": str(getattr(alert, "id", "") or ""), "alert_type": atype},
+            urgent=atype in _URGENT_APP_TYPES,
+        )
+        provider = get_push_provider()
+        for d in devices:
+            try:
+                await provider.send(d.push_token, message)
+            except PushInvalidToken:
+                d.push_token = None
+                await db.flush()
+            except Exception as exc:
+                logger.warning("App push failed for device #%s: %s", d.id, exc)
+    except Exception as exc:
+        logger.warning("App push dispatch failed for alert %s: %s", getattr(alert, "id", "?"), exc)
+
+
 async def dispatch_alert(alert: "SecurityAlert", db=None) -> None:
     """
     Route a new alert through the correct notification channels.
@@ -190,6 +232,12 @@ async def dispatch_alert(alert: "SecurityAlert", db=None) -> None:
             logger.warning("Could not load subscription for alert %s: %s", getattr(alert, "id", "?"), exc)
 
     atype = _alert_type_str(alert)
+
+    # Mobile app push to the property's linked phones. Never for DURESS: it must
+    # stay silent, and the person coercing the client may be holding the phone.
+    if db is not None and atype not in _NO_CONFIRMATION_TYPES:
+        await dispatch_alert_app(alert, db, property_name)
+
     use_confirmation = (
         confirmation_enabled
         and client_telegram_id

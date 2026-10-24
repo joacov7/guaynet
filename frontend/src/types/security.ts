@@ -179,6 +179,17 @@ export interface PropertyMember {
   status: string;
 }
 
+export interface AppDevice {
+  id: number;
+  subscription_id: number;
+  device_name: string;
+  platform: string;
+  has_push: boolean;
+  last_seen_at?: string;
+  revoked_at?: string;
+  created_at: string;
+}
+
 export interface ContractTemplate {
   id: number;
   version: string;
