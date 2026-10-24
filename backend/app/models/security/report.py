@@ -5,7 +5,7 @@ from typing import Optional
 from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base
+from app.models.base import Base, TimestampMixin
 
 
 class SecurityMonthlyReportStatus(str, enum.Enum):
@@ -75,3 +75,23 @@ class SecurityWeeklyReport(Base):
     power_failure_count: Mapped[int] = mapped_column(Integer, default=0)
     # JSON list of {occurred_at: ISO str, duration_minutes: int|null, restored: bool}
     power_failures: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+
+
+class SecurityCertificate(Base, TimestampMixin):
+    """
+    Annual protection certificate for insurance purposes.
+    One per subscription, regenerated on demand.
+    Carries a verification_token so insurers can authenticate it via QR.
+    """
+    __tablename__ = "sec_certificates"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subscription_id: Mapped[int] = mapped_column(
+        ForeignKey("sec_subscriptions.id"), index=True, unique=True
+    )
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    valid_until: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # UUID hex used in QR verification URL
+    verification_token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # Path relative to UPLOADS_DIR
+    file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)

@@ -190,6 +190,14 @@ export interface SecurityDevice {
   is_active: boolean;
 }
 
+export interface SecurityCertificate {
+  id: number;
+  issued_at: string;
+  valid_until: string;
+  verification_token: string;
+  download_url: string;
+}
+
 export interface BeatAccountStatus {
   account_id: string;
   armed?: boolean;

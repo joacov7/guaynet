@@ -20,9 +20,9 @@ import {
   Typography,
   message,
 } from "antd";
-import { DeleteOutlined, EyeOutlined, KeyOutlined, PlusOutlined, SettingOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EyeOutlined, FilePdfOutlined, KeyOutlined, PlusOutlined, SettingOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { subscriptionsApi, pinsApi } from "@/services/security/api";
+import { subscriptionsApi, pinsApi, certificatesApi } from "@/services/security/api";
 import type { SecuritySubscription, SecurityFeatureName } from "@/types/security";
 
 const { Title } = Typography;
@@ -135,6 +135,21 @@ export default function SecuritySubscriptions() {
     onError: () => message.error("Error al revocar PIN"),
   });
 
+  const certMutation = useMutation({
+    mutationFn: (subscriptionId: number) => certificatesApi.generate(subscriptionId),
+    onSuccess: async (_, subscriptionId) => {
+      message.success("Certificado generado — descargando...");
+      const blob = await certificatesApi.download(subscriptionId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `certificado_proteccion_${subscriptionId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
+    onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al generar certificado"),
+  });
+
   const columns = [
     { title: "ID", dataIndex: "id", key: "id", width: 60 },
     {
@@ -200,6 +215,14 @@ export default function SecuritySubscriptions() {
           >
             PINs
           </Button>
+          <Tooltip title="Generar certificado PDF para seguros">
+            <Button
+              size="small"
+              icon={<FilePdfOutlined />}
+              loading={certMutation.isPending && certMutation.variables === r.id}
+              onClick={() => certMutation.mutate(r.id)}
+            />
+          </Tooltip>
           <Button
             size="small"
             icon={<EyeOutlined />}

@@ -12,6 +12,7 @@ import type {
   EntrySession,
   BeatAccountStatus,
   SecurityFeatureName,
+  SecurityCertificate,
   TemporaryPin,
 } from "../../types/security";
 
@@ -99,6 +100,20 @@ export const entrySessionsApi = {
 
   cancel: (id: number, pin: string): Promise<EntrySession> =>
     api.post(`/security/entry-sessions/${id}/cancel`, { pin }).then((r) => r.data),
+};
+
+// ── Certificates ──────────────────────────────────────────────────────────
+
+export const certificatesApi = {
+  generate: (subscription_id: number): Promise<SecurityCertificate> =>
+    api.post(`/security/subscriptions/${subscription_id}/certificate`).then((r) => r.data),
+
+  download: (subscription_id: number): Promise<Blob> =>
+    api
+      .get(`/security/subscriptions/${subscription_id}/certificate/download`, {
+        responseType: "blob",
+      })
+      .then((r) => r.data),
 };
 
 // ── PINs ───────────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import admin, alarms, auth, clients, dashboard, expenses, firewall, inventory, invoices, notifications, permissions, plans, portal, push, reports, routers, tickets, ubiquiti, vpn, wan, work_orders, zones
 from app.api.v1.endpoints.security import (
     alerts as sec_alerts,
+    certificates as sec_certificates,
     devices as sec_devices,
     entry_sessions as sec_entry_sessions,
     events as sec_events,
@@ -50,3 +51,5 @@ api_router.include_router(sec_devices.router, prefix="/security/devices", tags=[
 api_router.include_router(sec_pins.router, prefix="/security/pins", tags=["security"])
 api_router.include_router(sec_vacation.router, prefix="/security/vacation", tags=["security"])
 api_router.include_router(sec_plans.router, prefix="/security/plans", tags=["security"])
+api_router.include_router(sec_certificates.router, prefix="/security/subscriptions", tags=["security"])
+api_router.include_router(sec_certificates.public_router, prefix="/security/certificates", tags=["security"])
