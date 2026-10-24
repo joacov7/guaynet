@@ -55,6 +55,8 @@ class SecurityPlan(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     # JSON list of SecurityFeatureName values included in this plan by default.
     default_features: Mapped[Optional[list]] = mapped_column(JSON, nullable=True, default=list)
+    # Whether this plan includes 24/7 operator monitoring (vs. client self-notification only).
+    includes_monitoring: Mapped[bool] = mapped_column(Boolean, default=False)
 
     subscriptions: Mapped[List["SecuritySubscription"]] = relationship(
         "SecuritySubscription", back_populates="plan"
@@ -79,6 +81,9 @@ class SecuritySubscription(Base, TimestampMixin):
 
     # BEAT central monitoring account identifier for this property
     beat_account_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    # Telegram chat ID to notify the client directly (e.g. owner's personal chat or group).
+    # Set when the plan does NOT include operator monitoring, or in addition to it.
+    client_telegram_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     contract_start: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     contract_end: Mapped[Optional[date]] = mapped_column(Date, nullable=True)

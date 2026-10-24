@@ -18,3 +18,15 @@ async def send_telegram(text: str) -> None:
                     pass
     except Exception:
         pass
+
+
+async def send_telegram_to(chat_id: str, text: str) -> None:
+    """Send a message to a specific Telegram chat ID (e.g. a client's personal chat)."""
+    if not settings.TELEGRAM_BOT_TOKEN or not chat_id:
+        return
+    try:
+        from telegram import Bot
+        async with Bot(settings.TELEGRAM_BOT_TOKEN) as bot:
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+    except Exception:
+        pass

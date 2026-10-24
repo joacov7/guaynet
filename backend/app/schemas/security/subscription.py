@@ -13,6 +13,7 @@ class SecurityPlanResponse(BaseModel):
     price: float
     default_features: Optional[list] = None
     is_active: bool
+    includes_monitoring: bool = False
 
 
 class SecurityFeatureResponse(BaseModel):
@@ -40,6 +41,7 @@ class SecuritySubscriptionCreate(BaseModel):
 class SecuritySubscriptionUpdate(BaseModel):
     status: Optional[SecuritySubscriptionStatus] = None
     beat_account_id: Optional[str] = None
+    client_telegram_id: Optional[str] = None
     contract_start: Optional[date] = None
     contract_end: Optional[date] = None
     billing_day: Optional[int] = None
@@ -54,6 +56,7 @@ class SecuritySubscriptionResponse(BaseModel):
     plan_id: int
     status: SecuritySubscriptionStatus
     beat_account_id: Optional[str] = None
+    client_telegram_id: Optional[str] = None
     contract_start: Optional[date] = None
     contract_end: Optional[date] = None
     billing_day: int

@@ -2,7 +2,11 @@
 
 export type PropertyType = "home" | "commercial" | "industrial" | "other";
 
-export type SecuritySubscriptionStatus = "active" | "suspended" | "cancelled" | "pending";
+export type SecuritySubscriptionStatus =
+  | "active"
+  | "suspended"
+  | "cancelled"
+  | "pending_install";
 
 export type SecurityFeatureName =
   | "entry_secure"
@@ -80,16 +84,17 @@ export interface Property {
 export interface SecurityFeature {
   id: number;
   feature_name: SecurityFeatureName;
-  is_enabled: boolean;
+  enabled: boolean;
 }
 
 export interface SecurityPlan {
   id: number;
   name: string;
   description?: string;
-  monthly_price: number;
+  price: number;
   default_features: SecurityFeatureName[];
   is_active: boolean;
+  includes_monitoring: boolean;
 }
 
 export interface SecuritySubscription {
@@ -98,8 +103,11 @@ export interface SecuritySubscription {
   plan_id: number;
   status: SecuritySubscriptionStatus;
   beat_account_id?: string;
-  contract_number?: string;
-  activated_at?: string;
+  client_telegram_id?: string;
+  contract_start?: string;
+  contract_end?: string;
+  billing_day: number;
+  notes?: string;
   features: SecurityFeature[];
 }
 
@@ -108,12 +116,11 @@ export interface SecurityAlert {
   subscription_id: number;
   alert_type: SecurityAlertType;
   status: SecurityAlertStatus;
-  title: string;
-  detail?: string;
-  idempotency_key: string;
-  created_at: string;
+  triggered_at: string;
   acknowledged_at?: string;
   resolved_at?: string;
+  idempotency_key?: string;
+  operator_notes?: string;
 }
 
 export interface SecurityEvent {
@@ -121,30 +128,32 @@ export interface SecurityEvent {
   subscription_id: number;
   event_type: SecurityEventType;
   occurred_at: string;
-  zone?: number;
+  received_at: string;
+  zone_number?: number;
   partition?: number;
   user_code?: string;
   description?: string;
   source: "beat" | "mock" | "manual";
   processed: boolean;
-  idempotency_key: string;
+  idempotency_key?: string;
 }
 
 export interface EntrySession {
   id: number;
   subscription_id: number;
-  member_id?: number;
+  activated_by_user_id?: number;
+  duration_minutes: number;
   status: EntrySessionStatus;
-  started_at: string;
+  created_at: string;
   expires_at: string;
   cancelled_at?: string;
-  notes?: string;
+  cancel_reason?: string;
 }
 
 export interface PropertyMember {
   id: number;
   property_id: number;
-  full_name: string;
+  name: string;
   phone?: string;
   email?: string;
   role: PropertyMemberRole;
@@ -154,7 +163,7 @@ export interface PropertyMember {
   can_view_cameras: boolean;
   notify_on_alarm: boolean;
   notify_on_entry: boolean;
-  is_active: boolean;
+  status: string;
 }
 
 export interface SecurityDevice {
@@ -164,7 +173,7 @@ export interface SecurityDevice {
   brand?: string;
   model?: string;
   serial_number?: string;
-  installation_location?: string;
+  location_description?: string;
   notes?: string;
   is_active: boolean;
 }

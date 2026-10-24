@@ -92,6 +92,12 @@ export default function EntrySecure() {
       render: (v: string) => new Date(v).toLocaleTimeString("es-AR"),
     },
     {
+      title: "Duración",
+      dataIndex: "duration_minutes",
+      key: "duration",
+      render: (v: number) => `${v} min`,
+    },
+    {
       title: "Tiempo restante",
       key: "timer",
       render: (_: unknown, r: EntrySession) => <SessionTimer session={r} />,
