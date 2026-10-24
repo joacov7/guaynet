@@ -159,6 +159,16 @@ export const pinsApi = {
       .then(() => undefined),
 };
 
+// ── Monthly Reports ────────────────────────────────────────────────────────
+
+export const monthlyReportsApi = {
+  list: (subscription_id: number): Promise<import("../../types/security").MonthlyReport[]> =>
+    api.get(`/security/subscriptions/${subscription_id}/monthly-reports`).then((r) => r.data),
+
+  downloadUrl: (subscription_id: number, period: string): string =>
+    `/api/v1/security/subscriptions/${subscription_id}/monthly-reports/${period}/download`,
+};
+
 // ── Members ────────────────────────────────────────────────────────────────
 
 export const membersApi = {

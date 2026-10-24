@@ -669,21 +669,23 @@ def generate_weekly_reports(self):
 )
 def generate_monthly_reports(self):
     """
-    Generate monthly activity summaries for all active subscriptions.
-    Runs on day 2 of each month for the previous month.
-    PDF generation is a future enhancement.
+    Generate monthly activity PDF reports for active subscriptions with the
+    monthly_report feature enabled.  Runs on day 2 of each month for the
+    previous month.  Delivers each report via Telegram to client_telegram_id
+    when set.
     """
     async def _execute():
-        from datetime import date, datetime, timezone
-        from sqlalchemy import select, func
+        from datetime import date
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
         from app.core.database import AsyncSessionLocal
-        from app.models.security.subscription import SecuritySubscription, SecuritySubscriptionStatus
-        from app.models.security.event import SecurityEvent, SecurityEventType
-        from app.models.security.alert import SecurityAlert
-        from app.models.security.report import SecurityMonthlyReport, SecurityMonthlyReportStatus
+        from app.models.security.subscription import (
+            SecuritySubscription, SecuritySubscriptionStatus, SecurityFeatureName,
+        )
+        from app.models.security.report import SecurityMonthlyReport
+        from app.services.security.monthly_report import generate_and_deliver
 
         today = date.today()
-        # Report is for the previous month
         if today.month == 1:
             report_year, report_month = today.year - 1, 12
         else:
@@ -691,72 +693,48 @@ def generate_monthly_reports(self):
         period = f"{report_year:04d}-{report_month:02d}"
 
         generated = 0
+        skipped = 0
 
         async with AsyncSessionLocal() as db:
             result = await db.execute(
-                select(SecuritySubscription).where(
-                    SecuritySubscription.status == SecuritySubscriptionStatus.active
+                select(SecuritySubscription)
+                .options(
+                    selectinload(SecuritySubscription.plan),
+                    selectinload(SecuritySubscription.features),
                 )
+                .where(SecuritySubscription.status == SecuritySubscriptionStatus.active)
             )
             subscriptions = result.scalars().all()
 
             for sub in subscriptions:
-                # Skip if report already exists for this period
+                if not sub.has_feature(SecurityFeatureName.monthly_report):
+                    skipped += 1
+                    continue
+
+                # Idempotency: skip if already generated
                 existing = await db.execute(
                     select(SecurityMonthlyReport).where(
                         SecurityMonthlyReport.subscription_id == sub.id,
                         SecurityMonthlyReport.period == period,
+                        SecurityMonthlyReport.status == "ready",
                     )
                 )
                 if existing.scalar_one_or_none():
+                    skipped += 1
                     continue
 
-                # Count events for the period
-                from sqlalchemy import extract
-                event_result = await db.execute(
-                    select(func.count()).select_from(SecurityEvent).where(
-                        SecurityEvent.subscription_id == sub.id,
-                        extract("year", SecurityEvent.occurred_at) == report_year,
-                        extract("month", SecurityEvent.occurred_at) == report_month,
+                try:
+                    await generate_and_deliver(db, sub, period, report_year, report_month)
+                    generated += 1
+                except Exception as exc:
+                    logger.error(
+                        "Monthly report failed for subscription #%s period %s: %s",
+                        sub.id, period, exc,
                     )
-                )
-                event_count = event_result.scalar() or 0
-
-                test_result = await db.execute(
-                    select(func.count()).select_from(SecurityEvent).where(
-                        SecurityEvent.subscription_id == sub.id,
-                        SecurityEvent.event_type == SecurityEventType.test.value,
-                        extract("year", SecurityEvent.occurred_at) == report_year,
-                        extract("month", SecurityEvent.occurred_at) == report_month,
-                    )
-                )
-                test_count = test_result.scalar() or 0
-
-                alert_result = await db.execute(
-                    select(func.count()).select_from(SecurityAlert).where(
-                        SecurityAlert.subscription_id == sub.id,
-                        extract("year", SecurityAlert.triggered_at) == report_year,
-                        extract("month", SecurityAlert.triggered_at) == report_month,
-                    )
-                )
-                alert_count = alert_result.scalar() or 0
-
-                report = SecurityMonthlyReport(
-                    subscription_id=sub.id,
-                    period=period,
-                    generated_at=datetime.now(timezone.utc),
-                    status=SecurityMonthlyReportStatus.ready,
-                    event_count=event_count,
-                    alert_count=alert_count,
-                    test_count=test_count,
-                    visit_count=0,  # visit tracking is a future enhancement
-                )
-                db.add(report)
-                generated += 1
 
             await db.commit()
 
-        return {"period": period, "reports_generated": generated}
+        return {"period": period, "reports_generated": generated, "skipped": skipped}
 
     try:
         return _run(_execute())

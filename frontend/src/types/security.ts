@@ -207,6 +207,17 @@ export interface SecurityCertificate {
   download_url: string;
 }
 
+export interface MonthlyReport {
+  id: number;
+  subscription_id: number;
+  period: string;  // YYYY-MM
+  status: "generating" | "ready" | "failed";
+  generated_at?: string;
+  event_count: number;
+  alert_count: number;
+  test_count: number;
+}
+
 export interface NeighborhoodGroup {
   id: number;
   name: string;

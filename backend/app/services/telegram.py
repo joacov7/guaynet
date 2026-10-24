@@ -32,6 +32,28 @@ async def send_telegram_to(chat_id: str, text: str) -> None:
         pass
 
 
+async def send_telegram_document(
+    chat_id: str,
+    file_path: str,
+    caption: str = "",
+) -> None:
+    """Send a local file as a Telegram document to a specific chat."""
+    if not settings.TELEGRAM_BOT_TOKEN or not chat_id:
+        return
+    try:
+        from telegram import Bot
+        async with Bot(settings.TELEGRAM_BOT_TOKEN) as bot:
+            with open(file_path, "rb") as f:
+                await bot.send_document(
+                    chat_id=chat_id,
+                    document=f,
+                    caption=caption,
+                    parse_mode="Markdown",
+                )
+    except Exception:
+        pass
+
+
 async def send_telegram_confirmation(
     chat_id: str,
     text: str,

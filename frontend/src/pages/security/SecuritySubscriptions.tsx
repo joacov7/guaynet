@@ -20,11 +20,11 @@ import {
   Typography,
   message,
 } from "antd";
-import { DeleteOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, PlusOutlined, SettingOutlined, TeamOutlined } from "@ant-design/icons";
+import { BarChartOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, PlusOutlined, SettingOutlined, TeamOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
-import { subscriptionsApi, pinsApi, certificatesApi, elderlyApi } from "@/services/security/api";
-import type { ElderlyConfig } from "@/types/security";
+import { subscriptionsApi, pinsApi, certificatesApi, elderlyApi, monthlyReportsApi } from "@/services/security/api";
+import type { ElderlyConfig, MonthlyReport } from "@/types/security";
 import type { SecuritySubscription, SecurityFeatureName } from "@/types/security";
 
 const { Title } = Typography;
@@ -71,6 +71,7 @@ export default function SecuritySubscriptions() {
   const [editModal, setEditModal] = useState<SecuritySubscription | null>(null);
   const [pinsModal, setPinsModal] = useState<SecuritySubscription | null>(null);
   const [elderlyModal, setElderlyModal] = useState<SecuritySubscription | null>(null);
+  const [reportsModal, setReportsModal] = useState<SecuritySubscription | null>(null);
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
   const [pinForm] = Form.useForm();
@@ -150,6 +151,12 @@ export default function SecuritySubscriptions() {
       }
     },
     enabled: !!elderlyModal,
+  });
+
+  const { data: monthlyReports = [] } = useQuery<MonthlyReport[]>({
+    queryKey: ["security-monthly-reports", reportsModal?.id],
+    queryFn: () => monthlyReportsApi.list(reportsModal!.id),
+    enabled: !!reportsModal,
   });
 
   const elderlySaveMutation = useMutation({
@@ -257,6 +264,13 @@ export default function SecuritySubscriptions() {
               size="small"
               icon={<TeamOutlined />}
               onClick={() => navigate(`/security/members?property_id=${r.property_id}`)}
+            />
+          </Tooltip>
+          <Tooltip title="Reportes mensuales">
+            <Button
+              size="small"
+              icon={<BarChartOutlined />}
+              onClick={() => setReportsModal(r)}
             />
           </Tooltip>
           <Tooltip title="Check-in adultos mayores">
@@ -588,6 +602,62 @@ export default function SecuritySubscriptions() {
               </Row>
             ))}
           </div>
+        )}
+      </Modal>
+      {/* Monthly reports modal */}
+      <Modal
+        open={!!reportsModal}
+        title={`Reportes Mensuales — Suscripción #${reportsModal?.id}`}
+        onCancel={() => setReportsModal(null)}
+        footer={<Button onClick={() => setReportsModal(null)}>Cerrar</Button>}
+        width={560}
+      >
+        {reportsModal && (
+          <Table
+            dataSource={monthlyReports}
+            rowKey="id"
+            size="small"
+            pagination={false}
+            locale={{ emptyText: "Sin reportes generados aún" }}
+            columns={[
+              {
+                title: "Período",
+                dataIndex: "period",
+                key: "period",
+                render: (p: string) => {
+                  const months = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+                  const [y, m] = p.split("-");
+                  return `${months[parseInt(m) - 1]} ${y}`;
+                },
+              },
+              { title: "Eventos", dataIndex: "event_count", key: "event_count", align: "center" as const },
+              { title: "Alertas", dataIndex: "alert_count", key: "alert_count", align: "center" as const },
+              {
+                title: "Estado",
+                dataIndex: "status",
+                key: "status",
+                render: (s: string) => (
+                  <Tag color={s === "ready" ? "green" : s === "failed" ? "red" : "default"}>
+                    {s === "ready" ? "Listo" : s === "failed" ? "Error" : "Generando"}
+                  </Tag>
+                ),
+              },
+              {
+                title: "",
+                key: "dl",
+                render: (_: unknown, r: MonthlyReport) =>
+                  r.status === "ready" ? (
+                    <a
+                      href={monthlyReportsApi.downloadUrl(r.subscription_id, r.period)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <Button size="small" icon={<DownloadOutlined />}>PDF</Button>
+                    </a>
+                  ) : null,
+              },
+            ]}
+          />
         )}
       </Modal>
     </div>
