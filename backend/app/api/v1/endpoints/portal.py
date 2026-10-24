@@ -24,9 +24,11 @@ _SPEEDTEST_BLOB = os.urandom(5 * 1024 * 1024)  # 5 MB random payload, generated 
 
 
 def _client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    # X-Real-IP is overwritten by our nginx with $remote_addr; X-Forwarded-For is
+    # passed through from the client untouched and must never be trusted here.
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip.strip()
     return request.client.host if request.client else ""
 
 
@@ -373,7 +375,7 @@ async def portal_start_entry_session(
         subscription_id=sub.id,
         duration_minutes=max(1, min(body.duration_minutes, 30)),
     )
-    session = await start_entry_session(db=db, body=session_body, activated_by_user_id=0)
+    session = await start_entry_session(db=db, body=session_body, activated_by_user_id=None)
     return {
         "session_id": session.id,
         "expires_at": session.expires_at.isoformat(),
@@ -419,23 +421,21 @@ async def _resolve_portal_subscription(token: Optional[str], request: Request, d
 
 @router.get("/security/vacation")
 async def portal_get_vacation(
+    request: Request,
     token: Optional[str] = None,
-    request: Request = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Return the current active vacation mode for the client's subscription."""
+    """Return the current or scheduled vacation mode for the client's subscription."""
     from datetime import date
     from app.models.security.contract import VacationMode
 
     sub = await _resolve_portal_subscription(token, request, db)
-    today = date.today()
 
     result = await db.execute(
         select(VacationMode).where(
             VacationMode.subscription_id == sub.id,
             VacationMode.active == True,
-            VacationMode.start_date <= today,
-            VacationMode.end_date >= today,
+            VacationMode.end_date >= date.today(),
         )
     )
     vm = result.scalar_one_or_none()
@@ -468,7 +468,7 @@ async def portal_activate_vacation(
         end_date=date.fromisoformat(body.end_date),
         notes=body.notes,
     )
-    vm = await create_vacation_mode(db, vm_data, created_by_user_id=0)
+    vm = await create_vacation_mode(db, vm_data, created_by_user_id=None)
     return {
         "id": vm.id,
         "start_date": vm.start_date.isoformat(),
@@ -477,31 +477,58 @@ async def portal_activate_vacation(
     }
 
 
-@router.delete("/security/vacation")
+class VacationCancelRequest(BaseModel):
+    pin: str
+    token: Optional[str] = None
+
+
+@router.post("/security/vacation/cancel")
 async def portal_cancel_vacation(
-    token: Optional[str] = None,
-    request: Request = None,
+    body: VacationCancelRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Client cancels their active vacation mode from the portal."""
-    from datetime import date
+    """
+    Client cancels their vacation mode from the portal. Requires the alarm PIN.
+    A duress PIN cancels normally (so a coercer sees nothing unusual) but raises
+    a silent DURESS alert to the monitoring central.
+    """
+    from datetime import date, datetime, timezone
+    from app.models.security.alert import SecurityAlert, SecurityAlertStatus, SecurityAlertType
     from app.models.security.contract import VacationMode
+    from app.models.security.pin import PinType
+    from app.services.security.notifications import dispatch_alert
+    from app.services.security.pins import verify_owner_pin
     from app.services.security.vacation import cancel_vacation_mode
 
-    sub = await _resolve_portal_subscription(token, request, db)
-    today = date.today()
+    sub = await _resolve_portal_subscription(body.token, request, db)
 
     result = await db.execute(
         select(VacationMode).where(
             VacationMode.subscription_id == sub.id,
             VacationMode.active == True,
-            VacationMode.start_date <= today,
-            VacationMode.end_date >= today,
+            VacationMode.end_date >= date.today(),
         )
     )
     vm = result.scalar_one_or_none()
     if vm is None:
         raise HTTPException(status_code=404, detail="No hay modo ausencia activo")
 
-    cancelled = await cancel_vacation_mode(db, vm.id)
+    pin_type = await verify_owner_pin(db, sub.id, body.pin)
+    cancelled = await cancel_vacation_mode(db, vm.id, source="portal")
+
+    if pin_type == PinType.duress:
+        alert = SecurityAlert(
+            subscription_id=sub.id,
+            alert_type=SecurityAlertType.DURESS,
+            status=SecurityAlertStatus.new,
+            triggered_at=datetime.now(timezone.utc),
+            idempotency_key=f"duress_vacation_cancel:{vm.id}",
+            operator_notes="PIN de coacción usado para cancelar el modo ausencia desde el portal",
+        )
+        db.add(alert)
+        await db.commit()
+        await db.refresh(alert)
+        await dispatch_alert(alert, db)
+
     return {"cancelled": True, "id": cancelled.id}

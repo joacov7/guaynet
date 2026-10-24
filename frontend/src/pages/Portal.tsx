@@ -13,6 +13,7 @@ import {
   DatePicker,
   Descriptions,
   Form,
+  Input,
   Progress,
   Result,
   Row,
@@ -239,6 +240,8 @@ export default function Portal() {
   const [vacationLoading, setVacationLoading] = useState(false);
   const [vacationError, setVacationError] = useState<string | null>(null);
   const [showVacationForm, setShowVacationForm] = useState(false);
+  const [showCancelPin, setShowCancelPin] = useState(false);
+  const [cancelPin, setCancelPin] = useState("");
   const [vacationForm] = Form.useForm();
 
   const [testing, setTesting] = useState(false);
@@ -303,15 +306,23 @@ export default function Portal() {
   }
 
   async function cancelVacation() {
+    if (!cancelPin) {
+      setVacationError("Ingresá el PIN de tu alarma");
+      return;
+    }
     setVacationLoading(true);
     setVacationError(null);
     try {
-      const params = portalToken ? { token: portalToken } : {};
-      await axios.delete("/api/v1/portal/security/vacation", { params });
+      await axios.post("/api/v1/portal/security/vacation/cancel", {
+        pin: cancelPin,
+        ...(portalToken ? { token: portalToken } : {}),
+      });
       setVacation((v) => v ? { ...v, active: false } : null);
+      setShowCancelPin(false);
     } catch (e: any) {
       setVacationError(e.response?.data?.detail ?? "Error al cancelar");
     } finally {
+      setCancelPin("");
       setVacationLoading(false);
     }
   }
@@ -692,7 +703,13 @@ export default function Portal() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <Text strong><CalendarOutlined /> Modo ausencia</Text>
                   {vacation.active ? (
-                    <Tag color="orange">Activo hasta {vacation.end_date ? new Date(vacation.end_date).toLocaleDateString("es-AR") : "—"}</Tag>
+                    vacation.start_date && dayjs(vacation.start_date).isAfter(dayjs(), "day") ? (
+                      <Tag color="blue">
+                        Programado {dayjs(vacation.start_date).format("DD/MM")} → {dayjs(vacation.end_date).format("DD/MM/YYYY")}
+                      </Tag>
+                    ) : (
+                      <Tag color="orange">Activo hasta {vacation.end_date ? dayjs(vacation.end_date).format("DD/MM/YYYY") : "—"}</Tag>
+                    )
                   ) : (
                     <Tag color="default">Inactivo</Tag>
                   )}
@@ -704,15 +721,36 @@ export default function Portal() {
                       El monitoreo está en modo elevado. Cualquier apertura de zona generará una alerta inmediata.
                     </Text>
                     <br />
-                    <Button
-                      size="small"
-                      danger
-                      loading={vacationLoading}
-                      style={{ marginTop: 8 }}
-                      onClick={cancelVacation}
-                    >
-                      Cancelar modo ausencia
-                    </Button>
+                    {!showCancelPin ? (
+                      <Button
+                        size="small"
+                        danger
+                        style={{ marginTop: 8 }}
+                        onClick={() => { setShowCancelPin(true); setVacationError(null); }}
+                      >
+                        Cancelar modo ausencia
+                      </Button>
+                    ) : (
+                      <Space wrap style={{ marginTop: 8 }}>
+                        <Input.Password
+                          size="small"
+                          placeholder="PIN de la alarma"
+                          inputMode="numeric"
+                          autoComplete="off"
+                          maxLength={8}
+                          value={cancelPin}
+                          onChange={(e) => setCancelPin(e.target.value)}
+                          onPressEnter={cancelVacation}
+                          style={{ width: 160 }}
+                        />
+                        <Button size="small" danger loading={vacationLoading} onClick={cancelVacation}>
+                          Confirmar
+                        </Button>
+                        <Button size="small" onClick={() => { setShowCancelPin(false); setCancelPin(""); }}>
+                          Volver
+                        </Button>
+                      </Space>
+                    )}
                   </div>
                 ) : (
                   <>

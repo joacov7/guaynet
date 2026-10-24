@@ -41,7 +41,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
       REDIS_URL: redis://redis:6379/0
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       db:
         condition: service_healthy

@@ -176,3 +176,56 @@ async def has_pin(db: AsyncSession, subscription_id: int, pin_type: PinType) -> 
         )
     )
     return result.scalar_one_or_none() is not None
+
+
+_PIN_MAX_ATTEMPTS = 5
+_PIN_LOCKOUT_MINUTES = 15
+
+
+async def verify_owner_pin(db: AsyncSession, subscription_id: int, pin: str) -> PinType:
+    """
+    Verify a normal or duress PIN for sensitive owner actions (e.g. disabling
+    vacation mode). Temporary PINs are rejected: guests must not lower protection.
+    Shares the lockout counter of the normal PIN with entry-session cancellation.
+    Returns the matched PinType (normal or duress); raises HTTPException otherwise.
+    """
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(PinCredential)
+        .where(
+            PinCredential.subscription_id == subscription_id,
+            PinCredential.pin_type.in_([PinType.normal, PinType.duress]),
+        )
+        .with_for_update()
+    )
+    creds = result.scalars().all()
+    if not creds:
+        raise HTTPException(status_code=422, detail="No hay PIN configurado para esta suscripción")
+
+    normal = next((c for c in creds if c.pin_type == PinType.normal), None)
+    if normal and normal.locked_until and normal.locked_until > now:
+        raise HTTPException(
+            status_code=429,
+            detail="PIN bloqueado temporalmente por demasiados intentos fallidos",
+        )
+
+    matched: Optional[PinCredential] = None
+    for cred in creds:
+        if verify_password(pin, cred.pin_hash) and matched is None:
+            matched = cred
+
+    if matched is None:
+        if normal:
+            normal.failed_attempts = (normal.failed_attempts or 0) + 1
+            if normal.failed_attempts >= _PIN_MAX_ATTEMPTS:
+                normal.locked_until = now + timedelta(minutes=_PIN_LOCKOUT_MINUTES)
+        await db.commit()
+        raise HTTPException(status_code=401, detail="PIN incorrecto")
+
+    if normal:
+        normal.failed_attempts = 0
+        normal.locked_until = None
+    await db.commit()
+    return matched.pin_type

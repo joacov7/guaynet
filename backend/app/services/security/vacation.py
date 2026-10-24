@@ -31,7 +31,7 @@ async def list_vacation_modes(
 
 
 async def create_vacation_mode(
-    db: AsyncSession, body: VacationModeCreate, created_by_user_id: int
+    db: AsyncSession, body: VacationModeCreate, created_by_user_id: Optional[int]
 ) -> VacationMode:
     if body.end_date <= body.start_date:
         raise HTTPException(
@@ -84,8 +84,14 @@ async def create_vacation_mode(
     return vm
 
 
+_CANCEL_SOURCE_LABELS = {
+    "panel": "panel de administración",
+    "portal": "portal del cliente",
+}
+
+
 async def cancel_vacation_mode(
-    db: AsyncSession, vacation_id: int
+    db: AsyncSession, vacation_id: int, source: str = "panel"
 ) -> VacationMode:
     vm = await db.get(VacationMode, vacation_id)
     if vm is None:
@@ -96,19 +102,36 @@ async def cancel_vacation_mode(
     await db.commit()
     await db.refresh(vm)
 
-    # Notify client via Telegram
+    # Every cancellation lowers protection on an empty home: always tell both
+    # the client and the monitoring central, so an unauthorized one is noticed.
+    from datetime import datetime
+    from app.models.security.subscription import SecuritySubscription
+    from app.services.telegram import send_telegram, send_telegram_to
+
+    source_label = _CANCEL_SOURCE_LABELS.get(source, source)
+    when = datetime.now().strftime("%d/%m/%Y %H:%M")
+    sub = await db.get(SecuritySubscription, vm.subscription_id)
+
     try:
-        from app.models.security.subscription import SecuritySubscription
-        from app.services.telegram import send_telegram_to
-        sub = await db.get(SecuritySubscription, vm.subscription_id)
         if sub and sub.client_telegram_id:
             await send_telegram_to(
                 sub.client_telegram_id,
                 "✅ *Modo ausencia cancelado*\n"
-                "El monitoreo volvió a su configuración normal.",
+                f"Cancelado desde el {source_label} el {when}.\n"
+                "El monitoreo volvió a su configuración normal.\n"
+                "_Si no fuiste vos, comunicate con la central de inmediato._",
             )
     except Exception as exc:
-        logger.warning("Could not send vacation cancel Telegram notification: %s", exc)
+        logger.warning("Could not send vacation cancel notification to client: %s", exc)
+
+    try:
+        await send_telegram(
+            f"🏖️ *Modo ausencia cancelado* — Suscripción #{vm.subscription_id}\n"
+            f"Origen: {source_label} · {when}\n"
+            f"Período previsto: {vm.start_date.strftime('%d/%m/%Y')} → {vm.end_date.strftime('%d/%m/%Y')}"
+        )
+    except Exception as exc:
+        logger.warning("Could not send vacation cancel notification to operators: %s", exc)
 
     return vm
 

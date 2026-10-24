@@ -48,7 +48,7 @@ async def list_active_sessions(
 async def start_entry_session(
     db: AsyncSession,
     body: EntrySessionCreate,
-    activated_by_user_id: int,
+    activated_by_user_id: Optional[int],
 ) -> EntrySession:
     await _assert_feature_enabled(db, body.subscription_id)
 
