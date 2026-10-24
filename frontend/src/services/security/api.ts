@@ -159,6 +159,31 @@ export const pinsApi = {
       .then(() => undefined),
 };
 
+// ── Neighborhood Groups ────────────────────────────────────────────────────
+
+export const neighborhoodApi = {
+  list: (): Promise<import("../../types/security").NeighborhoodGroup[]> =>
+    api.get("/security/neighborhood-groups").then((r) => r.data),
+
+  create: (data: { name: string; telegram_group_id: string; description?: string }): Promise<import("../../types/security").NeighborhoodGroup> =>
+    api.post("/security/neighborhood-groups", data).then((r) => r.data),
+
+  update: (id: number, data: { name: string; telegram_group_id: string; description?: string }): Promise<import("../../types/security").NeighborhoodGroup> =>
+    api.patch(`/security/neighborhood-groups/${id}`, data).then((r) => r.data),
+
+  delete: (id: number): Promise<void> =>
+    api.delete(`/security/neighborhood-groups/${id}`).then(() => undefined),
+
+  listMembers: (groupId: number): Promise<import("../../types/security").NeighborhoodMembership[]> =>
+    api.get(`/security/neighborhood-groups/${groupId}/members`).then((r) => r.data),
+
+  addMember: (groupId: number, subscription_id: number): Promise<import("../../types/security").NeighborhoodMembership> =>
+    api.post(`/security/neighborhood-groups/${groupId}/members`, { subscription_id }).then((r) => r.data),
+
+  removeMember: (groupId: number, subscriptionId: number): Promise<void> =>
+    api.delete(`/security/neighborhood-groups/${groupId}/members/${subscriptionId}`).then(() => undefined),
+};
+
 // ── Events ─────────────────────────────────────────────────────────────────
 
 export const eventsApi = {

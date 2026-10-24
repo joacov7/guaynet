@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 # Alert types that bypass the client confirmation flow (safety-critical).
 _NO_CONFIRMATION_TYPES = {"DURESS"}
 
+# Alert types broadcast to the neighborhood Telegram group.
+_NEIGHBORHOOD_ALERT_TYPES = {"PANIC", "INTRUSION", "DURESS"}
+
 # Window for the client to respond before operators are called.
 CONFIRMATION_WINDOW_SECONDS = 180  # 3 minutes
 
@@ -80,6 +83,35 @@ def _build_message(alert: "SecurityAlert", property_name: str, for_client: bool)
     return "\n".join(lines)
 
 
+async def dispatch_alert_neighborhood(
+    alert: "SecurityAlert",
+    group_name: str,
+    telegram_group_id: str,
+) -> None:
+    """Broadcast a safety-critical alert to a neighborhood Telegram group."""
+    try:
+        from app.services.telegram import send_telegram_to
+        atype = _alert_type_str(alert)
+        emoji = _ALERT_EMOJI.get(atype, "🔔")
+        label = _ALERT_LABELS.get(atype, atype)
+        # No address exposed intentionally — only group name and time.
+        from datetime import datetime, timezone
+        hour = datetime.now(timezone.utc).strftime("%H:%M")
+        msg = (
+            f"{emoji} *Alerta en el barrio*\n"
+            f"*Tipo:* {label}\n"
+            f"*Zona:* {group_name}\n"
+            f"*Hora:* {hour} UTC\n\n"
+            "_Esta notificación fue enviada a todos los vecinos registrados._"
+        )
+        await send_telegram_to(telegram_group_id, msg)
+    except Exception as exc:
+        logger.warning(
+            "Neighborhood Telegram dispatch failed for alert %s group %s: %s",
+            getattr(alert, "id", "?"), telegram_group_id, exc,
+        )
+
+
 async def dispatch_alert_operator(alert: "SecurityAlert", property_name: str = "") -> None:
     """Send alert to the configured operator Telegram group."""
     try:
@@ -111,6 +143,7 @@ async def dispatch_alert(alert: "SecurityAlert", db=None) -> None:
     client_telegram_id: Optional[str] = None
     includes_monitoring = True  # safe default
     confirmation_enabled = False
+    neighborhood_group: Optional[tuple[str, str]] = None  # (name, telegram_group_id)
 
     if db is not None:
         try:
@@ -118,6 +151,7 @@ async def dispatch_alert(alert: "SecurityAlert", db=None) -> None:
             from sqlalchemy.orm import selectinload
             from app.models.security.subscription import SecuritySubscription, SecurityFeatureName
             from app.models.security.property import Property
+            from app.models.security.neighborhood import SecurityNeighborhoodMembership, SecurityNeighborhoodGroup
 
             result = await db.execute(
                 select(SecuritySubscription)
@@ -140,6 +174,16 @@ async def dispatch_alert(alert: "SecurityAlert", db=None) -> None:
                 row = prop_result.first()
                 if row:
                     property_name = row[0]
+
+                # Look up neighborhood group membership
+                nbr_result = await db.execute(
+                    select(SecurityNeighborhoodGroup.name, SecurityNeighborhoodGroup.telegram_group_id)
+                    .join(SecurityNeighborhoodMembership, SecurityNeighborhoodMembership.group_id == SecurityNeighborhoodGroup.id)
+                    .where(SecurityNeighborhoodMembership.subscription_id == alert.subscription_id)
+                )
+                nbr_row = nbr_result.first()
+                if nbr_row:
+                    neighborhood_group = (nbr_row[0], nbr_row[1])
         except Exception as exc:
             logger.warning("Could not load subscription for alert %s: %s", getattr(alert, "id", "?"), exc)
 
@@ -169,6 +213,10 @@ async def dispatch_alert(alert: "SecurityAlert", db=None) -> None:
             "Alert %s (subscription #%s) has no notification channel configured.",
             getattr(alert, "id", "?"), alert.subscription_id,
         )
+
+    # Neighborhood group broadcast (fire-and-forget, independent of main dispatch)
+    if neighborhood_group and atype in _NEIGHBORHOOD_ALERT_TYPES:
+        await dispatch_alert_neighborhood(alert, neighborhood_group[0], neighborhood_group[1])
 
 
 async def _dispatch_with_confirmation(

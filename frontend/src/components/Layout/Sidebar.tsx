@@ -27,6 +27,7 @@ import {
   QuestionCircleOutlined,
   ShieldOutlined,
   UnorderedListOutlined,
+  UsergroupAddOutlined,
 } from "@ant-design/icons";
 import { usePermissions } from "@/contexts/PermissionsContext";
 
@@ -59,7 +60,8 @@ const ALL_ITEMS = [
   { key: "/security/subscriptions", icon: <ShieldOutlined />, label: "Abonados Seguridad", section: "security_subscriptions" },
   { key: "/security/alerts",      icon: <BellOutlined />,   label: "Alertas Seguridad",  section: "security_alerts" },
   { key: "/security/entry-secure",icon: <SafetyOutlined />,        label: "Entrada Segura",     section: "security_entry_sessions" },
-  { key: "/security/events",      icon: <UnorderedListOutlined />, label: "Historial Eventos",  section: "security_events" },
+  { key: "/security/events",        icon: <UnorderedListOutlined />,  label: "Historial Eventos",   section: "security_events" },
+  { key: "/security/neighborhood",  icon: <UsergroupAddOutlined />,   label: "Grupos Vecinales",    section: "security_neighborhood" },
   { key: "/help",       icon: <QuestionCircleOutlined />, label: "Ayuda",          section: null, adminOnly: false },
 ];
 

@@ -207,6 +207,20 @@ export interface SecurityCertificate {
   download_url: string;
 }
 
+export interface NeighborhoodGroup {
+  id: number;
+  name: string;
+  telegram_group_id: string;
+  description?: string;
+  member_count: number;
+}
+
+export interface NeighborhoodMembership {
+  id: number;
+  group_id: number;
+  subscription_id: number;
+}
+
 export interface BeatAccountStatus {
   account_id: string;
   armed?: boolean;

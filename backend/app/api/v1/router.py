@@ -9,6 +9,7 @@ from app.api.v1.endpoints.security import (
     entry_sessions as sec_entry_sessions,
     events as sec_events,
     members as sec_members,
+    neighborhood as sec_neighborhood,
     pins as sec_pins,
     plans as sec_plans,
     properties as sec_properties,
@@ -55,3 +56,4 @@ api_router.include_router(sec_plans.router, prefix="/security/plans", tags=["sec
 api_router.include_router(sec_certificates.router, prefix="/security/subscriptions", tags=["security"])
 api_router.include_router(sec_certificates.public_router, prefix="/security/certificates", tags=["security"])
 api_router.include_router(sec_elderly.router, prefix="/security/subscriptions", tags=["security"])
+api_router.include_router(sec_neighborhood.router, prefix="/security/neighborhood-groups", tags=["security"])
