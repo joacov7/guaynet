@@ -137,7 +137,8 @@ export default function ScheduleModal({
       )}
       <Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 12 }}>
         Se genera una alerta si la alarma se desarma fuera del horario (más la tolerancia) o si sigue
-        desarmada después del cierre. Los días marcados como cerrados no admiten desarmes. Hora de Argentina.
+        desarmada después del cierre. Si pasada la apertura (más la tolerancia) la alarma sigue armada, se le
+        avisa al dueño por Telegram. Los días marcados como cerrados no admiten desarmes. Hora de Argentina.
       </Text>
       {isLoading ? (
         <Spin />

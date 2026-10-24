@@ -1018,6 +1018,8 @@ def check_schedule_closing(self):
     Every 5 minutes: for subscriptions with schedule_alerts, raise one
     SCHEDULE_VIOLATION per day if the alarm is still disarmed after the
     closing time + tolerance. The arm state is the latest armed/disarmed event.
+    Also tells the owner (Telegram only, no alert) once per day when the alarm
+    is still armed after opening time + tolerance ("no abrió a horario").
     """
     async def _execute():
         from datetime import datetime, timezone
@@ -1027,11 +1029,29 @@ def check_schedule_closing(self):
         from app.models.security.event import SecurityEvent
         from app.models.security.subscription import SecuritySubscription, SecuritySubscriptionStatus
         from app.services.security.notifications import dispatch_alert
-        from app.services.security.schedule import AR_TZ, closing_deadline, schedules_by_subscription
+        from app.services.security.schedule import (
+            AR_TZ, closing_deadline, opening_window, schedules_by_subscription,
+        )
+        from app.services.telegram import send_telegram_to
 
         now = datetime.now(timezone.utc)
-        local_day = now.astimezone(AR_TZ).date().isoformat()
+        local_date = now.astimezone(AR_TZ).date()
+        local_day = local_date.isoformat()
         fired = 0
+        not_opened = 0
+
+        async def _arm_state(db, sub_id):
+            last = await db.execute(
+                select(SecurityEvent.event_type)
+                .where(
+                    SecurityEvent.subscription_id == sub_id,
+                    SecurityEvent.event_type.in_(["armed", "disarmed"]),
+                )
+                .order_by(SecurityEvent.occurred_at.desc())
+                .limit(1)
+            )
+            state = last.scalar_one_or_none()
+            return getattr(state, "value", state)
 
         async with AsyncSessionLocal() as db:
             active = await db.execute(
@@ -1042,6 +1062,26 @@ def check_schedule_closing(self):
             schedules = await schedules_by_subscription(db, [r[0] for r in active.all()])
 
             for sub_id, days in schedules.items():
+                window = opening_window(days, now)
+                if window is not None:
+                    day_row, open_deadline = window
+                    if day_row.not_opened_notified_on != local_date and await _arm_state(db, sub_id) == "armed":
+                        sub = await db.get(SecuritySubscription, sub_id)
+                        if sub and sub.client_telegram_id:
+                            try:
+                                await send_telegram_to(
+                                    sub.client_telegram_id,
+                                    "🕘 *El local todavía no abrió*\n"
+                                    f"La alarma sigue armada después del horario de apertura "
+                                    f"({day_row.open_time.strftime('%H:%M')}).",
+                                )
+                                not_opened += 1
+                            except Exception as exc:
+                                logger.warning("Not-opened notice failed for sub #%s: %s", sub_id, exc)
+                        day_row.not_opened_notified_on = local_date
+                        await db.commit()
+                    continue
+
                 deadline = closing_deadline(days, now)
                 if deadline is None or now < deadline:
                     continue
@@ -1053,18 +1093,7 @@ def check_schedule_closing(self):
                 if exists.scalar_one_or_none():
                     continue
 
-                last = await db.execute(
-                    select(SecurityEvent.event_type)
-                    .where(
-                        SecurityEvent.subscription_id == sub_id,
-                        SecurityEvent.event_type.in_(["armed", "disarmed"]),
-                    )
-                    .order_by(SecurityEvent.occurred_at.desc())
-                    .limit(1)
-                )
-                state = last.scalar_one_or_none()
-                state = getattr(state, "value", state)
-                if state != "disarmed":
+                if await _arm_state(db, sub_id) != "disarmed":
                     continue
 
                 alert = SecurityAlert(
@@ -1084,7 +1113,7 @@ def check_schedule_closing(self):
                 await db.commit()
                 fired += 1
 
-        return {"fired": fired}
+        return {"fired": fired, "not_opened_notices": not_opened}
 
     try:
         return _run(_execute())

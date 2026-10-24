@@ -6,6 +6,8 @@ Rules (Argentina local time, UTC-3, no DST):
 - A weekday without an enabled row is a closed day.
 - Disarming outside [open - tolerance, close + tolerance] is a violation.
 - Still disarmed after close + tolerance is a violation ("no se cerró").
+- Still armed after open + tolerance only notifies the owner ("no abrió"):
+  it is a business notice, not an emergency, so it creates no alert.
 Schedules only apply when the subscription has at least one row configured.
 """
 from datetime import datetime, time, timedelta, timezone
@@ -64,6 +66,23 @@ def disarm_violation(days: Dict[int, SecuritySchedule], when: datetime) -> Optio
         return f"Desarmado a las {hhmm}, antes de la apertura ({day.open_time.strftime('%H:%M')})"
     if local > end:
         return f"Desarmado a las {hhmm}, después del cierre ({day.close_time.strftime('%H:%M')})"
+    return None
+
+
+def opening_window(days: Dict[int, SecuritySchedule], now: datetime):
+    """
+    (schedule_row, deadline) if `now` is between open + tolerance and close on an
+    open day — i.e. the business should already be open — else None.
+    """
+    local = now.astimezone(AR_TZ)
+    day = days.get(local.weekday())
+    if day is None or not day.enabled:
+        return None
+    tol = timedelta(minutes=day.tolerance_minutes or 0)
+    deadline = datetime.combine(local.date(), day.open_time, tzinfo=AR_TZ) + tol
+    close = datetime.combine(local.date(), day.close_time, tzinfo=AR_TZ)
+    if deadline <= local < close:
+        return day, deadline
     return None
 
 
