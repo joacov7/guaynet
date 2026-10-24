@@ -20,9 +20,10 @@ import {
   Typography,
   message,
 } from "antd";
-import { BarChartOutlined, CalendarOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, TeamOutlined, ToolOutlined } from "@ant-design/icons";
+import { BarChartOutlined, CalendarOutlined, ClockCircleOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, TeamOutlined, ToolOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
+import ScheduleModal from "./ScheduleModal";
 import { subscriptionsApi, pinsApi, certificatesApi, elderlyApi, monthlyReportsApi, vacationApi } from "@/services/security/api";
 import type { ElderlyConfig, MonthlyReport, VacationMode } from "@/types/security";
 import type { SecuritySubscription, SecurityFeatureName } from "@/types/security";
@@ -73,6 +74,7 @@ export default function SecuritySubscriptions() {
   const [elderlyModal, setElderlyModal] = useState<SecuritySubscription | null>(null);
   const [reportsModal, setReportsModal] = useState<SecuritySubscription | null>(null);
   const [vacationModal, setVacationModal] = useState<SecuritySubscription | null>(null);
+  const [scheduleModal, setScheduleModal] = useState<SecuritySubscription | null>(null);
   const [vacationForm] = Form.useForm();
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
@@ -374,6 +376,13 @@ export default function SecuritySubscriptions() {
               onClick={() => {
                 setElderlyModal(r);
               }}
+            />
+          </Tooltip>
+          <Tooltip title="Horario comercial">
+            <Button
+              size="small"
+              icon={<ClockCircleOutlined />}
+              onClick={() => setScheduleModal(r)}
             />
           </Tooltip>
           <Tooltip title="Modo ausencia / viaje">
@@ -761,6 +770,8 @@ export default function SecuritySubscriptions() {
           />
         )}
       </Modal>
+
+      <ScheduleModal subscription={scheduleModal} onClose={() => setScheduleModal(null)} />
 
       {/* Vacation mode modal */}
       <Modal

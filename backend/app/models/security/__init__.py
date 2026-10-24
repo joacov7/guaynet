@@ -14,6 +14,7 @@ from app.models.security.member import PropertyMember, PropertyMemberRole, Emerg
 from app.models.security.pin import PinCredential, PinType, SafeWord
 from app.models.security.contract import SecurityContract, VacationMode
 from app.models.security.report import SecurityMonthlyReport, SecurityMonthlyReportStatus
+from app.models.security.schedule import SecuritySchedule
 
 __all__ = [
     "Property", "PropertyType",
@@ -29,4 +30,5 @@ __all__ = [
     "PinCredential", "PinType", "SafeWord",
     "SecurityContract", "VacationMode",
     "SecurityMonthlyReport", "SecurityMonthlyReportStatus",
+    "SecuritySchedule",
 ]

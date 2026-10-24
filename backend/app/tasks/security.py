@@ -210,6 +210,9 @@ def poll_beat_events(self):
             )
             vacation_sub_ids: set[int] = {row[0] for row in vm_result.all()}
 
+            from app.services.security.schedule import disarm_violation, schedules_by_subscription
+            schedules = await schedules_by_subscription(db, [s.id for s in subscriptions])
+
         for sub in subscriptions:
             try:
                 beat_events = await asyncio.to_thread(
@@ -259,6 +262,26 @@ def poll_beat_events(self):
                     # Real-time power failure / restoration notification
                     if beat_evt.event_type.value in _POWER_EVENT_TYPES:
                         await _notify_power_event(db, sub.id, beat_evt.event_type.value)
+
+                    # Commercial schedule: disarming outside opening hours
+                    if beat_evt.event_type.value == "disarmed" and sub.id in schedules:
+                        reason = disarm_violation(schedules[sub.id], beat_evt.occurred_at)
+                        if reason:
+                            alert = SecurityAlert(
+                                subscription_id=sub.id,
+                                source_event_id=event.id,
+                                alert_type=SecurityAlertType.SCHEDULE_VIOLATION,
+                                status=SecurityAlertStatus.new,
+                                triggered_at=now,
+                                idempotency_key=f"schedule_disarm:{ikey}",
+                                operator_notes=reason,
+                            )
+                            db.add(alert)
+                            event.processed = True
+                            new_alerts += 1
+                            await db.flush()
+                            from app.services.security.notifications import dispatch_alert
+                            await dispatch_alert(alert, db)
 
                     # Generate alert for actionable event types (including vacation-elevated ones)
                     in_vacation = sub.id in vacation_sub_ids
@@ -981,4 +1004,90 @@ def expire_vacation_modes(self):
         return _run(_execute())
     except Exception as exc:
         logger.error("expire_vacation_modes failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="app.tasks.security.check_schedule_closing",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,
+)
+def check_schedule_closing(self):
+    """
+    Every 5 minutes: for subscriptions with schedule_alerts, raise one
+    SCHEDULE_VIOLATION per day if the alarm is still disarmed after the
+    closing time + tolerance. The arm state is the latest armed/disarmed event.
+    """
+    async def _execute():
+        from datetime import datetime, timezone
+        from sqlalchemy import select
+        from app.core.database import AsyncSessionLocal
+        from app.models.security.alert import SecurityAlert, SecurityAlertStatus, SecurityAlertType
+        from app.models.security.event import SecurityEvent
+        from app.models.security.subscription import SecuritySubscription, SecuritySubscriptionStatus
+        from app.services.security.notifications import dispatch_alert
+        from app.services.security.schedule import AR_TZ, closing_deadline, schedules_by_subscription
+
+        now = datetime.now(timezone.utc)
+        local_day = now.astimezone(AR_TZ).date().isoformat()
+        fired = 0
+
+        async with AsyncSessionLocal() as db:
+            active = await db.execute(
+                select(SecuritySubscription.id).where(
+                    SecuritySubscription.status == SecuritySubscriptionStatus.active
+                )
+            )
+            schedules = await schedules_by_subscription(db, [r[0] for r in active.all()])
+
+            for sub_id, days in schedules.items():
+                deadline = closing_deadline(days, now)
+                if deadline is None or now < deadline:
+                    continue
+
+                ikey = f"schedule_not_closed:{sub_id}:{local_day}"
+                exists = await db.execute(
+                    select(SecurityAlert.id).where(SecurityAlert.idempotency_key == ikey)
+                )
+                if exists.scalar_one_or_none():
+                    continue
+
+                last = await db.execute(
+                    select(SecurityEvent.event_type)
+                    .where(
+                        SecurityEvent.subscription_id == sub_id,
+                        SecurityEvent.event_type.in_(["armed", "disarmed"]),
+                    )
+                    .order_by(SecurityEvent.occurred_at.desc())
+                    .limit(1)
+                )
+                state = last.scalar_one_or_none()
+                state = getattr(state, "value", state)
+                if state != "disarmed":
+                    continue
+
+                alert = SecurityAlert(
+                    subscription_id=sub_id,
+                    alert_type=SecurityAlertType.SCHEDULE_VIOLATION,
+                    status=SecurityAlertStatus.new,
+                    triggered_at=now,
+                    idempotency_key=ikey,
+                    operator_notes=(
+                        f"La alarma sigue desarmada después del cierre "
+                        f"({deadline.strftime('%H:%M')} con tolerancia)"
+                    ),
+                )
+                db.add(alert)
+                await db.flush()
+                await dispatch_alert(alert, db)
+                await db.commit()
+                fired += 1
+
+        return {"fired": fired}
+
+    try:
+        return _run(_execute())
+    except Exception as exc:
+        logger.error("check_schedule_closing failed: %s", exc)
         raise self.retry(exc=exc)

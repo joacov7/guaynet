@@ -179,6 +179,14 @@ export interface PropertyMember {
   status: string;
 }
 
+export interface ScheduleDay {
+  weekday: number;      // 0 = lunes … 6 = domingo
+  open_time: string;    // HH:MM:SS
+  close_time: string;   // HH:MM:SS
+  tolerance_minutes: number;
+  enabled: boolean;
+}
+
 export interface DeviceZone {
   id?: number;
   zone_number: number;

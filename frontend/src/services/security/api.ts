@@ -253,6 +253,16 @@ export const devicesApi = {
     api.put(`/security/devices/${id}/zones`, zones).then((r) => r.data),
 };
 
+// ── Opening schedule ──────────────────────────────────────────────────────
+
+export const scheduleApi = {
+  get: (subscription_id: number): Promise<import("../../types/security").ScheduleDay[]> =>
+    api.get(`/security/subscriptions/${subscription_id}/schedule`).then((r) => r.data),
+
+  replace: (subscription_id: number, days: import("../../types/security").ScheduleDay[]): Promise<import("../../types/security").ScheduleDay[]> =>
+    api.put(`/security/subscriptions/${subscription_id}/schedule`, days).then((r) => r.data),
+};
+
 // ── Vacation mode ─────────────────────────────────────────────────────────
 
 export const vacationApi = {

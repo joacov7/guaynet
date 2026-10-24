@@ -102,6 +102,11 @@ celery_app.conf.update(
             "schedule": crontab(minute="*/15", hour="7-11"),  # every 15min between 7am-11am AR
             "options": {"queue": "critical"},
         },
+        "check-schedule-closing": {
+            "task": "app.tasks.security.check_schedule_closing",
+            "schedule": crontab(minute="*/5"),
+            "options": {"queue": "critical"},
+        },
         "expire-vacation-modes": {
             "task": "app.tasks.security.expire_vacation_modes",
             "schedule": crontab(hour=0, minute=5),  # daily at 00:05

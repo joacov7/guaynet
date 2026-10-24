@@ -79,6 +79,8 @@ def _build_message(alert: "SecurityAlert", property_name: str, for_client: bool)
     if for_client:
         lines.append("\n_¿Podés confirmarnos que estás bien?_")
     else:
+        if alert.operator_notes:
+            lines.append(f"*Detalle:* {alert.operator_notes}")
         lines.append(f"*Estado:* nuevo")
     return "\n".join(lines)
 
