@@ -34,6 +34,7 @@ import SecurityAlerts from "@/pages/security/SecurityAlerts";
 import SecuritySubscriptions from "@/pages/security/SecuritySubscriptions";
 import SecurityEvents from "@/pages/security/SecurityEvents";
 import SecurityNeighborhood from "@/pages/security/SecurityNeighborhood";
+import SecurityMembers from "@/pages/security/SecurityMembers";
 import EntrySecure from "@/pages/security/EntrySecure";
 import TechLayout from "@/pages/tech/TechLayout";
 import TechLogin from "@/pages/tech/TechLogin";
@@ -103,6 +104,7 @@ export default function App() {
           <Route path="security/entry-secure" element={<EntrySecure />} />
           <Route path="security/events" element={<SecurityEvents />} />
           <Route path="security/neighborhood" element={<SecurityNeighborhood />} />
+          <Route path="security/members" element={<SecurityMembers />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
         </Route>

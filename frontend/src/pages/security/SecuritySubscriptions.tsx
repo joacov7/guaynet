@@ -20,8 +20,9 @@ import {
   Typography,
   message,
 } from "antd";
-import { DeleteOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, PlusOutlined, SettingOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, PlusOutlined, SettingOutlined, TeamOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
+import { useNavigate } from "react-router-dom";
 import { subscriptionsApi, pinsApi, certificatesApi, elderlyApi } from "@/services/security/api";
 import type { ElderlyConfig } from "@/types/security";
 import type { SecuritySubscription, SecurityFeatureName } from "@/types/security";
@@ -64,6 +65,7 @@ const featureLabels: Record<SecurityFeatureName, string> = {
 
 export default function SecuritySubscriptions() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
   const [featuresModal, setFeaturesModal] = useState<SecuritySubscription | null>(null);
   const [editModal, setEditModal] = useState<SecuritySubscription | null>(null);
@@ -250,6 +252,13 @@ export default function SecuritySubscriptions() {
           >
             PINs
           </Button>
+          <Tooltip title="Miembros de la propiedad">
+            <Button
+              size="small"
+              icon={<TeamOutlined />}
+              onClick={() => navigate(`/security/members?property_id=${r.property_id}`)}
+            />
+          </Tooltip>
           <Tooltip title="Check-in adultos mayores">
             <Button
               size="small"

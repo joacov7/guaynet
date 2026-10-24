@@ -159,6 +159,34 @@ export const pinsApi = {
       .then(() => undefined),
 };
 
+// ── Members ────────────────────────────────────────────────────────────────
+
+export const membersApi = {
+  list: (property_id: number, include_revoked = false): Promise<import("../../types/security").PropertyMember[]> =>
+    api.get("/security/members/", { params: { property_id, include_revoked } }).then((r) => r.data),
+
+  create: (data: {
+    property_id: number;
+    name: string;
+    phone?: string;
+    email?: string;
+    role: import("../../types/security").PropertyMemberRole;
+    can_arm: boolean;
+    can_disarm: boolean;
+    can_invite: boolean;
+    can_view_cameras: boolean;
+    notify_on_alarm: boolean;
+    notify_on_entry: boolean;
+  }): Promise<import("../../types/security").PropertyMember> =>
+    api.post("/security/members/", data).then((r) => r.data),
+
+  update: (id: number, data: Partial<import("../../types/security").PropertyMember>): Promise<import("../../types/security").PropertyMember> =>
+    api.patch(`/security/members/${id}`, data).then((r) => r.data),
+
+  revoke: (id: number): Promise<import("../../types/security").PropertyMember> =>
+    api.delete(`/security/members/${id}`).then((r) => r.data),
+};
+
 // ── Neighborhood Groups ────────────────────────────────────────────────────
 
 export const neighborhoodApi = {
