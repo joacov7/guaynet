@@ -32,7 +32,7 @@ from app.models.security import (  # noqa: F401
     EntrySession, EntrySessionStatus,
     PropertyMember, PropertyMemberRole, EmergencyContact,
     PinCredential, PinType, SafeWord,
-    SecurityContract, VacationMode,
+    SecurityContract, SecurityContractTemplate, VacationMode,
     SecurityMonthlyReport, SecurityMonthlyReportStatus,
 )
 

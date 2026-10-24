@@ -12,7 +12,7 @@ from app.models.security.alert import SecurityAlert, SecurityAlertType, Security
 from app.models.security.entry_session import EntrySession, EntrySessionStatus
 from app.models.security.member import PropertyMember, PropertyMemberRole, EmergencyContact
 from app.models.security.pin import PinCredential, PinType, SafeWord
-from app.models.security.contract import SecurityContract, VacationMode
+from app.models.security.contract import SecurityContract, SecurityContractTemplate, VacationMode
 from app.models.security.report import SecurityMonthlyReport, SecurityMonthlyReportStatus
 from app.models.security.schedule import SecuritySchedule
 
@@ -28,7 +28,7 @@ __all__ = [
     "EntrySession", "EntrySessionStatus",
     "PropertyMember", "PropertyMemberRole", "EmergencyContact",
     "PinCredential", "PinType", "SafeWord",
-    "SecurityContract", "VacationMode",
+    "SecurityContract", "SecurityContractTemplate", "VacationMode",
     "SecurityMonthlyReport", "SecurityMonthlyReportStatus",
     "SecuritySchedule",
 ]

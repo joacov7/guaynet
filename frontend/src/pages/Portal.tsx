@@ -14,6 +14,8 @@ import {
   Descriptions,
   Form,
   Input,
+  Checkbox,
+  Modal,
   Progress,
   Result,
   Row,
@@ -30,6 +32,7 @@ import {
   ArrowUpOutlined,
   CalendarOutlined,
   CheckCircleOutlined,
+  FileProtectOutlined,
   ExclamationCircleOutlined,
   SafetyOutlined,
   ThunderboltOutlined,
@@ -85,6 +88,12 @@ interface SecurityData {
     event_count: number;
     alert_count: number;
   } | null;
+}
+
+interface ContractState {
+  enabled: boolean;
+  template?: { version: string; title: string; body: string; body_hash: string } | null;
+  accepted?: { accepted_at: string; signer_name?: string; has_pdf: boolean } | null;
 }
 
 interface SpeedResult {
@@ -242,6 +251,12 @@ export default function Portal() {
   const [showVacationForm, setShowVacationForm] = useState(false);
   const [showCancelPin, setShowCancelPin] = useState(false);
   const [cancelPin, setCancelPin] = useState("");
+
+  const [contract, setContract] = useState<ContractState | null>(null);
+  const [signOpen, setSignOpen] = useState(false);
+  const [signLoading, setSignLoading] = useState(false);
+  const [signError, setSignError] = useState<string | null>(null);
+  const [signForm] = Form.useForm();
   const [vacationForm] = Form.useForm();
 
   const [testing, setTesting] = useState(false);
@@ -284,7 +299,41 @@ export default function Portal() {
         .then((r) => setVacation(r.data))
         .catch(() => {});
     }
+
+    loadContract();
   }, [portalToken]);
+
+  function loadContract() {
+    axios
+      .get<ContractState>("/api/v1/portal/security/contract", { params: portalToken ? { token: portalToken } : {} })
+      .then((r) => setContract(r.data))
+      .catch(() => setContract(null));
+  }
+
+  async function signContract({ full_name, dni, pin }: { full_name: string; dni: string; pin: string }) {
+    if (!contract?.template) return;
+    setSignLoading(true);
+    setSignError(null);
+    try {
+      await axios.post("/api/v1/portal/security/contract/accept", {
+        full_name,
+        dni,
+        pin,
+        document_hash: contract.template.body_hash,
+        ...(portalToken ? { token: portalToken } : {}),
+      });
+      setSignOpen(false);
+      signForm.resetFields();
+      loadContract();
+    } catch (e: any) {
+      const d = e.response?.data?.detail;
+      setSignError(Array.isArray(d) ? d[0]?.msg?.replace("Value error, ", "") : d ?? "No se pudo firmar el contrato");
+      signForm.setFieldValue("pin", "");
+      if (e.response?.status === 409) loadContract();
+    } finally {
+      setSignLoading(false);
+    }
+  }
 
   async function activateVacation(values: { start_date: dayjs.Dayjs; end_date: dayjs.Dayjs }) {
     setVacationLoading(true);
@@ -609,7 +658,7 @@ export default function Portal() {
               )
             }
           >
-            <Descriptions column={2} size="small" style={{ marginBottom: 12 }}>
+            <Descriptions column={{ xs: 1, sm: 2 }} size="small" style={{ marginBottom: 12 }}>
               <Descriptions.Item label="Propiedad">{security.subscription.property_name}</Descriptions.Item>
               <Descriptions.Item label="Plan">{security.subscription.plan_name}</Descriptions.Item>
               <Descriptions.Item label="Estado">
@@ -785,6 +834,42 @@ export default function Portal() {
               </div>
             )}
 
+            {/* Electronic contract */}
+            {contract?.enabled && contract.template && (
+              <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12, marginTop: 12 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <Text strong><FileProtectOutlined /> Contrato</Text>
+                  {contract.accepted ? (
+                    <Space size={8} wrap>
+                      <Tag color="green">Firmado el {dayjs(contract.accepted.accepted_at).format("DD/MM/YYYY")}</Tag>
+                      {contract.accepted.has_pdf && (
+                        <a
+                          href={`/api/v1/portal/security/contract/pdf${portalToken ? `?token=${encodeURIComponent(portalToken)}` : ""}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Descargar copia
+                        </a>
+                      )}
+                    </Space>
+                  ) : (
+                    <Tag color="gold">Pendiente de firma</Tag>
+                  )}
+                </div>
+                {!contract.accepted && (
+                  <div style={{ marginTop: 8 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {contract.template.title} (versión {contract.template.version}). Leelo y firmalo con el PIN de tu alarma.
+                    </Text>
+                    <br />
+                    <Button size="small" type="primary" style={{ marginTop: 8 }} onClick={() => { setSignError(null); setSignOpen(true); }}>
+                      Leer y firmar
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Last report */}
             {security.last_report && (
               <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12, marginTop: 12 }}>
@@ -796,6 +881,66 @@ export default function Portal() {
           </Card>
         </>
       )}
+
+      <Modal
+        open={signOpen && !!contract?.template}
+        title={contract?.template ? `${contract.template.title} — versión ${contract.template.version}` : ""}
+        onCancel={() => setSignOpen(false)}
+        footer={null}
+        width={720}
+      >
+        {contract?.template && (
+          <>
+            <div
+              style={{
+                whiteSpace: "pre-wrap",
+                maxHeight: "45vh",
+                overflow: "auto",
+                fontSize: 13,
+                border: "1px solid #f0f0f0",
+                borderRadius: 6,
+                padding: 12,
+                marginBottom: 16,
+              }}
+            >
+              {contract.template.body}
+            </div>
+            {signError && <Alert type="error" showIcon message={signError} style={{ marginBottom: 12 }} />}
+            <Form form={signForm} layout="vertical" onFinish={signContract} requiredMark={false}>
+              <Row gutter={12}>
+                <Col xs={24} sm={14}>
+                  <Form.Item name="full_name" label="Nombre y apellido" rules={[{ required: true, min: 3, message: "Ingresá tu nombre completo" }]}>
+                    <Input maxLength={150} autoComplete="name" />
+                  </Form.Item>
+                </Col>
+                <Col xs={24} sm={10}>
+                  <Form.Item name="dni" label="DNI" rules={[{ required: true, message: "Ingresá tu DNI" }]}>
+                    <Input inputMode="numeric" maxLength={11} />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Form.Item name="pin" label="PIN de tu alarma" rules={[{ required: true, message: "Ingresá el PIN" }]}>
+                <Input.Password inputMode="numeric" autoComplete="off" maxLength={12} style={{ maxWidth: 200 }} />
+              </Form.Item>
+              <Form.Item
+                name="agree"
+                valuePropName="checked"
+                rules={[{ validator: (_, v) => (v ? Promise.resolve() : Promise.reject(new Error("Tenés que aceptar el contrato"))) }]}
+              >
+                <Checkbox>Leí el contrato completo y lo acepto.</Checkbox>
+              </Form.Item>
+              <Text type="secondary" style={{ fontSize: 11, display: "block", marginBottom: 12 }}>
+                Se registrarán tu nombre, DNI, la fecha, tu dirección IP y una huella del texto aceptado.
+                Vas a poder descargar una copia en PDF.
+              </Text>
+              <Space>
+                <Button type="primary" htmlType="submit" loading={signLoading}>Firmar contrato</Button>
+                <Button onClick={() => setSignOpen(false)}>Cancelar</Button>
+              </Space>
+            </Form>
+          </>
+        )}
+      </Modal>
 
       <div style={{ textAlign: "center", marginTop: 24 }}>
         <Text type="secondary" style={{ fontSize: 12 }}>Guaynet WISP — Portal del cliente</Text>

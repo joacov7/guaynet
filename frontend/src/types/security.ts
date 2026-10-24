@@ -179,6 +179,29 @@ export interface PropertyMember {
   status: string;
 }
 
+export interface ContractTemplate {
+  id: number;
+  version: string;
+  title: string;
+  body: string;
+  body_hash: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface ContractAcceptance {
+  id: number;
+  subscription_id: number;
+  version: string;
+  accepted_at: string;
+  signer_name?: string;
+  signer_dni?: string;
+  acceptance_ip?: string;
+  document_hash?: string;
+  method?: string;
+  has_pdf: boolean;
+}
+
 export interface ScheduleDay {
   weekday: number;      // 0 = lunes … 6 = domingo
   open_time: string;    // HH:MM:SS

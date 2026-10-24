@@ -4,6 +4,7 @@ from app.api.v1.endpoints import admin, alarms, auth, clients, dashboard, expens
 from app.api.v1.endpoints.security import (
     alerts as sec_alerts,
     certificates as sec_certificates,
+    contracts as sec_contracts,
     dashboard as sec_dashboard,
     devices as sec_devices,
     elderly as sec_elderly,
@@ -63,3 +64,4 @@ api_router.include_router(sec_elderly.router, prefix="/security/subscriptions", 
 api_router.include_router(sec_neighborhood.router, prefix="/security/neighborhood-groups", tags=["security"])
 api_router.include_router(sec_monthly_reports.router, prefix="/security/subscriptions", tags=["security"])
 api_router.include_router(sec_schedule.router, prefix="/security/subscriptions", tags=["security"])
+api_router.include_router(sec_contracts.router, prefix="/security/contracts", tags=["security"])

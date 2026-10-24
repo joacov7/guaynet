@@ -253,6 +253,25 @@ export const devicesApi = {
     api.put(`/security/devices/${id}/zones`, zones).then((r) => r.data),
 };
 
+// ── Contracts ─────────────────────────────────────────────────────────────
+
+export const contractsApi = {
+  listTemplates: (): Promise<import("../../types/security").ContractTemplate[]> =>
+    api.get("/security/contracts/templates").then((r) => r.data),
+
+  createTemplate: (data: { version: string; title: string; body: string }): Promise<import("../../types/security").ContractTemplate> =>
+    api.post("/security/contracts/templates", data).then((r) => r.data),
+
+  activateTemplate: (id: number): Promise<import("../../types/security").ContractTemplate> =>
+    api.post(`/security/contracts/templates/${id}/activate`).then((r) => r.data),
+
+  listAcceptances: (subscription_id?: number): Promise<import("../../types/security").ContractAcceptance[]> =>
+    api.get("/security/contracts/acceptances", { params: { subscription_id } }).then((r) => r.data),
+
+  downloadPdf: (id: number): Promise<Blob> =>
+    api.get(`/security/contracts/acceptances/${id}/pdf`, { responseType: "blob" }).then((r) => r.data),
+};
+
 // ── Opening schedule ──────────────────────────────────────────────────────
 
 export const scheduleApi = {

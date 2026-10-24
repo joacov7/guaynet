@@ -29,6 +29,7 @@ import {
   UnorderedListOutlined,
   UsergroupAddOutlined,
   UserSwitchOutlined,
+  FileProtectOutlined,
 } from "@ant-design/icons";
 import { usePermissions } from "@/contexts/PermissionsContext";
 
@@ -65,6 +66,7 @@ const ALL_ITEMS = [
   { key: "/security/events",        icon: <UnorderedListOutlined />,  label: "Historial Eventos",   section: "security_events" },
   { key: "/security/neighborhood",  icon: <UsergroupAddOutlined />,   label: "Grupos Vecinales",    section: "security_neighborhood" },
   { key: "/security/members",       icon: <UserSwitchOutlined />,     label: "Miembros",            section: "security_members" },
+  { key: "/security/contracts",       icon: <FileProtectOutlined />,     label: "Contratos",           section: "security_subscriptions" },
   { key: "/help",       icon: <QuestionCircleOutlined />, label: "Ayuda",          section: null, adminOnly: false },
 ];
 

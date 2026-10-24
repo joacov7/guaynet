@@ -17,6 +17,7 @@ from app.core.deps import get_db
 from app.models.client import Client
 from app.models.invoice import Invoice
 from app.models.plan import Plan
+from app.services.security.contracts import AcceptRequest as ContractAcceptRequest
 
 router = APIRouter()
 
@@ -532,3 +533,107 @@ async def portal_cancel_vacation(
         await dispatch_alert(alert, db)
 
     return {"cancelled": True, "id": cancelled.id}
+
+
+# ── Electronic contract ───────────────────────────────────────────────────────
+
+@router.get("/security/contract")
+async def portal_get_contract(
+    request: Request,
+    token: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Active contract text and whether this subscription already accepted it."""
+    from app.services.security.contracts import get_acceptance, get_active_template
+
+    sub = await _resolve_portal_subscription(token, request, db)
+    if not sub.has_feature("digital_contract"):
+        return {"enabled": False}
+
+    tpl = await get_active_template(db)
+    if tpl is None:
+        return {"enabled": True, "template": None, "accepted": None}
+
+    acc = await get_acceptance(db, sub.id, tpl.version)
+    return {
+        "enabled": True,
+        "template": {
+            "version": tpl.version,
+            "title": tpl.title,
+            "body": tpl.body,
+            "body_hash": tpl.body_hash,
+        },
+        "accepted": {
+            "accepted_at": acc.accepted_at,
+            "signer_name": acc.signer_name,
+            "has_pdf": bool(acc.pdf_path),
+        } if acc else None,
+    }
+
+
+@router.post("/security/contract/accept")
+async def portal_accept_contract(
+    body: ContractAcceptRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Accept the active contract. Identity is confirmed with the alarm PIN.
+    A duress PIN records the acceptance normally but raises a silent DURESS alert.
+    """
+    from datetime import datetime, timezone
+    from app.models.security.alert import SecurityAlert, SecurityAlertStatus, SecurityAlertType
+    from app.models.security.pin import PinType
+    from app.services.security.contracts import accept_contract
+    from app.services.security.notifications import dispatch_alert
+    from app.services.security.pins import verify_owner_pin
+
+    sub = await _resolve_portal_subscription(body.token, request, db)
+    if not sub.has_feature("digital_contract"):
+        raise HTTPException(status_code=403, detail="El contrato electrónico no está habilitado en tu plan")
+
+    pin_type = await verify_owner_pin(db, sub.id, body.pin)
+    acc = await accept_contract(
+        db, sub.id, body,
+        ip=_client_ip(request),
+        user_agent=request.headers.get("User-Agent"),
+    )
+
+    if pin_type == PinType.duress:
+        alert = SecurityAlert(
+            subscription_id=sub.id,
+            alert_type=SecurityAlertType.DURESS,
+            status=SecurityAlertStatus.new,
+            triggered_at=datetime.now(timezone.utc),
+            idempotency_key=f"duress_contract:{acc.id}",
+            operator_notes="PIN de coacción usado al firmar el contrato desde el portal",
+        )
+        db.add(alert)
+        await db.commit()
+        await db.refresh(alert)
+        await dispatch_alert(alert, db)
+
+    return {"accepted_at": acc.accepted_at, "version": acc.version, "signer_name": acc.signer_name}
+
+
+@router.get("/security/contract/pdf")
+async def portal_contract_pdf(
+    request: Request,
+    token: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """Download the client's own signed copy of the active contract."""
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+    from app.services.security.contracts import get_acceptance, get_active_template
+
+    sub = await _resolve_portal_subscription(token, request, db)
+    tpl = await get_active_template(db)
+    acc = await get_acceptance(db, sub.id, tpl.version) if tpl else None
+    if acc is None or not acc.pdf_path or not Path(acc.pdf_path).is_file():
+        raise HTTPException(status_code=404, detail="No hay contrato firmado para descargar")
+    return FileResponse(
+        acc.pdf_path,
+        media_type="application/pdf",
+        filename=f"contrato_v{acc.version}.pdf",
+    )
