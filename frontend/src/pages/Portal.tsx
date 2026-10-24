@@ -25,7 +25,10 @@ import {
   ArrowDownOutlined,
   ArrowUpOutlined,
   CheckCircleOutlined,
+  ExclamationCircleOutlined,
+  SafetyOutlined,
   ThunderboltOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
 import axios from "axios";
 
@@ -54,6 +57,31 @@ interface PortalData {
   }[];
 }
 
+interface SecurityData {
+  has_subscription: boolean;
+  subscription?: {
+    id: number;
+    status: string;
+    plan_name: string;
+    beat_account_id?: string;
+    property_name: string;
+    property_address: string;
+    entry_secure_enabled: boolean;
+  };
+  active_alerts: number;
+  recent_events: {
+    event_type: string;
+    occurred_at: string;
+    zone_number?: number;
+    description?: string;
+  }[];
+  last_report?: {
+    period: string;
+    event_count: number;
+    alert_count: number;
+  } | null;
+}
+
 interface SpeedResult {
   download_mbps: number | null;
   upload_mbps: number | null;
@@ -64,6 +92,20 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   active: { label: "Activo", color: "green" },
   suspended: { label: "Suspendido", color: "orange" },
   cancelled: { label: "Cancelado", color: "red" },
+};
+
+const EVENT_LABELS: Record<string, string> = {
+  armed: "Armado", disarmed: "Desarmado", intrusion: "Intrusión",
+  battery_low: "Batería baja", power_failure: "Falla de energía",
+  power_restored: "Energía restaurada", communication_lost: "Sin señal",
+  tamper: "Manipulación", zone_open: "Zona abierta",
+  test: "Prueba", panic: "Pánico", duress: "Coacción", other: "Otro",
+};
+
+const EVENT_COLORS: Record<string, string> = {
+  intrusion: "red", panic: "red", duress: "red", tamper: "red",
+  armed: "blue", disarmed: "green", test: "default",
+  battery_low: "orange", power_failure: "orange", communication_lost: "orange",
 };
 
 const INVOICE_STATUS: Record<string, { label: string; color: string }> = {
@@ -182,6 +224,11 @@ export default function Portal() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState<string | null>(null);
 
+  const [security, setSecurity] = useState<SecurityData | null>(null);
+  const [entryLoading, setEntryLoading] = useState(false);
+  const [entryResult, setEntryResult] = useState<{ expires_at: string; duration_minutes: number } | null>(null);
+  const [entryError, setEntryError] = useState<string | null>(null);
+
   const [testing, setTesting] = useState(false);
   const [phase, setPhase] = useState<"idle" | "ping" | "download" | "upload" | "done">("idle");
   const [liveDown, setLiveDown] = useState<number | null>(null);
@@ -198,7 +245,29 @@ export default function Portal() {
       .then((r) => setData(r.data))
       .catch((e) => setNotFound(e.response?.data?.detail ?? "Error al cargar datos"))
       .finally(() => setLoading(false));
+
+    axios
+      .get<SecurityData>("/api/v1/portal/security")
+      .then((r) => setSecurity(r.data))
+      .catch(() => setSecurity(null));
   }, []);
+
+  async function startEntrySession() {
+    setEntryLoading(true);
+    setEntryError(null);
+    setEntryResult(null);
+    try {
+      const r = await axios.post<{ expires_at: string; duration_minutes: number }>(
+        "/api/v1/portal/security/entry-session",
+        { duration_minutes: 5 },
+      );
+      setEntryResult(r.data);
+    } catch (e: any) {
+      setEntryError(e.response?.data?.detail ?? "Error al iniciar sesión");
+    } finally {
+      setEntryLoading(false);
+    }
+  }
 
   async function runSpeedTest() {
     setTesting(true);
@@ -445,6 +514,122 @@ export default function Portal() {
             ]}
           />
         </Card>
+      )}
+
+      {/* Security section */}
+      {security?.has_subscription && security.subscription && (
+        <>
+          <Card
+            title={<span><SafetyOutlined /> Guaynet Seguridad</span>}
+            style={{ marginBottom: 16, marginTop: 16 }}
+            extra={
+              security.active_alerts > 0 ? (
+                <Tag color="red" icon={<WarningOutlined />}>
+                  {security.active_alerts} alerta{security.active_alerts > 1 ? "s" : ""} activa{security.active_alerts > 1 ? "s" : ""}
+                </Tag>
+              ) : (
+                <Tag color="green" icon={<CheckCircleOutlined />}>Sin alertas</Tag>
+              )
+            }
+          >
+            <Descriptions column={2} size="small" style={{ marginBottom: 12 }}>
+              <Descriptions.Item label="Propiedad">{security.subscription.property_name}</Descriptions.Item>
+              <Descriptions.Item label="Plan">{security.subscription.plan_name}</Descriptions.Item>
+              <Descriptions.Item label="Estado">
+                <Tag color={security.subscription.status === "active" ? "green" : "orange"}>
+                  {security.subscription.status === "active" ? "Activo" : security.subscription.status}
+                </Tag>
+              </Descriptions.Item>
+              {security.subscription.beat_account_id && (
+                <Descriptions.Item label="Cuenta monitoreo">
+                  {security.subscription.beat_account_id}
+                </Descriptions.Item>
+              )}
+            </Descriptions>
+
+            {/* Recent events */}
+            {security.recent_events.length > 0 && (
+              <>
+                <Text type="secondary" style={{ fontSize: 12 }}>Últimos eventos</Text>
+                <Table
+                  dataSource={security.recent_events}
+                  rowKey={(r) => r.occurred_at}
+                  size="small"
+                  pagination={false}
+                  style={{ marginTop: 6, marginBottom: 12 }}
+                  columns={[
+                    {
+                      title: "Tipo",
+                      dataIndex: "event_type",
+                      key: "event_type",
+                      render: (t: string) => (
+                        <Tag color={EVENT_COLORS[t] ?? "default"}>
+                          {EVENT_LABELS[t] ?? t}
+                        </Tag>
+                      ),
+                    },
+                    {
+                      title: "Fecha/Hora",
+                      dataIndex: "occurred_at",
+                      key: "occurred_at",
+                      render: (v: string) => new Date(v).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" }),
+                    },
+                    {
+                      title: "Zona",
+                      dataIndex: "zone_number",
+                      key: "zone_number",
+                      render: (v?: number) => v != null ? `Zona ${v}` : "—",
+                    },
+                  ]}
+                />
+              </>
+            )}
+
+            {/* Entry secure */}
+            {security.subscription.entry_secure_enabled && (
+              <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12 }}>
+                <div style={{ marginBottom: 8 }}>
+                  <Text strong>Entrada segura</Text>
+                  <br />
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Iniciá una cuenta regresiva de 5 minutos. Si no ingresás tu PIN en el teclado antes de que expire, se notifica a la central.
+                  </Text>
+                </div>
+                {entryResult ? (
+                  <Alert
+                    type="success"
+                    icon={<CheckCircleOutlined />}
+                    showIcon
+                    message={`Sesión activa — tenés ${entryResult.duration_minutes} min para ingresar tu PIN`}
+                    description={`Expira: ${new Date(entryResult.expires_at).toLocaleTimeString("es-AR")}`}
+                  />
+                ) : (
+                  <>
+                    {entryError && (
+                      <Alert type="error" message={entryError} showIcon style={{ marginBottom: 8 }} />
+                    )}
+                    <Button
+                      icon={<SafetyOutlined />}
+                      loading={entryLoading}
+                      onClick={startEntrySession}
+                    >
+                      Iniciar entrada segura
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Last report */}
+            {security.last_report && (
+              <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12, marginTop: 12 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Último reporte mensual ({security.last_report.period}): {security.last_report.event_count} eventos · {security.last_report.alert_count} alertas
+                </Text>
+              </div>
+            )}
+          </Card>
+        </>
       )}
 
       <div style={{ textAlign: "center", marginTop: 24 }}>
