@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Enum as SAEnum, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -38,3 +38,36 @@ class SecurityMonthlyReport(Base):
     test_count: Mapped[int] = mapped_column(Integer, default=0)
     visit_count: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+
+class SecurityWeeklyReport(Base):
+    """
+    Weekly status report sent to the client via Telegram.
+    Covers one ISO week (Mon–Sun). Idempotent: one record per subscription per week.
+    """
+    __tablename__ = "sec_weekly_reports"
+    __table_args__ = (
+        UniqueConstraint("subscription_id", "week_label", name="uq_sec_weekly_report"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subscription_id: Mapped[int] = mapped_column(
+        ForeignKey("sec_subscriptions.id"), index=True
+    )
+    # ISO week label, e.g. "2026-W43"
+    week_label: Mapped[str] = mapped_column(String(10), index=True)
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Activity counters for the week
+    event_count: Mapped[int] = mapped_column(Integer, default=0)
+    armed_count: Mapped[int] = mapped_column(Integer, default=0)
+    disarmed_count: Mapped[int] = mapped_column(Integer, default=0)
+    alert_count: Mapped[int] = mapped_column(Integer, default=0)
+    test_count: Mapped[int] = mapped_column(Integer, default=0)
+    battery_warning_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # JSON list of {zone_number, description} for battery_low events not yet restored
+    battery_warnings: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)

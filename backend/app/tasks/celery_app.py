@@ -87,6 +87,11 @@ celery_app.conf.update(
             "schedule": crontab(minute="*/2"),  # every 2 minutes while awaiting webhook support
             "options": {"queue": "critical"},
         },
+        "generate-weekly-security-reports": {
+            "task": "app.tasks.security.generate_weekly_reports",
+            "schedule": crontab(hour=8, minute=0, day_of_week=1),  # every Monday 8am
+            "options": {"queue": "low"},
+        },
         "generate-monthly-security-reports": {
             "task": "app.tasks.security.generate_monthly_reports",
             "schedule": crontab(hour=3, minute=0, day_of_month=2),

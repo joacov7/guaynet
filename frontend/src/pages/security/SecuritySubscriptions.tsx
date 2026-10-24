@@ -54,6 +54,7 @@ const featureLabels: Record<SecurityFeatureName, string> = {
   tech_survey:             "Encuesta técnica",
   event_history:           "Historial de eventos",
   monthly_report:          "Reporte mensual",
+  weekly_report:           "Reporte semanal",
   digital_contract:        "Contrato digital",
 };
 

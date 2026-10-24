@@ -38,6 +38,7 @@ class SecurityFeatureName(str, enum.Enum):
     tech_survey = "tech_survey"           # Encuesta post visita técnica
     event_history = "event_history"       # Historial de eventos para el cliente
     monthly_report = "monthly_report"     # Reporte mensual automático
+    weekly_report = "weekly_report"       # Reporte semanal de estado y baterías
     digital_contract = "digital_contract" # Firma digital del contrato
 
 

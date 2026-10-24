@@ -24,6 +24,7 @@ export type SecurityFeatureName =
   | "tech_survey"
   | "event_history"
   | "monthly_report"
+  | "weekly_report"
   | "digital_contract";
 
 export type SecurityAlertType =

@@ -316,6 +316,224 @@ def check_confirmation_timeouts(self):
 
 
 @celery_app.task(
+    name="app.tasks.security.generate_weekly_reports",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,
+)
+def generate_weekly_reports(self):
+    """
+    Generate and send weekly alarm status reports to clients every Monday at 8am.
+    Only runs for active subscriptions with the weekly_report feature enabled.
+    Reports battery warnings (pilas inalámbricas bajas) and weekly activity.
+    Idempotent: skips if the report for this ISO week already exists.
+    """
+    async def _execute():
+        from datetime import date, datetime, timezone, timedelta
+        from sqlalchemy import select, func, extract
+        from sqlalchemy.orm import selectinload
+        from app.core.database import AsyncSessionLocal
+        from app.models.security.subscription import (
+            SecuritySubscription, SecuritySubscriptionStatus, SecurityFeatureName,
+        )
+        from app.models.security.event import SecurityEvent, SecurityEventType
+        from app.models.security.alert import SecurityAlert
+        from app.models.security.report import SecurityWeeklyReport
+        from app.models.security.property import Property
+
+        today = date.today()
+        # ISO week: Monday = day 1. We report the just-completed week (Mon–Sun).
+        monday = today - timedelta(days=today.weekday())
+        sunday = monday + timedelta(days=6)
+        week_label = f"{monday.isocalendar()[0]}-W{monday.isocalendar()[1]:02d}"
+
+        period_start = datetime(monday.year, monday.month, monday.day, 0, 0, 0, tzinfo=timezone.utc)
+        period_end = datetime(sunday.year, sunday.month, sunday.day, 23, 59, 59, tzinfo=timezone.utc)
+
+        sent = 0
+        skipped = 0
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(SecuritySubscription)
+                .options(
+                    selectinload(SecuritySubscription.features),
+                    selectinload(SecuritySubscription.plan),
+                )
+                .where(SecuritySubscription.status == SecuritySubscriptionStatus.active)
+            )
+            subscriptions = result.scalars().all()
+
+            for sub in subscriptions:
+                if not sub.has_feature(SecurityFeatureName.weekly_report):
+                    continue
+
+                # Idempotency: skip if already sent this week
+                existing = await db.execute(
+                    select(SecurityWeeklyReport).where(
+                        SecurityWeeklyReport.subscription_id == sub.id,
+                        SecurityWeeklyReport.week_label == week_label,
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    skipped += 1
+                    continue
+
+                # Resolve property name
+                prop_result = await db.execute(
+                    select(Property.name).where(Property.id == sub.property_id)
+                )
+                prop_row = prop_result.first()
+                property_name = prop_row[0] if prop_row else f"Suscripción #{sub.id}"
+
+                # ── Event counts ───────────────────────────────────────────────
+                def _count_events(event_type=None):
+                    q = select(func.count()).select_from(SecurityEvent).where(
+                        SecurityEvent.subscription_id == sub.id,
+                        SecurityEvent.occurred_at >= period_start,
+                        SecurityEvent.occurred_at <= period_end,
+                    )
+                    if event_type:
+                        q = q.where(SecurityEvent.event_type == event_type)
+                    return q
+
+                event_count    = (await db.execute(_count_events())).scalar() or 0
+                armed_count    = (await db.execute(_count_events(SecurityEventType.armed.value))).scalar() or 0
+                disarmed_count = (await db.execute(_count_events(SecurityEventType.disarmed.value))).scalar() or 0
+                test_count     = (await db.execute(_count_events(SecurityEventType.test.value))).scalar() or 0
+
+                alert_count = (await db.execute(
+                    select(func.count()).select_from(SecurityAlert).where(
+                        SecurityAlert.subscription_id == sub.id,
+                        SecurityAlert.triggered_at >= period_start,
+                        SecurityAlert.triggered_at <= period_end,
+                    )
+                )).scalar() or 0
+
+                # ── Battery warnings ───────────────────────────────────────────
+                # battery_low events that don't have a matching battery_restored
+                # for the same zone within the same period.
+                battery_low_result = await db.execute(
+                    select(SecurityEvent).where(
+                        SecurityEvent.subscription_id == sub.id,
+                        SecurityEvent.event_type == SecurityEventType.battery_low.value,
+                        SecurityEvent.occurred_at >= period_start,
+                        SecurityEvent.occurred_at <= period_end,
+                    ).order_by(SecurityEvent.occurred_at)
+                )
+                battery_low_events = battery_low_result.scalars().all()
+
+                restored_zones = set()
+                restored_result = await db.execute(
+                    select(SecurityEvent.zone_number).where(
+                        SecurityEvent.subscription_id == sub.id,
+                        SecurityEvent.event_type == SecurityEventType.battery_restored.value,
+                        SecurityEvent.occurred_at >= period_start,
+                        SecurityEvent.occurred_at <= period_end,
+                    )
+                )
+                for row in restored_result:
+                    if row[0] is not None:
+                        restored_zones.add(row[0])
+
+                battery_warnings = []
+                seen_zones = set()
+                for ev in battery_low_events:
+                    zone = ev.zone_number
+                    if zone in restored_zones or zone in seen_zones:
+                        continue
+                    seen_zones.add(zone)
+                    battery_warnings.append({
+                        "zone_number": zone,
+                        "description": ev.description or f"Zona {zone}" if zone else "Zona desconocida",
+                    })
+
+                # ── Build and send Telegram message ────────────────────────────
+                now = datetime.now(timezone.utc)
+                start_str = monday.strftime("%d/%m")
+                end_str = sunday.strftime("%d/%m/%Y")
+
+                lines = [
+                    f"📊 *Reporte semanal de tu alarma*",
+                    f"*{property_name}*  |  {start_str} – {end_str}",
+                    "",
+                    "━━━━━━━━━━━━━━━",
+                ]
+
+                if battery_warnings:
+                    lines.append("🔋 *Baterías inalámbricas*")
+                    for w in battery_warnings:
+                        desc = w["description"]
+                        zone = w["zone_number"]
+                        label = f"Zona {zone} — {desc}" if zone else desc
+                        lines.append(f"  ⚠️ {label}")
+                    lines.append("")
+                else:
+                    lines.append("🔋 *Baterías:* ✅ Todas en buen estado")
+
+                lines += [
+                    "📡 *Actividad de la semana*",
+                    f"  Armados: {armed_count}  ·  Desarmados: {disarmed_count}",
+                    f"  Alarmas: {alert_count}  ·  Pruebas: {test_count}",
+                    f"  Eventos totales: {event_count}",
+                    "",
+                ]
+
+                if alert_count == 0 and not battery_warnings:
+                    lines.append("✅ *Tu sistema funcionó correctamente esta semana.*")
+                elif battery_warnings:
+                    lines.append("⚠️ *Revisá las baterías indicadas para mantener tu sistema activo.*")
+                else:
+                    lines.append("⚠️ *Hubo alertas esta semana. Revisá el historial en la app.*")
+
+                message = "\n".join(lines)
+                telegram_sent = False
+
+                try:
+                    if sub.client_telegram_id:
+                        from app.services.telegram import send_telegram_to
+                        await send_telegram_to(sub.client_telegram_id, message)
+                        telegram_sent = True
+                    elif sub.plan and sub.plan.includes_monitoring:
+                        from app.services.telegram import send_telegram
+                        await send_telegram(message)
+                        telegram_sent = True
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to send weekly report for subscription %d: %s", sub.id, exc
+                    )
+
+                # ── Save report record ─────────────────────────────────────────
+                report = SecurityWeeklyReport(
+                    subscription_id=sub.id,
+                    week_label=week_label,
+                    period_start=period_start,
+                    period_end=period_end,
+                    generated_at=now,
+                    sent_at=now if telegram_sent else None,
+                    event_count=event_count,
+                    armed_count=armed_count,
+                    disarmed_count=disarmed_count,
+                    alert_count=alert_count,
+                    test_count=test_count,
+                    battery_warning_count=len(battery_warnings),
+                    battery_warnings=battery_warnings or None,
+                )
+                db.add(report)
+                sent += 1
+
+            await db.commit()
+
+        return {"week": week_label, "sent": sent, "skipped": skipped}
+
+    try:
+        return _run(_execute())
+    except Exception as exc:
+        logger.error("generate_weekly_reports failed: %s", exc)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
     name="app.tasks.security.generate_monthly_reports",
     bind=True,
     max_retries=1,
