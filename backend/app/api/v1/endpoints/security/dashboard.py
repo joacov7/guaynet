@@ -24,7 +24,7 @@ async def security_dashboard(
     from app.models.security.event import SecurityEvent
     from app.models.security.property import Property
     from app.models.security.subscription import SecuritySubscription, SecuritySubscriptionStatus
-    from app.models.security.plan import SecurityPlan
+    from app.models.security.subscription import SecurityPlan
 
     now = datetime.now(timezone.utc)
     today = now.date()

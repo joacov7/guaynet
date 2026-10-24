@@ -13,7 +13,7 @@ async def list_panel_alerts(db: AsyncSession, limit: int = 100) -> List[AlertPan
     """Active alerts (new + acknowledged) enriched with property/subscription context."""
     from app.models.security.subscription import SecuritySubscription
     from app.models.security.property import Property
-    from app.models.security.plan import SecurityPlan
+    from app.models.security.subscription import SecurityPlan
     from app.models.security.event import SecurityEvent
     from app.services.security.devices import zone_names_for
 
