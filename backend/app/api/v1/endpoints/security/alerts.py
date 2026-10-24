@@ -4,10 +4,19 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.deps import get_current_user, get_db
 from app.models.security.alert import SecurityAlertStatus
-from app.schemas.security.alert import SecurityAlertResponse, SecurityAlertUpdate
+from app.schemas.security.alert import AlertPanelItem, SecurityAlertResponse, SecurityAlertUpdate
 from app.services.security import alerts as svc
 
 router = APIRouter()
+
+
+@router.get("/panel", response_model=List[AlertPanelItem])
+async def get_alert_panel(
+    _=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Active alerts enriched with property/subscription context for the operator panel."""
+    return await svc.list_panel_alerts(db)
 
 
 @router.get("/", response_model=List[SecurityAlertResponse])

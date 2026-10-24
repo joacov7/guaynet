@@ -2,11 +2,60 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.security.alert import SecurityAlert, SecurityAlertStatus
-from app.schemas.security.alert import SecurityAlertUpdate
+from app.models.security.alert import SecurityAlert, SecurityAlertStatus, SecurityAlertType
+from app.schemas.security.alert import AlertPanelItem, SecurityAlertUpdate
+
+
+async def list_panel_alerts(db: AsyncSession, limit: int = 100) -> List[AlertPanelItem]:
+    """Active alerts (new + acknowledged) enriched with property/subscription context."""
+    from app.models.security.subscription import SecuritySubscription
+    from app.models.security.property import Property
+    from app.models.security.plan import SecurityPlan
+
+    priority = case(
+        (SecurityAlert.alert_type == SecurityAlertType.PANIC, 0),
+        (SecurityAlert.alert_type == SecurityAlertType.DURESS, 1),
+        (SecurityAlert.alert_type == SecurityAlertType.INTRUSION, 2),
+        else_=3,
+    )
+
+    result = await db.execute(
+        select(
+            SecurityAlert,
+            Property.name.label("property_name"),
+            Property.address.label("property_address"),
+            SecuritySubscription.beat_account_id.label("beat_account_id"),
+            SecurityPlan.name.label("plan_name"),
+        )
+        .join(SecuritySubscription, SecuritySubscription.id == SecurityAlert.subscription_id)
+        .join(Property, Property.id == SecuritySubscription.property_id)
+        .outerjoin(SecurityPlan, SecurityPlan.id == SecuritySubscription.plan_id)
+        .where(SecurityAlert.status.in_(["new", "acknowledged"]))
+        .order_by(priority.asc(), SecurityAlert.triggered_at.asc())
+        .limit(limit)
+    )
+
+    return [
+        AlertPanelItem(
+            id=alert.id,
+            alert_type=alert.alert_type,
+            status=alert.status,
+            triggered_at=alert.triggered_at,
+            acknowledged_at=alert.acknowledged_at,
+            operator_notes=alert.operator_notes,
+            confirmation_sent_at=alert.confirmation_sent_at,
+            confirmation_expires_at=alert.confirmation_expires_at,
+            subscription_id=alert.subscription_id,
+            beat_account_id=beat_account_id,
+            property_name=property_name or "—",
+            property_address=property_address or "—",
+            plan_name=plan_name or "—",
+        )
+        for alert, property_name, property_address, beat_account_id, plan_name in result.all()
+    ]
 
 
 async def list_alerts(

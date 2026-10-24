@@ -75,6 +75,9 @@ export const subscriptionsApi = {
 // ── Alerts ─────────────────────────────────────────────────────────────────
 
 export const alertsApi = {
+  listPanel: (): Promise<import("../../types/security").AlertPanelItem[]> =>
+    api.get("/security/alerts/panel").then((r) => r.data),
+
   list: (): Promise<SecurityAlert[]> =>
     api.get("/security/alerts").then((r) => r.data),
 

@@ -31,6 +31,7 @@ import WanManagement from "@/pages/WanManagement";
 import Help from "@/pages/Help";
 import SecurityDashboard from "@/pages/security/SecurityDashboard";
 import SecurityAlerts from "@/pages/security/SecurityAlerts";
+import SecurityOperatorPanel from "@/pages/security/SecurityOperatorPanel";
 import SecuritySubscriptions from "@/pages/security/SecuritySubscriptions";
 import SecurityEvents from "@/pages/security/SecurityEvents";
 import SecurityNeighborhood from "@/pages/security/SecurityNeighborhood";
@@ -99,6 +100,7 @@ export default function App() {
           <Route path="wan" element={<WanManagement />} />
           <Route path="expenses" element={<Expenses />} />
           <Route path="security" element={<SecurityDashboard />} />
+          <Route path="security/operator-panel" element={<SecurityOperatorPanel />} />
           <Route path="security/alerts" element={<SecurityAlerts />} />
           <Route path="security/subscriptions" element={<SecuritySubscriptions />} />
           <Route path="security/entry-secure" element={<EntrySecure />} />

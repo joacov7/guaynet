@@ -233,6 +233,22 @@ export interface NeighborhoodMembership {
   subscription_id: number;
 }
 
+export interface AlertPanelItem {
+  id: number;
+  alert_type: SecurityAlertType;
+  status: SecurityAlertStatus;
+  triggered_at: string;
+  acknowledged_at?: string;
+  operator_notes?: string;
+  confirmation_sent_at?: string;
+  confirmation_expires_at?: string;
+  subscription_id: number;
+  beat_account_id?: string;
+  property_name: string;
+  property_address: string;
+  plan_name: string;
+}
+
 export interface BeatAccountStatus {
   account_id: string;
   armed?: boolean;

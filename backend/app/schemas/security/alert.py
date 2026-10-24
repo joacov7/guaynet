@@ -23,3 +23,20 @@ class SecurityAlertResponse(BaseModel):
 class SecurityAlertUpdate(BaseModel):
     status: SecurityAlertStatus
     operator_notes: Optional[str] = None
+
+
+class AlertPanelItem(BaseModel):
+    """Enriched alert for the operator monitoring panel."""
+    id: int
+    alert_type: SecurityAlertType
+    status: SecurityAlertStatus
+    triggered_at: datetime
+    acknowledged_at: Optional[datetime] = None
+    operator_notes: Optional[str] = None
+    confirmation_sent_at: Optional[datetime] = None
+    confirmation_expires_at: Optional[datetime] = None
+    subscription_id: int
+    beat_account_id: Optional[str] = None
+    property_name: str
+    property_address: str
+    plan_name: str
