@@ -21,7 +21,7 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   ReloadOutlined,
-  ShieldOutlined,
+  SafetyCertificateOutlined,
   UnorderedListOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
@@ -158,7 +158,7 @@ export default function SecurityDashboard() {
             <Statistic
               title="Abonados activos"
               value={stats.active_subscriptions}
-              prefix={<ShieldOutlined />}
+              prefix={<SafetyCertificateOutlined />}
               valueStyle={{ color: "#52c41a" }}
             />
           </Card>

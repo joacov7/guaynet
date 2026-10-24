@@ -553,7 +553,7 @@ export default function Portal() {
       )}
 
       {/* Invoices */}
-      {data.invoices.length > 0 && (
+      {data && data.invoices.length > 0 && (
         <Card title="Últimas facturas">
           <Table
             dataSource={data.invoices}
