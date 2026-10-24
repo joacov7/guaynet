@@ -190,6 +190,15 @@ export interface SecurityDevice {
   is_active: boolean;
 }
 
+export interface ElderlyConfig {
+  id: number;
+  subscription_id: number;
+  check_from: string;   // "HH:MM"
+  check_until: string;  // "HH:MM"
+  notify_telegram_id?: string;
+  enabled: boolean;
+}
+
 export interface SecurityCertificate {
   id: number;
   issued_at: string;

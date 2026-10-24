@@ -5,6 +5,7 @@ from app.api.v1.endpoints.security import (
     alerts as sec_alerts,
     certificates as sec_certificates,
     devices as sec_devices,
+    elderly as sec_elderly,
     entry_sessions as sec_entry_sessions,
     events as sec_events,
     members as sec_members,
@@ -53,3 +54,4 @@ api_router.include_router(sec_vacation.router, prefix="/security/vacation", tags
 api_router.include_router(sec_plans.router, prefix="/security/plans", tags=["security"])
 api_router.include_router(sec_certificates.router, prefix="/security/subscriptions", tags=["security"])
 api_router.include_router(sec_certificates.public_router, prefix="/security/certificates", tags=["security"])
+api_router.include_router(sec_elderly.router, prefix="/security/subscriptions", tags=["security"])

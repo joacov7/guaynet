@@ -20,9 +20,10 @@ import {
   Typography,
   message,
 } from "antd";
-import { DeleteOutlined, EyeOutlined, FilePdfOutlined, KeyOutlined, PlusOutlined, SettingOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, PlusOutlined, SettingOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { subscriptionsApi, pinsApi, certificatesApi } from "@/services/security/api";
+import { subscriptionsApi, pinsApi, certificatesApi, elderlyApi } from "@/services/security/api";
+import type { ElderlyConfig } from "@/types/security";
 import type { SecuritySubscription, SecurityFeatureName } from "@/types/security";
 
 const { Title } = Typography;
@@ -67,9 +68,11 @@ export default function SecuritySubscriptions() {
   const [featuresModal, setFeaturesModal] = useState<SecuritySubscription | null>(null);
   const [editModal, setEditModal] = useState<SecuritySubscription | null>(null);
   const [pinsModal, setPinsModal] = useState<SecuritySubscription | null>(null);
+  const [elderlyModal, setElderlyModal] = useState<SecuritySubscription | null>(null);
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
   const [pinForm] = Form.useForm();
+  const [elderlyForm] = Form.useForm();
 
   const { data = [], isLoading } = useQuery({
     queryKey: ["security-subscriptions"],
@@ -133,6 +136,38 @@ export default function SecuritySubscriptions() {
     mutationFn: (pinId: number) => pinsApi.deleteTemporary(pinId, pinsModal!.id),
     onSuccess: () => { refetchPins(); message.success("PIN revocado"); },
     onError: () => message.error("Error al revocar PIN"),
+  });
+
+  const { data: elderlyConfig, refetch: refetchElderly } = useQuery<ElderlyConfig | null>({
+    queryKey: ["security-elderly", elderlyModal?.id],
+    queryFn: async () => {
+      try {
+        return await elderlyApi.get(elderlyModal!.id);
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!elderlyModal,
+  });
+
+  const elderlySaveMutation = useMutation({
+    mutationFn: (values: { check_from: string; check_until: string; notify_telegram_id?: string; enabled: boolean }) =>
+      elderlyApi.upsert(elderlyModal!.id, values),
+    onSuccess: () => {
+      refetchElderly();
+      message.success("Configuración guardada");
+    },
+    onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al guardar"),
+  });
+
+  const elderlyDeleteMutation = useMutation({
+    mutationFn: () => elderlyApi.delete(elderlyModal!.id),
+    onSuccess: () => {
+      refetchElderly();
+      elderlyForm.resetFields();
+      message.success("Configuración eliminada");
+    },
+    onError: () => message.error("Error al eliminar"),
   });
 
   const certMutation = useMutation({
@@ -215,6 +250,15 @@ export default function SecuritySubscriptions() {
           >
             PINs
           </Button>
+          <Tooltip title="Check-in adultos mayores">
+            <Button
+              size="small"
+              icon={<HeartOutlined />}
+              onClick={() => {
+                setElderlyModal(r);
+              }}
+            />
+          </Tooltip>
           <Tooltip title="Generar certificado PDF para seguros">
             <Button
               size="small"
@@ -332,6 +376,76 @@ export default function SecuritySubscriptions() {
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* Elderly care config modal */}
+      <Modal
+        open={!!elderlyModal}
+        title={`Check-in Adultos Mayores — Suscripción #${elderlyModal?.id}`}
+        onCancel={() => { setElderlyModal(null); elderlyForm.resetFields(); }}
+        footer={null}
+        width={460}
+      >
+        {elderlyModal && (
+          <div>
+            <p style={{ color: "#555", marginBottom: 16, fontSize: 13 }}>
+              Si la alarma no es desactivada antes del horario configurado, se envía una
+              alerta al familiar de confianza y/o al canal de operadores.
+            </p>
+            <Form
+              form={elderlyForm}
+              layout="vertical"
+              initialValues={elderlyConfig ?? { check_from: "07:00", check_until: "10:00", enabled: true }}
+              onFinish={(v) => elderlySaveMutation.mutate(v)}
+              key={elderlyConfig?.id ?? "new"}
+            >
+              <Row gutter={12}>
+                <Col span={12}>
+                  <Form.Item name="check_from" label="Ventana desde">
+                    <Input placeholder="07:00" maxLength={5} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="check_until" label="Alerta si no hay actividad antes de">
+                    <Input placeholder="10:00" maxLength={5} />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Form.Item
+                name="notify_telegram_id"
+                label="Telegram del familiar (opcional)"
+                tooltip="Chat ID de Telegram del familiar que recibirá la alerta"
+              >
+                <Input placeholder="Ej: 123456789" />
+              </Form.Item>
+              <Form.Item name="enabled" label="Activado" valuePropName="checked">
+                <Switch />
+              </Form.Item>
+              <Form.Item style={{ marginBottom: 0 }}>
+                <Space>
+                  <Button type="primary" htmlType="submit" loading={elderlySaveMutation.isPending}>
+                    Guardar
+                  </Button>
+                  {elderlyConfig && (
+                    <Popconfirm
+                      title="¿Eliminar configuración?"
+                      onConfirm={() => elderlyDeleteMutation.mutate()}
+                      okText="Eliminar"
+                      cancelText="Cancelar"
+                    >
+                      <Button danger loading={elderlyDeleteMutation.isPending}>
+                        Eliminar
+                      </Button>
+                    </Popconfirm>
+                  )}
+                  <Button onClick={() => { setElderlyModal(null); elderlyForm.resetFields(); }}>
+                    Cancelar
+                  </Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          </div>
+        )}
       </Modal>
 
       {/* Temporary PINs modal */}

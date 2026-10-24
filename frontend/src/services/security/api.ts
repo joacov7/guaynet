@@ -13,6 +13,7 @@ import type {
   BeatAccountStatus,
   SecurityFeatureName,
   SecurityCertificate,
+  ElderlyConfig,
   TemporaryPin,
 } from "../../types/security";
 
@@ -100,6 +101,26 @@ export const entrySessionsApi = {
 
   cancel: (id: number, pin: string): Promise<EntrySession> =>
     api.post(`/security/entry-sessions/${id}/cancel`, { pin }).then((r) => r.data),
+};
+
+// ── Elderly care ──────────────────────────────────────────────────────────
+
+export const elderlyApi = {
+  get: (subscription_id: number): Promise<ElderlyConfig> =>
+    api.get(`/security/subscriptions/${subscription_id}/elderly-config`).then((r) => r.data),
+
+  upsert: (
+    subscription_id: number,
+    data: Omit<ElderlyConfig, "id" | "subscription_id">
+  ): Promise<ElderlyConfig> =>
+    api
+      .put(`/security/subscriptions/${subscription_id}/elderly-config`, data)
+      .then((r) => r.data),
+
+  delete: (subscription_id: number): Promise<void> =>
+    api
+      .delete(`/security/subscriptions/${subscription_id}/elderly-config`)
+      .then(() => undefined),
 };
 
 // ── Certificates ──────────────────────────────────────────────────────────

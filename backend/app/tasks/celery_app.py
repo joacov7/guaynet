@@ -97,5 +97,10 @@ celery_app.conf.update(
             "schedule": crontab(hour=3, minute=0, day_of_month=2),
             "options": {"queue": "low"},
         },
+        "check-elderly-activity": {
+            "task": "app.tasks.security.check_elderly_activity",
+            "schedule": crontab(minute="*/15", hour="7-11"),  # every 15min between 7am-11am AR
+            "options": {"queue": "critical"},
+        },
     },
 )

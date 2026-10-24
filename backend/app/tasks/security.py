@@ -763,3 +763,160 @@ def generate_monthly_reports(self):
     except Exception as exc:
         logger.error("generate_monthly_reports failed: %s", exc)
         raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="app.tasks.security.check_elderly_activity",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,
+)
+def check_elderly_activity(self):
+    """
+    Check-in de bienestar para adultos mayores.
+
+    For each active subscription with elderly_care feature enabled:
+    - If current Argentina time >= config.check_until AND
+      no disarmed/armed event occurred today before check_until
+      → dispatch a one-time INACTIVITY alert.
+
+    Runs every 15 min. Idempotent via SecurityAlert.idempotency_key.
+    """
+    async def _execute():
+        from datetime import datetime, timezone, timedelta
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        from app.core.database import AsyncSessionLocal
+        from app.models.security.subscription import (
+            SecuritySubscription, SecuritySubscriptionStatus, SecurityFeatureName,
+        )
+        from app.models.security.event import SecurityEvent
+        from app.models.security.alert import SecurityAlert, SecurityAlertType, SecurityAlertStatus
+        from app.models.security.elderly import SecurityElderlyConfig
+        from app.models.security.property import Property
+        from app.services.security.notifications import dispatch_alert
+
+        # Argentina is UTC-3 (no DST)
+        AR_TZ = timezone(timedelta(hours=-3))
+        now_ar = datetime.now(AR_TZ)
+
+        fired = 0
+
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(SecuritySubscription)
+                .options(
+                    selectinload(SecuritySubscription.features),
+                    selectinload(SecuritySubscription.plan),
+                )
+                .where(SecuritySubscription.status == SecuritySubscriptionStatus.active)
+            )
+            subscriptions = result.scalars().all()
+
+        for sub in subscriptions:
+            if not sub.has_feature(SecurityFeatureName.elderly_care):
+                continue
+
+            async with AsyncSessionLocal() as db:
+                config_result = await db.execute(
+                    select(SecurityElderlyConfig).where(
+                        SecurityElderlyConfig.subscription_id == sub.id,
+                        SecurityElderlyConfig.enabled.is_(True),
+                    )
+                )
+                config = config_result.scalar_one_or_none()
+                if config is None:
+                    continue
+
+                # Parse check_until as today's datetime in Argentina
+                try:
+                    until_h, until_m = (int(x) for x in config.check_until.split(":"))
+                except ValueError:
+                    logger.warning("Invalid check_until for sub #%s: %s", sub.id, config.check_until)
+                    continue
+
+                check_until_dt = now_ar.replace(
+                    hour=until_h, minute=until_m, second=0, microsecond=0
+                )
+
+                # Only fire after the check window has passed
+                if now_ar < check_until_dt:
+                    continue
+
+                today_str = now_ar.strftime("%Y-%m-%d")
+                ikey = f"elderly_inactivity:{sub.id}:{today_str}"
+
+                # Idempotency: skip if already dispatched today
+                existing = await db.execute(
+                    select(SecurityAlert).where(SecurityAlert.idempotency_key == ikey)
+                )
+                if existing.scalar_one_or_none():
+                    continue
+
+                # Check if there was any disarmed event today before check_until
+                try:
+                    from_h, from_m = (int(x) for x in config.check_from.split(":"))
+                except ValueError:
+                    from_h, from_m = 0, 0
+
+                today_start = now_ar.replace(hour=0, minute=0, second=0, microsecond=0)
+
+                activity_result = await db.execute(
+                    select(SecurityEvent).where(
+                        SecurityEvent.subscription_id == sub.id,
+                        SecurityEvent.event_type.in_(["disarmed", "armed"]),
+                        SecurityEvent.occurred_at >= today_start,
+                        SecurityEvent.occurred_at <= check_until_dt,
+                    ).limit(1)
+                )
+                if activity_result.scalar_one_or_none() is not None:
+                    # Activity detected — all good
+                    continue
+
+                # Load property name for the alert message
+                prop_result = await db.execute(
+                    select(Property.name).where(Property.id == sub.property_id)
+                )
+                prop_row = prop_result.first()
+                property_name = prop_row[0] if prop_row else f"Propiedad #{sub.property_id}"
+
+                alert = SecurityAlert(
+                    subscription_id=sub.id,
+                    alert_type=SecurityAlertType.INACTIVITY,
+                    status=SecurityAlertStatus.new,
+                    triggered_at=datetime.now(timezone.utc),
+                    idempotency_key=ikey,
+                    operator_notes=(
+                        f"Sin actividad antes de las {config.check_until} — {property_name}"
+                    ),
+                )
+                db.add(alert)
+                await db.flush()
+
+                # Notify family member if configured
+                if config.notify_telegram_id:
+                    try:
+                        from app.services.telegram import send_telegram_to
+                        msg = (
+                            f"⚠️ *Sin actividad detectada*\n"
+                            f"*Propiedad:* {property_name}\n"
+                            f"La alarma no fue desactivada antes de las {config.check_until}.\n"
+                            f"_Por favor verificá que todo esté bien._"
+                        )
+                        await send_telegram_to(config.notify_telegram_id, msg)
+                    except Exception as exc:
+                        logger.warning("Elderly notify telegram failed for sub #%s: %s", sub.id, exc)
+
+                # Also route through standard dispatch (operator channel if monitoring plan)
+                await dispatch_alert(alert, db)
+                await db.commit()
+                fired += 1
+                logger.info("INACTIVITY alert dispatched for sub #%s (%s)", sub.id, today_str)
+
+        return {"fired": fired}
+
+    try:
+        return _run(_execute())
+    except Exception as exc:
+        logger.error("check_elderly_activity failed: %s", exc)
+        raise self.retry(exc=exc)
