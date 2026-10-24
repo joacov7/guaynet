@@ -99,6 +99,61 @@ _EVENT_TO_ALERT_TYPE = {
     "communication_lost": "CONNECTION_LOST",
 }
 
+# Event types that trigger immediate power-state Telegram notifications
+_POWER_EVENT_TYPES = {"power_failure", "power_restored"}
+
+
+async def _notify_power_event(db, sub_id: int, event_type: str) -> None:
+    """
+    Send a real-time Telegram message when power_failure or power_restored
+    is detected. Routes to client_telegram_id and/or operator channel based
+    on the subscription plan, mirroring the dispatch_alert routing logic.
+    """
+    try:
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        from app.models.security.subscription import SecuritySubscription
+        from app.services.telegram import send_telegram, send_telegram_to
+
+        result = await db.execute(
+            select(SecuritySubscription)
+            .options(selectinload(SecuritySubscription.plan))
+            .where(SecuritySubscription.id == sub_id)
+        )
+        sub = result.scalar_one_or_none()
+        if not sub:
+            return
+
+        if event_type == "power_failure":
+            client_msg = (
+                "⚡ *Corte de luz detectado*\n"
+                "Tu alarma está funcionando con batería de respaldo."
+            )
+            operator_msg = f"⚡ *Corte de luz* — Suscripción #{sub_id}"
+        else:
+            client_msg = (
+                "✅ *Energía restaurada*\n"
+                "Tu alarma volvió a funcionar con energía de red."
+            )
+            operator_msg = f"✅ *Energía restaurada* — Suscripción #{sub_id}"
+
+        sent = False
+        if sub.client_telegram_id:
+            await send_telegram_to(sub.client_telegram_id, client_msg)
+            sent = True
+
+        if sub.plan and sub.plan.includes_monitoring:
+            await send_telegram(operator_msg)
+            sent = True
+
+        if not sent:
+            logger.warning(
+                "Power event %s for sub #%s: no notification channel configured.",
+                event_type, sub_id,
+            )
+    except Exception as exc:
+        logger.warning("Power event notification failed for sub #%s: %s", sub_id, exc)
+
 
 @celery_app.task(
     name="app.tasks.security.poll_beat_events",
@@ -182,6 +237,10 @@ def poll_beat_events(self):
                     except IntegrityError:
                         await db.rollback()
                         continue
+
+                    # Real-time power failure / restoration notification
+                    if beat_evt.event_type.value in _POWER_EVENT_TYPES:
+                        await _notify_power_event(db, sub.id, beat_evt.event_type.value)
 
                     # Generate alert for actionable event types
                     if beat_evt.event_type.value in _ALERTABLE_EVENT_TYPES:
