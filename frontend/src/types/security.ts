@@ -114,6 +114,7 @@ export interface SecuritySubscription {
   status: SecuritySubscriptionStatus;
   beat_account_id?: string;
   client_telegram_id?: string;
+  portal_token?: string;
   contract_start?: string;
   contract_end?: string;
   billing_day: number;

@@ -67,6 +67,9 @@ export const subscriptionsApi = {
 
   beatStatus: (id: number): Promise<BeatAccountStatus> =>
     api.get(`/security/subscriptions/${id}/beat-status`).then((r) => r.data),
+
+  regeneratePortalToken: (id: number): Promise<{ portal_token: string; portal_url: string }> =>
+    api.post(`/security/subscriptions/${id}/regenerate-portal-token`).then((r) => r.data),
 };
 
 // ── Alerts ─────────────────────────────────────────────────────────────────

@@ -57,6 +57,7 @@ class SecuritySubscriptionResponse(BaseModel):
     status: SecuritySubscriptionStatus
     beat_account_id: Optional[str] = None
     client_telegram_id: Optional[str] = None
+    portal_token: Optional[str] = None
     contract_start: Optional[date] = None
     contract_end: Optional[date] = None
     billing_day: int

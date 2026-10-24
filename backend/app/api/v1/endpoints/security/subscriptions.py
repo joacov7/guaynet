@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 
 from app.core.deps import get_current_user, get_db
 from app.schemas.security.beat import BeatAccountStatusResponse
@@ -80,3 +81,50 @@ async def get_beat_status(
         error_message=status.error_message,
         is_simulated=status.is_simulated,
     )
+
+
+class RegenerateTokenResponse(BaseModel):
+    portal_token: str
+    portal_url: str
+
+
+@router.post("/{subscription_id}/regenerate-portal-token", response_model=RegenerateTokenResponse)
+async def regenerate_portal_token(
+    subscription_id: int,
+    _=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """
+    Generate a new portal access token for the subscription.
+    Invalidates the previous token immediately.
+    If client_telegram_id is set, sends the new link via Telegram.
+    """
+    import uuid
+    from sqlalchemy import select
+    from app.models.security.subscription import SecuritySubscription
+    from app.core.config import settings
+
+    result = await db.execute(
+        select(SecuritySubscription).where(SecuritySubscription.id == subscription_id)
+    )
+    sub = result.scalar_one_or_none()
+    if sub is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Suscripción no encontrada")
+
+    sub.portal_token = uuid.uuid4().hex
+    await db.commit()
+
+    portal_url = f"{settings.PUBLIC_URL}/portal?token={sub.portal_token}"
+
+    if sub.client_telegram_id:
+        from app.services.telegram import send_telegram_to
+        await send_telegram_to(
+            sub.client_telegram_id,
+            f"🔐 *Tu acceso al portal de seguridad*\n\n"
+            f"Podés ver el estado de tu alarma, eventos recientes y más en:\n"
+            f"{portal_url}\n\n"
+            f"_Guardá este enlace. Si lo perdés, tu operador puede generar uno nuevo._",
+        )
+
+    return RegenerateTokenResponse(portal_token=sub.portal_token, portal_url=portal_url)

@@ -3,7 +3,7 @@
  * Accessed at /portal — clients are identified by their IP address.
  * Shows plan info, invoices, and a speed test comparing measured vs contracted speed.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Badge,
@@ -220,6 +220,8 @@ function SpeedGauge({
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function Portal() {
+  const portalToken = new URLSearchParams(window.location.search).get("token");
+
   const [data, setData] = useState<PortalData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState<string | null>(null);
@@ -240,17 +242,26 @@ export default function Portal() {
   });
 
   useEffect(() => {
-    axios
-      .get<PortalData>("/api/v1/portal/me")
-      .then((r) => setData(r.data))
-      .catch((e) => setNotFound(e.response?.data?.detail ?? "Error al cargar datos"))
-      .finally(() => setLoading(false));
+    if (portalToken) {
+      // Security-only client: identified by portal token, no internet service
+      axios
+        .get<SecurityData>(`/api/v1/portal/security/token/${portalToken}`)
+        .then((r) => setSecurity(r.data))
+        .catch((e) => setNotFound(e.response?.data?.detail ?? "Enlace inválido o suscripción inactiva"))
+        .finally(() => setLoading(false));
+    } else {
+      axios
+        .get<PortalData>("/api/v1/portal/me")
+        .then((r) => setData(r.data))
+        .catch((e) => setNotFound(e.response?.data?.detail ?? "Error al cargar datos"))
+        .finally(() => setLoading(false));
 
-    axios
-      .get<SecurityData>("/api/v1/portal/security")
-      .then((r) => setSecurity(r.data))
-      .catch(() => setSecurity(null));
-  }, []);
+      axios
+        .get<SecurityData>("/api/v1/portal/security")
+        .then((r) => setSecurity(r.data))
+        .catch(() => setSecurity(null));
+    }
+  }, [portalToken]);
 
   async function startEntrySession() {
     setEntryLoading(true);
@@ -259,7 +270,7 @@ export default function Portal() {
     try {
       const r = await axios.post<{ expires_at: string; duration_minutes: number }>(
         "/api/v1/portal/security/entry-session",
-        { duration_minutes: 5 },
+        { duration_minutes: 5, ...(portalToken ? { token: portalToken } : {}) },
       );
       setEntryResult(r.data);
     } catch (e: any) {
@@ -318,11 +329,11 @@ export default function Portal() {
     );
   }
 
-  if (!data) return null;
+  if (!portalToken && !data) return null;
 
-  const plan = data.plan;
-  const statusInfo = STATUS_LABELS[data.client.status] ?? { label: data.client.status, color: "default" };
-  const pendingInvoices = data.invoices.filter((i) => i.status === "pending" || i.status === "overdue");
+  const plan = data?.plan ?? null;
+  const statusInfo = data ? (STATUS_LABELS[data.client.status] ?? { label: data.client.status, color: "default" }) : null;
+  const pendingInvoices = data?.invoices.filter((i) => i.status === "pending" || i.status === "overdue") ?? [];
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 16px" }}>
@@ -332,24 +343,26 @@ export default function Portal() {
         <Text type="secondary">Guaynet WISP</Text>
       </div>
 
-      {/* Client info */}
-      <Card style={{ marginBottom: 16 }}>
-        <Descriptions column={2} size="small">
-          <Descriptions.Item label="Nombre">{data.client.full_name}</Descriptions.Item>
-          <Descriptions.Item label="Estado">
-            <Tag color={statusInfo.color}>{statusInfo.label}</Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="IP">{data.client.ip_address}</Descriptions.Item>
-          {plan && (
-            <Descriptions.Item label="Plan">
-              <Text strong>{plan.name}</Text>
+      {/* Client info — internet clients only */}
+      {data && statusInfo && (
+        <Card style={{ marginBottom: 16 }}>
+          <Descriptions column={2} size="small">
+            <Descriptions.Item label="Nombre">{data.client.full_name}</Descriptions.Item>
+            <Descriptions.Item label="Estado">
+              <Tag color={statusInfo.color}>{statusInfo.label}</Tag>
             </Descriptions.Item>
-          )}
-        </Descriptions>
-      </Card>
+            <Descriptions.Item label="IP">{data.client.ip_address}</Descriptions.Item>
+            {plan && (
+              <Descriptions.Item label="Plan">
+                <Text strong>{plan.name}</Text>
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+        </Card>
+      )}
 
       {/* Suspended alert */}
-      {data.client.status === "suspended" && (
+      {data?.client.status === "suspended" && (
         <Alert
           type="warning"
           showIcon

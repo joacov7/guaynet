@@ -70,7 +70,8 @@ async def create_subscription(
             detail="Ya existe una suscripción activa para esta propiedad",
         )
 
-    sub = SecuritySubscription(**body.model_dump())
+    import uuid
+    sub = SecuritySubscription(**body.model_dump(), portal_token=uuid.uuid4().hex)
     db.add(sub)
     await db.flush()  # get sub.id before creating features
 

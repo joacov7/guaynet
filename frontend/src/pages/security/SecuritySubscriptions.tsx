@@ -20,7 +20,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { BarChartOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, PlusOutlined, SettingOutlined, TeamOutlined } from "@ant-design/icons";
+import { BarChartOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, TeamOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useNavigate } from "react-router-dom";
 import { subscriptionsApi, pinsApi, certificatesApi, elderlyApi, monthlyReportsApi } from "@/services/security/api";
@@ -194,6 +194,17 @@ export default function SecuritySubscriptions() {
     onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al generar certificado"),
   });
 
+  const portalTokenMutation = useMutation({
+    mutationFn: (id: number) => subscriptionsApi.regeneratePortalToken(id),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["security-subscriptions"] });
+      message.success("Enlace generado y enviado por Telegram");
+      // Copy to clipboard
+      navigator.clipboard?.writeText(data.portal_url).catch(() => {});
+    },
+    onError: (e: any) => message.error(e?.response?.data?.detail ?? "Error al generar enlace"),
+  });
+
   const columns = [
     { title: "ID", dataIndex: "id", key: "id", width: 60 },
     {
@@ -228,6 +239,49 @@ export default function SecuritySubscriptions() {
       dataIndex: "beat_account_id",
       key: "beat",
       render: (v: string | undefined) => v ?? <span style={{ color: "#aaa" }}>No configurado</span>,
+    },
+    {
+      title: "Portal cliente",
+      key: "portal",
+      render: (_: unknown, r: SecuritySubscription) => {
+        if (r.portal_token) {
+          const url = `/portal?token=${r.portal_token}`;
+          return (
+            <Space size={4}>
+              <Tooltip title="Copiar enlace">
+                <Button
+                  size="small"
+                  icon={<CopyOutlined />}
+                  onClick={() => {
+                    navigator.clipboard?.writeText(`${window.location.origin}${url}`);
+                    message.success("Enlace copiado");
+                  }}
+                />
+              </Tooltip>
+              <Tooltip title="Regenerar y reenviar por Telegram">
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  loading={portalTokenMutation.isPending && portalTokenMutation.variables === r.id}
+                  onClick={() => portalTokenMutation.mutate(r.id)}
+                />
+              </Tooltip>
+            </Space>
+          );
+        }
+        return (
+          <Tooltip title="Generar acceso para el cliente">
+            <Button
+              size="small"
+              icon={<LinkOutlined />}
+              loading={portalTokenMutation.isPending && portalTokenMutation.variables === r.id}
+              onClick={() => portalTokenMutation.mutate(r.id)}
+            >
+              Generar
+            </Button>
+          </Tooltip>
+        );
+      },
     },
     {
       title: "Funcionalidades",

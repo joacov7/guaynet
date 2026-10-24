@@ -85,6 +85,9 @@ class SecuritySubscription(Base, TimestampMixin):
     # Telegram chat ID to notify the client directly (e.g. owner's personal chat or group).
     # Set when the plan does NOT include operator monitoring, or in addition to it.
     client_telegram_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # Opaque token for the client self-service portal (no login required).
+    # Shared with the client via Telegram. Regeneratable by the operator.
+    portal_token: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, unique=True, index=True)
 
     contract_start: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     contract_end: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
