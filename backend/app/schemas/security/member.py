@@ -1,10 +1,11 @@
+from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict
 from app.models.security.member import PropertyMemberRole
 
 
 class PropertyMemberBase(BaseModel):
-    full_name: str
+    name: str
     phone: Optional[str] = None
     email: Optional[str] = None
     role: PropertyMemberRole = PropertyMemberRole.family
@@ -21,7 +22,7 @@ class PropertyMemberCreate(PropertyMemberBase):
 
 
 class PropertyMemberUpdate(BaseModel):
-    full_name: Optional[str] = None
+    name: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
     role: Optional[PropertyMemberRole] = None
@@ -31,7 +32,7 @@ class PropertyMemberUpdate(BaseModel):
     can_view_cameras: Optional[bool] = None
     notify_on_alarm: Optional[bool] = None
     notify_on_entry: Optional[bool] = None
-    is_active: Optional[bool] = None
+    status: Optional[str] = None  # "active" | "revoked"
 
 
 class PropertyMemberResponse(PropertyMemberBase):
@@ -39,4 +40,6 @@ class PropertyMemberResponse(PropertyMemberBase):
 
     id: int
     property_id: int
-    is_active: bool
+    status: str
+    invited_at: Optional[datetime] = None
+    accepted_at: Optional[datetime] = None

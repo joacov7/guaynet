@@ -11,10 +11,11 @@ class SecurityEventResponse(BaseModel):
     subscription_id: int
     event_type: SecurityEventType
     occurred_at: datetime
-    zone: Optional[int] = None
+    received_at: datetime
+    zone_number: Optional[int] = None
     partition: Optional[int] = None
     user_code: Optional[str] = None
     description: Optional[str] = None
     source: str
     processed: bool
-    idempotency_key: str
+    idempotency_key: Optional[str] = None

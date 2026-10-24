@@ -1,14 +1,25 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from app.models.security.entry_session import EntrySessionStatus
 
 
 class EntrySessionCreate(BaseModel):
     subscription_id: int
-    member_id: Optional[int] = None
     duration_minutes: int = 60
-    notes: Optional[str] = None
+    location_lat: Optional[float] = None
+    location_lon: Optional[float] = None
+
+    @field_validator("duration_minutes")
+    @classmethod
+    def duration_range(cls, v: int) -> int:
+        if not 1 <= v <= 240:
+            raise ValueError("duration_minutes must be between 1 and 240")
+        return v
+
+
+class EntrySessionCancel(BaseModel):
+    pin: str
 
 
 class EntrySessionResponse(BaseModel):
@@ -16,9 +27,10 @@ class EntrySessionResponse(BaseModel):
 
     id: int
     subscription_id: int
-    member_id: Optional[int] = None
+    activated_by_user_id: Optional[int] = None
+    duration_minutes: int
     status: EntrySessionStatus
-    started_at: datetime
+    created_at: datetime
     expires_at: datetime
     cancelled_at: Optional[datetime] = None
-    notes: Optional[str] = None
+    cancel_reason: Optional[str] = None

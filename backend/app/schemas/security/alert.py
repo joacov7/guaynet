@@ -11,14 +11,13 @@ class SecurityAlertResponse(BaseModel):
     subscription_id: int
     alert_type: SecurityAlertType
     status: SecurityAlertStatus
-    title: str
-    detail: Optional[str] = None
-    idempotency_key: str
-    created_at: datetime
+    triggered_at: datetime
     acknowledged_at: Optional[datetime] = None
     resolved_at: Optional[datetime] = None
+    idempotency_key: Optional[str] = None
+    operator_notes: Optional[str] = None
 
 
 class SecurityAlertUpdate(BaseModel):
     status: SecurityAlertStatus
-    resolution_notes: Optional[str] = None
+    operator_notes: Optional[str] = None

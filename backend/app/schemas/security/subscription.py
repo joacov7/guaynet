@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 from app.models.security.subscription import SecuritySubscriptionStatus, SecurityFeatureName
@@ -10,8 +10,8 @@ class SecurityPlanResponse(BaseModel):
     id: int
     name: str
     description: Optional[str] = None
-    monthly_price: float
-    default_features: List[str]
+    price: float
+    default_features: Optional[list] = None
     is_active: bool
 
 
@@ -20,25 +20,30 @@ class SecurityFeatureResponse(BaseModel):
 
     id: int
     feature_name: SecurityFeatureName
-    is_enabled: bool
+    enabled: bool
 
 
 class SecurityFeatureToggle(BaseModel):
     feature_name: SecurityFeatureName
-    is_enabled: bool
+    enabled: bool
 
 
 class SecuritySubscriptionCreate(BaseModel):
     property_id: int
     plan_id: int
     beat_account_id: Optional[str] = None
-    contract_number: Optional[str] = None
+    contract_start: Optional[date] = None
+    billing_day: int = 1
+    notes: Optional[str] = None
 
 
 class SecuritySubscriptionUpdate(BaseModel):
     status: Optional[SecuritySubscriptionStatus] = None
     beat_account_id: Optional[str] = None
-    contract_number: Optional[str] = None
+    contract_start: Optional[date] = None
+    contract_end: Optional[date] = None
+    billing_day: Optional[int] = None
+    notes: Optional[str] = None
 
 
 class SecuritySubscriptionResponse(BaseModel):
@@ -49,6 +54,8 @@ class SecuritySubscriptionResponse(BaseModel):
     plan_id: int
     status: SecuritySubscriptionStatus
     beat_account_id: Optional[str] = None
-    contract_number: Optional[str] = None
-    activated_at: Optional[datetime] = None
+    contract_start: Optional[date] = None
+    contract_end: Optional[date] = None
+    billing_day: int
+    notes: Optional[str] = None
     features: List[SecurityFeatureResponse] = []

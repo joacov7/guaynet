@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional
 from pydantic import BaseModel, ConfigDict
 from app.models.security.device import SecurityDeviceType
@@ -8,7 +9,9 @@ class SecurityDeviceBase(BaseModel):
     brand: Optional[str] = None
     model: Optional[str] = None
     serial_number: Optional[str] = None
-    installation_location: Optional[str] = None
+    install_date: Optional[date] = None
+    warranty_months: Optional[int] = None
+    location_description: Optional[str] = None
     notes: Optional[str] = None
 
 
@@ -21,7 +24,9 @@ class SecurityDeviceUpdate(BaseModel):
     brand: Optional[str] = None
     model: Optional[str] = None
     serial_number: Optional[str] = None
-    installation_location: Optional[str] = None
+    install_date: Optional[date] = None
+    warranty_months: Optional[int] = None
+    location_description: Optional[str] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
 

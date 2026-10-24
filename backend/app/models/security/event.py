@@ -62,6 +62,8 @@ class SecurityEvent(Base):
     raw_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     # Whether an alert has been generated from this event
     processed: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # Deduplication key: prevents inserting the same BEAT event twice on repeated polls
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(150), nullable=True, unique=True, index=True)
 
     subscription: Mapped["SecuritySubscription"] = relationship(
         "SecuritySubscription", back_populates="events"
