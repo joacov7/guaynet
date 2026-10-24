@@ -141,8 +141,12 @@ export const pinsApi = {
 // ── Events ─────────────────────────────────────────────────────────────────
 
 export const eventsApi = {
-  list: (subscription_id: number, limit = 50): Promise<SecurityEvent[]> =>
-    api
-      .get("/security/events", { params: { subscription_id, limit } })
-      .then((r) => r.data),
+  list: (params: {
+    subscription_id: number;
+    limit?: number;
+    event_type?: string;
+    from_date?: string;
+    to_date?: string;
+  }): Promise<SecurityEvent[]> =>
+    api.get("/security/events", { params }).then((r) => r.data),
 };

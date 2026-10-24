@@ -32,6 +32,7 @@ import Help from "@/pages/Help";
 import SecurityDashboard from "@/pages/security/SecurityDashboard";
 import SecurityAlerts from "@/pages/security/SecurityAlerts";
 import SecuritySubscriptions from "@/pages/security/SecuritySubscriptions";
+import SecurityEvents from "@/pages/security/SecurityEvents";
 import EntrySecure from "@/pages/security/EntrySecure";
 import TechLayout from "@/pages/tech/TechLayout";
 import TechLogin from "@/pages/tech/TechLogin";
@@ -99,6 +100,7 @@ export default function App() {
           <Route path="security/alerts" element={<SecurityAlerts />} />
           <Route path="security/subscriptions" element={<SecuritySubscriptions />} />
           <Route path="security/entry-secure" element={<EntrySecure />} />
+          <Route path="security/events" element={<SecurityEvents />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
         </Route>
