@@ -1,7 +1,8 @@
 """
-Ubiquiti AirOS 8.x HTTP API service.
+Ubiquiti AirOS HTTP API service.
+Supports AirOS 5.x/6.x (form-encoded login at /login.cgi or /api/1.0/login)
+and AirOS 8.x (JSON login at /api/auth).
 Uses httpx in sync mode — call via asyncio.to_thread() from async endpoints.
-Handles self-signed TLS certs (verify=False by default).
 """
 from typing import Any, Dict, List, Optional
 
@@ -12,57 +13,107 @@ class UbiquitiError(Exception):
     pass
 
 
+# Auth strategies tried in order for each scheme (https first, then http)
+# (path, send_as_json, extra_fields)
+_AUTH_ATTEMPTS = [
+    ("/api/auth",      True,  {}),           # AirOS 8.x JSON
+    ("/api/auth",      False, {}),           # AirOS 8.x form-encoded
+    ("/api/1.0/login", False, {}),           # AirOS 6.x
+    ("/login.cgi",     False, {"uri": "/"}), # AirOS 5.x CGI (needs uri param)
+]
+
+
 class UbiquitiAirOSService:
-    def __init__(self, host: str, username: str = "ubnt", password: str = "ubnt"):
+    def __init__(self, host: str, username: str = "ubnt", password: str = "ubnt", timeout: float = 15.0):
         self.host = host
         self.username = username
         self.password = password
+        self._timeout = timeout
         self._client: Optional[httpx.Client] = None
 
-    def connect(self) -> "UbiquitiAirOSService":
-        self._client = httpx.Client(
-            base_url=f"https://{self.host}",
-            verify=False,
-            timeout=15.0,
-            follow_redirects=True,
-        )
-        try:
-            res = self._client.post(
-                "/api/auth",
-                json={"username": self.username, "password": self.password},
-            )
-        except httpx.ConnectError as e:
-            # Fallback to HTTP for older firmware
-            self._client = httpx.Client(
-                base_url=f"http://{self.host}",
+    def _try_auth(self, base_url: str) -> Optional[httpx.Client]:
+        """Try every auth strategy against base_url.
+        Returns authenticated client on success.
+        Returns None if the scheme can't connect (caller tries http fallback).
+        Raises UbiquitiError only on timeout or if ALL methods say credentials are wrong.
+        """
+        creds = {"username": self.username, "password": self.password}
+        got_credentials_error = False
+
+        for path, use_json, extra in _AUTH_ATTEMPTS:
+            payload = {**creds, **extra}
+            client = httpx.Client(
+                base_url=base_url,
                 verify=False,
-                timeout=15.0,
+                timeout=self._timeout,
                 follow_redirects=True,
             )
             try:
-                res = self._client.post(
-                    "/api/auth",
-                    json={"username": self.username, "password": self.password},
-                )
-            except httpx.ConnectError as e2:
-                raise UbiquitiError(f"No se pudo conectar a {self.host}: {e2}")
-        except httpx.TimeoutException:
-            raise UbiquitiError(f"Timeout al conectar a {self.host}")
+                # AirOS 5.x /login.cgi requires a prior GET to /login.cgi to obtain AIROS_<MAC> cookie
+                if path == "/login.cgi":
+                    try:
+                        client.get("/login.cgi")
+                    except Exception:
+                        pass
 
-        if res.status_code in (401, 403):
+                if use_json:
+                    res = client.post(path, json=payload)
+                else:
+                    res = client.post(path, data=payload)
+            except httpx.ConnectError:
+                client.close()
+                return None  # scheme unreachable — caller tries http
+            except httpx.TimeoutException:
+                client.close()
+                raise UbiquitiError(f"Timeout al conectar a {self.host}")
+            except httpx.RequestError:
+                client.close()
+                continue
+
+            if res.status_code in (401, 403):
+                client.close()
+                got_credentials_error = True
+                continue
+
+            if res.status_code in (200, 201, 302):
+                # /login.cgi returns 200 even on failure; detect by known failure indicators:
+                # - AirOS 8.x CGI: "missing session id"
+                # - AirOS 5.x/6.x M: failed login redirects back → login form still present
+                if path == "/login.cgi":
+                    t = res.text.lower()
+                    if "missing session" in t or 'action="/login.cgi"' in t or "invalid credentials" in t:
+                        client.close()
+                        got_credentials_error = True
+                        continue
+
+                try:
+                    data = res.json()
+                    token = data.get("authToken") or data.get("token", "")
+                    if token:
+                        client.headers.update({"X-Auth-Token": token})
+                except Exception:
+                    pass  # cookie-based session, no token needed
+
+                return client
+
+            # 404, 415, other — try next strategy
+            client.close()
+
+        if got_credentials_error:
             raise UbiquitiError(f"Credenciales incorrectas en {self.host}")
-        if res.status_code not in (200, 201):
-            raise UbiquitiError(f"Auth falló HTTP {res.status_code} en {self.host}")
+        return None
 
-        try:
-            data = res.json()
-            token = data.get("authToken") or data.get("token", "")
-            if token:
-                self._client.headers.update({"X-Auth-Token": token})
-        except Exception:
-            pass  # cookie-based auth, no token needed
+    def connect(self) -> "UbiquitiAirOSService":
+        for scheme in ("https", "http"):
+            client = self._try_auth(f"{scheme}://{self.host}")
+            if client is not None:
+                self._client = client
+                return self
 
-        return self
+        raise UbiquitiError(
+            f"No se pudo conectar a {self.host}. "
+            "Verificá host, usuario, contraseña y que la API esté habilitada."
+        )
 
     def disconnect(self):
         if self._client:
@@ -103,34 +154,65 @@ class UbiquitiAirOSService:
         except httpx.RequestError as e:
             raise UbiquitiError(f"Error de red: {e}")
 
+    def _status_cgi(self) -> Dict:
+        """Fetch /status.cgi (AirOS 8.x CGI firmware). Cached per session."""
+        if not hasattr(self, "_status_cgi_cache"):
+            self._status_cgi_cache = self._get("/status.cgi")
+        return self._status_cgi_cache
+
     # ── Device info ───────────────────────────────────────────────────────────
 
     def get_device_info(self) -> Dict:
-        data = self._get("/api/v1.0/device/info")
-        mem = data.get("memory", {})
-        total = mem.get("total", 1) or 1
-        used = mem.get("used", 0)
-        return {
-            "model": data.get("model") or data.get("board", ""),
-            "firmware": data.get("firmware") or data.get("version", ""),
-            "hostname": data.get("hostname", ""),
-            "uptime_seconds": data.get("uptime", 0),
-            "cpu_load": data.get("cpu_load") or data.get("cpu", 0),
-            "ram_used_pct": round(used / total * 100, 1) if total else 0,
-        }
+        try:
+            data = self._get("/api/v1.0/device/info")
+            mem = data.get("memory", {})
+            total = mem.get("total", 1) or 1
+            used = mem.get("used", 0)
+            return {
+                "model": data.get("model") or data.get("board", ""),
+                "firmware": data.get("firmware") or data.get("version", ""),
+                "hostname": data.get("hostname", ""),
+                "uptime_seconds": data.get("uptime", 0),
+                "cpu_load": data.get("cpu_load") or data.get("cpu", 0),
+                "ram_used_pct": round(used / total * 100, 1) if total else 0,
+            }
+        except UbiquitiError:
+            s = self._status_cgi()
+            h = s.get("host", {})
+            total = h.get("totalram", 1) or 1
+            free = h.get("freeram", 0)
+            return {
+                "model": h.get("devmodel", ""),
+                "firmware": h.get("fwversion", ""),
+                "hostname": h.get("hostname", ""),
+                "uptime_seconds": h.get("uptime", 0),
+                "cpu_load": h.get("cpuload", 0),
+                "ram_used_pct": round((total - free) / total * 100, 1),
+            }
 
     # ── Wireless config ───────────────────────────────────────────────────────
 
     def get_wireless(self) -> Dict:
-        data = self._get("/api/v1.0/wireless")
-        return {
-            "mode": data.get("mode", ""),
-            "ssid": data.get("ssid", ""),
-            "frequency_mhz": data.get("frequency") or data.get("freq"),
-            "channel_width_mhz": data.get("channel_width") or data.get("chwidth"),
-            "tx_power_dbm": data.get("tx_power") or data.get("txpower"),
-            "security": data.get("security", ""),
-        }
+        try:
+            data = self._get("/api/v1.0/wireless")
+            return {
+                "mode": data.get("mode", ""),
+                "ssid": data.get("ssid", ""),
+                "frequency_mhz": data.get("frequency") or data.get("freq"),
+                "channel_width_mhz": data.get("channel_width") or data.get("chwidth"),
+                "tx_power_dbm": data.get("tx_power") or data.get("txpower"),
+                "security": data.get("security", ""),
+            }
+        except UbiquitiError:
+            w = self._status_cgi().get("wireless", {})
+            return {
+                "mode": w.get("mode", ""),
+                "ssid": w.get("essid", ""),
+                "frequency_mhz": w.get("frequency"),
+                "channel_width_mhz": w.get("chanbw"),
+                "tx_power_dbm": w.get("txpower"),
+                "security": w.get("security", ""),
+            }
 
     def set_wireless(
         self,
@@ -150,43 +232,85 @@ class UbiquitiAirOSService:
     # ── Link quality (station mode) ───────────────────────────────────────────
 
     def get_link(self) -> Dict:
-        data = self._get("/api/v1.0/link")
-        return {
-            "remote_name": data.get("remote_name") or data.get("remote", ""),
-            "remote_mac": data.get("remote_mac", ""),
-            "signal_dbm": data.get("signal") or data.get("rssi"),
-            "noise_dbm": data.get("noise") or data.get("noisefloor"),
-            "snr_db": data.get("snr"),
-            "ccq": data.get("ccq"),
-            "rx_rate_mbps": data.get("rx_rate") or data.get("rxrate"),
-            "tx_rate_mbps": data.get("tx_rate") or data.get("txrate"),
-            "distance_m": data.get("distance"),
-        }
+        try:
+            data = self._get("/api/v1.0/link")
+            return {
+                "remote_name": data.get("remote_name") or data.get("remote", ""),
+                "remote_mac": data.get("remote_mac", ""),
+                "signal_dbm": data.get("signal") or data.get("rssi"),
+                "noise_dbm": data.get("noise") or data.get("noisefloor"),
+                "snr_db": data.get("snr"),
+                "ccq": data.get("ccq"),
+                "rx_rate_mbps": data.get("rx_rate") or data.get("rxrate"),
+                "tx_rate_mbps": data.get("tx_rate") or data.get("txrate"),
+                "distance_m": data.get("distance"),
+            }
+        except UbiquitiError:
+            s = self._status_cgi()
+            w = s.get("wireless", {})
+            sta_list = w.get("sta", [])
+            sta = sta_list[0] if sta_list else {}
+            remote = sta.get("remote", {})
+            signal = sta.get("signal")
+            noise = sta.get("noisefloor")
+            polling = w.get("polling", {})
+            return {
+                "remote_name": remote.get("hostname", w.get("essid", "")),
+                "remote_mac": sta.get("mac", ""),
+                "signal_dbm": signal,
+                "noise_dbm": noise,
+                "snr_db": (signal - noise) if signal and noise else None,
+                "ccq": sta.get("airmax", {}).get("rx", {}).get("cinr"),
+                "rx_rate_mbps": round(polling.get("dcap", 0) / 1000, 1) or None,
+                "tx_rate_mbps": round(polling.get("ucap", 0) / 1000, 1) or None,
+                "distance_m": sta.get("distance"),
+            }
 
     # ── Connected stations (AP mode) ──────────────────────────────────────────
 
     def get_stations(self) -> List[Dict]:
-        data = self._get("/api/v1.0/stations")
-        stations = data.get("stations", []) if isinstance(data, dict) else (data or [])
-        result = []
-        for s in stations:
-            result.append({
-                "mac": s.get("mac", ""),
-                "ip": s.get("ip", ""),
-                "name": s.get("name") or s.get("hostname", ""),
-                "signal_dbm": s.get("signal") or s.get("rssi"),
-                "noise_dbm": s.get("noise"),
-                "ccq": s.get("ccq"),
-                "rx_rate_mbps": s.get("rx_rate") or s.get("rxrate"),
-                "tx_rate_mbps": s.get("tx_rate") or s.get("txrate"),
-                "uptime_seconds": s.get("uptime"),
-            })
-        return result
+        try:
+            data = self._get("/api/v1.0/stations")
+            stations = data.get("stations", []) if isinstance(data, dict) else (data or [])
+            result = []
+            for s in stations:
+                result.append({
+                    "mac": s.get("mac", ""),
+                    "ip": s.get("ip", ""),
+                    "name": s.get("name") or s.get("hostname", ""),
+                    "signal_dbm": s.get("signal") or s.get("rssi"),
+                    "noise_dbm": s.get("noise"),
+                    "ccq": s.get("ccq"),
+                    "rx_rate_mbps": s.get("rx_rate") or s.get("rxrate"),
+                    "tx_rate_mbps": s.get("tx_rate") or s.get("txrate"),
+                    "uptime_seconds": s.get("uptime"),
+                })
+            return result
+        except UbiquitiError:
+            w = self._status_cgi().get("wireless", {})
+            result = []
+            for sta in w.get("sta", []):
+                remote = sta.get("remote", {})
+                result.append({
+                    "mac": sta.get("mac", ""),
+                    "ip": sta.get("lastip", ""),
+                    "name": remote.get("hostname", ""),
+                    "signal_dbm": sta.get("signal"),
+                    "noise_dbm": sta.get("noisefloor"),
+                    "ccq": sta.get("airmax", {}).get("rx", {}).get("cinr"),
+                    "rx_rate_mbps": None,
+                    "tx_rate_mbps": None,
+                    "uptime_seconds": sta.get("uptime"),
+                })
+            return result
 
     # ── Site survey ───────────────────────────────────────────────────────────
 
     def site_survey(self) -> List[Dict]:
-        data = self._get("/api/v1.0/wireless/survey")
+        try:
+            data = self._get("/api/v1.0/wireless/survey")
+        except UbiquitiError:
+            return []  # Not supported on this firmware/mode (e.g. station mode)
         networks = (
             data.get("results") or data.get("networks") or []
             if isinstance(data, dict) else data or []
@@ -237,6 +361,52 @@ class UbiquitiAirOSService:
         return result
 
 
+    # ── Firmware update ───────────────────────────────────────────────────────
+
+    def upload_firmware(self, firmware_bytes: bytes, filename: str = "firmware.bin") -> Dict:
+        """Upload firmware binary to the device. Device will flash and reboot."""
+        if not self._client:
+            raise UbiquitiError("No hay conexión activa")
+
+        for path in ("/fwupdate.cgi", "/api/v1.0/fwupdate"):
+            try:
+                res = self._client.post(
+                    path,
+                    files={"fwupdate": (filename, firmware_bytes, "application/octet-stream")},
+                    timeout=120.0,
+                )
+                if res.status_code in (200, 201, 302):
+                    return {"status": "updating", "message": "Firmware enviado. El dispositivo se reiniciará."}
+                if res.status_code == 404:
+                    continue
+            except httpx.TimeoutException:
+                return {"status": "updating", "message": "Firmware enviado (timeout esperado durante flash)."}
+            except httpx.RequestError:
+                continue
+
+        raise UbiquitiError("Este dispositivo no soporta actualización remota de firmware")
+
+
+def quick_probe(host: str, username: str, password: str) -> Optional[Dict]:
+    """Lightweight probe for subnet discovery with a 3s timeout per attempt."""
+    svc = UbiquitiAirOSService(host=host, username=username, password=password, timeout=5.0)
+    try:
+        with svc:
+            info = svc.get_device_info()
+            wireless = svc.get_wireless()
+            return {
+                "host": host,
+                "model": info.get("model", ""),
+                "firmware": info.get("firmware", ""),
+                "hostname": info.get("hostname", ""),
+                "mode": wireless.get("mode", ""),
+                "ssid": wireless.get("ssid", ""),
+                "frequency_mhz": wireless.get("frequency_mhz"),
+            }
+    except Exception:
+        return None
+
+
 def build_service_from_device(device) -> UbiquitiAirOSService:
     from app.core.security import decrypt_value
     password = decrypt_value(device.password_encrypted) if device.password_encrypted else "ubnt"
@@ -245,3 +415,30 @@ def build_service_from_device(device) -> UbiquitiAirOSService:
         username=device.username or "ubnt",
         password=password,
     )
+
+
+def ssh_exec(host: str, username: str, password: str, command: str, timeout: float = 15.0) -> Dict:
+    """Execute a command on a Ubiquiti device via SSH. Returns stdout, stderr, exit_code."""
+    import paramiko
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            hostname=host,
+            username=username,
+            password=password,
+            timeout=timeout,
+            allow_agent=False,
+            look_for_keys=False,
+        )
+        _, stdout, stderr = client.exec_command(command, timeout=timeout)
+        exit_code = stdout.channel.recv_exit_status()
+        return {
+            "stdout": stdout.read().decode("utf-8", errors="replace"),
+            "stderr": stderr.read().decode("utf-8", errors="replace"),
+            "exit_code": exit_code,
+        }
+    except Exception as e:
+        raise UbiquitiError(f"SSH error: {e}")
+    finally:
+        client.close()

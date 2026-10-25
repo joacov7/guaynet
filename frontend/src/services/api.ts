@@ -1,11 +1,14 @@
 import axios from "axios";
 import type {
   AuditLogEntry,
+  Expense,
+  ExpenseCategory,
   BandwidthEntry,
   BandwidthHistoryEntry,
   Client,
   DashboardStats,
   DHCPScanResponse,
+  DiscoveredUbiquitiDevice,
   FirewallRule,
   FrequencyRecommendation,
   Invoice,
@@ -16,8 +19,10 @@ import type {
   OverdueReport,
   PCQQueue,
   Plan,
+  QueueTreeEntry,
   Router,
   RouterStats,
+  RouterUtilization,
   TemplateResult,
   UbiquitiDevice,
   UbiquitiDeviceInfo,
@@ -27,6 +32,9 @@ import type {
   UbiquitiWirelessConfig,
   User,
   VpnConnection,
+  Zone,
+  WanInterface,
+  WanSchedule,
 } from "@/types";
 
 const http = axios.create({
@@ -91,6 +99,14 @@ export const dashboardApi = {
   stats: () => http.get<DashboardStats>("/dashboard/stats").then((r) => r.data),
 };
 
+// ── Zones ─────────────────────────────────────────────────────────────────────
+export const zonesApi = {
+  list: () => http.get<Zone[]>("/zones/").then((r) => r.data),
+  create: (data: Partial<Zone>) => http.post<Zone>("/zones/", data).then((r) => r.data),
+  update: (id: number, data: Partial<Zone>) => http.put<Zone>(`/zones/${id}`, data).then((r) => r.data),
+  delete: (id: number) => http.delete(`/zones/${id}`),
+};
+
 // ── Plans ─────────────────────────────────────────────────────────────────────
 export const plansApi = {
   list: (activeOnly = false) =>
@@ -132,6 +148,14 @@ export const routersApi = {
     http.get<BandwidthEntry[]>(`/routers/${id}/bandwidth`).then((r) => r.data),
   onlineClients: (id: number) =>
     http.get<OnlineClient[]>(`/routers/${id}/online-clients`).then((r) => r.data),
+  updateClientIp: (routerId: number, clientId: number, newIp: string) =>
+    http.post(`/routers/${routerId}/clients/${clientId}/update-ip`, { new_ip: newIp }).then((r) => r.data),
+  setupQos: (id: number) =>
+    http.post<{ pcq_added: number; mangle_rules_added: number }>(`/routers/${id}/setup-qos`).then((r) => r.data),
+  utilization: (id: number) =>
+    http.get<RouterUtilization>(`/routers/${id}/utilization`).then((r) => r.data),
+  syncPppoe: (id: number) =>
+    http.post<{ synced: number; errors: string[] }>(`/routers/${id}/sync-pppoe`).then((r) => r.data),
 };
 
 // ── Clients ───────────────────────────────────────────────────────────────────
@@ -151,10 +175,15 @@ export const clientsApi = {
   delete: (id: number) => http.delete(`/clients/${id}`),
   suspend: (id: number) => http.post<Client>(`/clients/${id}/suspend`).then((r) => r.data),
   activate: (id: number) => http.post<Client>(`/clients/${id}/activate`).then((r) => r.data),
+  cancel: (id: number) => http.post<Client>(`/clients/${id}/cancel`).then((r) => r.data),
   syncMikrotik: (id: number) =>
     http.post(`/clients/${id}/sync-mikrotik`).then((r) => r.data),
+  syncPppoe: (id: number) =>
+    http.post<{ status: string }>(`/clients/${id}/sync-pppoe`).then((r) => r.data),
   invoices: (id: number) =>
     http.get<Invoice[]>(`/clients/${id}/invoices`).then((r) => r.data),
+  resolveLocation: (url: string) =>
+    http.get<{ resolved_url: string }>("/clients/resolve-location", { params: { url } }).then((r) => r.data),
 };
 
 // ── Invoices ──────────────────────────────────────────────────────────────────
@@ -214,6 +243,11 @@ export const invoicesApi = {
     const params = new URLSearchParams({ format: "csv", min_days_overdue: String(minDays) });
     window.open(`/api/v1/invoices/overdue-report?${params}`, "_blank");
   },
+  pdfUrl: (id: number) => `/api/v1/invoices/${id}/pdf`,
+  mpLink: (id: number) =>
+    http.post<{ init_point: string; preference_id: string }>(`/invoices/${id}/mp-link`).then((r) => r.data),
+  emitCae: (id: number) =>
+    http.post<{ cae: string; cae_fch_vto: string; cbte_nro: number }>(`/invoices/${id}/emit-cae`).then((r) => r.data),
   downloadPdf: (id: number) => {
     window.open(`/api/v1/invoices/${id}/pdf`, "_blank");
   },
@@ -222,6 +256,7 @@ export const invoicesApi = {
 // ── Ubiquiti ──────────────────────────────────────────────────────────────────
 export const ubiquitiApi = {
   list: () => http.get<UbiquitiDevice[]>("/ubiquiti/").then((r) => r.data),
+  listFree: () => http.get<UbiquitiDevice[]>("/ubiquiti/", { params: { free: true } }).then((r) => r.data),
   get: (id: number) => http.get<UbiquitiDevice>(`/ubiquiti/${id}`).then((r) => r.data),
   create: (data: Partial<UbiquitiDevice> & { password?: string }) =>
     http.post<UbiquitiDevice>("/ubiquiti/", data).then((r) => r.data),
@@ -245,6 +280,40 @@ export const ubiquitiApi = {
     http.get<FrequencyRecommendation[]>(`/ubiquiti/${id}/recommendations`).then((r) => r.data),
   clients: (id: number) =>
     http.get<Array<{ id: number; full_name: string; ip_address: string; mac_address?: string; status: string }>>(`/ubiquiti/${id}/clients`).then((r) => r.data),
+  uploadFirmware: (deviceId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("firmware", file);
+    return http.post<{ status: string; message: string }>(`/ubiquiti/${deviceId}/firmware`, fd, {
+      headers: { "Content-Type": "multipart/form-data" },
+      timeout: 120000,
+    }).then((r) => r.data);
+  },
+  importCsv: (file: File) =>
+    http.post<{ created: number; errors: { row: number; error: string }[] }>(
+      "/ubiquiti/import",
+      (() => { const fd = new FormData(); fd.append("file", file); return fd; })(),
+      { headers: { "Content-Type": "multipart/form-data" } }
+    ).then(r => r.data),
+  probe: (host: string, username: string, password: string, deviceType = "airmax_ac_ap") =>
+    http.post<DiscoveredUbiquitiDevice>("/ubiquiti/probe", {
+      subnet: host,
+      username,
+      password,
+      device_type: deviceType,
+    }, { timeout: 30000 }).then(r => r.data),
+  discover: (subnet: string, username: string, password: string, deviceType = "airmax_ac_ap") =>
+    http.post<DiscoveredUbiquitiDevice[]>("/ubiquiti/discover", {
+      subnet,
+      username,
+      password,
+      device_type: deviceType,
+    }, { timeout: 300000 }).then(r => r.data),
+  sshExec: (id: number, command: string) =>
+    http.post<{ stdout: string; stderr: string; exit_code: number }>(
+      `/ubiquiti/${id}/ssh-exec`,
+      { command },
+      { timeout: 30000 },
+    ).then(r => r.data),
 };
 
 // ── Firewall & QoS ────────────────────────────────────────────────────────────
@@ -252,21 +321,25 @@ export const firewallApi = {
   dhcpScan: (routerId: number) =>
     http.get<DHCPScanResponse>(`/firewall/${routerId}/dhcp-scan`).then((r) => r.data),
   getFilterRules: (routerId: number) =>
-    http.get<FirewallRule[]>(`/firewall/${routerId}/filter`).then((r) => r.data),
+    http.get<{ rules: FirewallRule[]; error: string | null }>(`/firewall/${routerId}/filter`).then((r) => r.data),
   deleteFilterRule: (routerId: number, ruleId: string) =>
     http.delete(`/firewall/${routerId}/filter/${ruleId}`).then((r) => r.data),
   getMangleRules: (routerId: number) =>
-    http.get<MangleRule[]>(`/firewall/${routerId}/mangle`).then((r) => r.data),
+    http.get<{ rules: MangleRule[]; error: string | null }>(`/firewall/${routerId}/mangle`).then((r) => r.data),
   deleteMangleRule: (routerId: number, ruleId: string) =>
     http.delete(`/firewall/${routerId}/mangle/${ruleId}`).then((r) => r.data),
   applyTemplate: (routerId: number, template: string) =>
     http.post<TemplateResult>(`/firewall/${routerId}/templates/${template}`).then((r) => r.data),
   getPCQQueues: (routerId: number) =>
-    http.get<PCQQueue[]>(`/firewall/${routerId}/pcq`).then((r) => r.data),
+    http.get<{ queues: PCQQueue[]; error: string | null }>(`/firewall/${routerId}/pcq`).then((r) => r.data),
   setupPCQ: (routerId: number) =>
     http.post<{ added: number }>(`/firewall/${routerId}/pcq/setup`).then((r) => r.data),
   dhcpImport: (routerId: number, items: { address: string; mac_address: string; hostname?: string }[], plan_id: number) =>
     http.post<{ created: number; skipped: number }>(`/firewall/${routerId}/dhcp-import`, { items, plan_id }).then((r) => r.data),
+  getQueueTreeStats: (routerId: number) =>
+    http.get<{ entries: QueueTreeEntry[]; error: string | null }>(`/firewall/${routerId}/queue-tree-stats`).then((r) => r.data),
+  applyProfessionalTree: (routerId: number, download_mbps: number, upload_mbps: number) =>
+    http.post<{ added: number; message: string }>(`/firewall/${routerId}/queue-tree-professional`, { download_mbps, upload_mbps }).then((r) => r.data),
 };
 
 // ── Tickets ───────────────────────────────────────────────────────────────────
@@ -290,6 +363,18 @@ export const ticketsApi = {
   },
 };
 
+// ── Work Orders ──────────────────────────────────────────────────────────────
+export const workOrdersApi = {
+  list: (params?: { status?: string; assigned_to_id?: number }) =>
+    http.get<import("@/types").WorkOrder[]>("/work-orders/", { params }).then((r) => r.data),
+  get: (id: number) => http.get<import("@/types").WorkOrder>(`/work-orders/${id}`).then((r) => r.data),
+  create: (data: Partial<import("@/types").WorkOrder>) =>
+    http.post<import("@/types").WorkOrder>("/work-orders/", data).then((r) => r.data),
+  update: (id: number, data: Partial<import("@/types").WorkOrder>) =>
+    http.put<import("@/types").WorkOrder>(`/work-orders/${id}`, data).then((r) => r.data),
+  delete: (id: number) => http.delete(`/work-orders/${id}`),
+};
+
 // ── Reports ───────────────────────────────────────────────────────────────────
 export const reportsApi = {
   monthlyRevenue: (months = 12) =>
@@ -300,6 +385,25 @@ export const reportsApi = {
     http.get<Array<{ plan: string; count: number }>>("/reports/clients-by-plan").then((r) => r.data),
   paymentMethods: () =>
     http.get<Array<{ method: string; count: number; total: number }>>("/reports/payment-methods").then((r) => r.data),
+  arpu: () =>
+    http.get<Array<{ plan_name: string; client_count: number; total_revenue: number; avg_invoice: number }>>("/reports/arpu-by-plan").then((r) => r.data),
+  churn: (months = 12) =>
+    http.get<Array<{ period: string; suspended: number; cancelled: number; total_active: number }>>("/reports/churn", { params: { months } }).then((r) => r.data),
+  revenueByZone: () =>
+    http.get<Array<{ zone_name: string; color: string; client_count: number; total_revenue: number }>>("/reports/revenue-by-zone").then((r) => r.data),
+  oversubscription: () =>
+    http.get<Array<{
+      router_id: number; router_name: string; location?: string;
+      uplink_download_mbps?: number; uplink_upload_mbps?: number;
+      subscribed_download_mbps: number; subscribed_upload_mbps: number;
+      active_clients: number; oversubscription_dl?: number; oversubscription_ul?: number;
+    }>>("/reports/oversubscription").then((r) => r.data),
+  upgradeCandidates: (days = 30, threshold_pct = 80) =>
+    http.get<Array<{
+      client_id: number; client_name: string; plan_name: string;
+      plan_download_mbps: number; plan_upload_mbps: number;
+      peak_download_pct: number; peak_upload_pct: number; peak_pct: number;
+    }>>("/reports/upgrade-candidates", { params: { days, threshold_pct } }).then((r) => r.data),
 };
 
 // ── Inventory ─────────────────────────────────────────────────────────────────
@@ -411,6 +515,7 @@ export const adminApi = {
   mapData: () => http.get("/admin/map-data").then((r) => r.data),
   getConfig: () => http.get<Record<string, string>>("/admin/config").then((r) => r.data),
   updateConfig: (data: Record<string, string>) => http.put<Record<string, string>>("/admin/config", data).then((r) => r.data),
+  testEmail: () => http.post<{ ok: boolean; message: string }>("/admin/test-email").then((r) => r.data),
 };
 
 export interface MyPermissions {
@@ -426,11 +531,71 @@ export interface RolePermission {
   can_edit: boolean;
 }
 
+export interface UserPermissionEntry {
+  section: string;
+  can_view: boolean;
+  can_edit: boolean;
+  is_override: boolean;
+}
+
 export const permissionsApi = {
   my: () => http.get<MyPermissions>("/permissions/my").then((r) => r.data),
   list: () => http.get<RolePermission[]>("/permissions/").then((r) => r.data),
   update: (role: string, section: string, can_view: boolean, can_edit: boolean) =>
     http.put<RolePermission>(`/permissions/${role}/${section}`, { can_view, can_edit }).then((r) => r.data),
+  getUserPerms: (userId: number) =>
+    http.get<UserPermissionEntry[]>(`/permissions/users/${userId}`).then((r) => r.data),
+  setUserPerm: (userId: number, section: string, can_view: boolean, can_edit: boolean) =>
+    http.put<UserPermissionEntry>(`/permissions/users/${userId}/${section}`, { can_view, can_edit }).then((r) => r.data),
+  deleteUserPerm: (userId: number, section: string) =>
+    http.delete(`/permissions/users/${userId}/${section}`),
+};
+
+export const alarmsApi = {
+  list: (status?: string) =>
+    http.get<import("@/types").Alarm[]>("/alarms/", { params: status ? { status } : {} }).then(r => r.data),
+  countActive: () =>
+    http.get<{ count: number }>("/alarms/count-active").then(r => r.data),
+};
+
+export const wanApi = {
+  list: (routerId: number) =>
+    http.get<WanInterface[]>(`/routers/${routerId}/wan`).then(r => r.data),
+  create: (routerId: number, data: { interface_name: string; display_name?: string; weight?: number; cap_gb?: number; enabled?: boolean }) =>
+    http.post<WanInterface>(`/routers/${routerId}/wan`, data).then(r => r.data),
+  update: (routerId: number, wanId: number, data: Partial<{ display_name: string; weight: number; cap_gb: number; enabled: boolean }>) =>
+    http.put<WanInterface>(`/routers/${routerId}/wan/${wanId}`, data).then(r => r.data),
+  remove: (routerId: number, wanId: number) =>
+    http.delete(`/routers/${routerId}/wan/${wanId}`),
+  toggle: (routerId: number, wanId: number) =>
+    http.post<{ enabled: boolean; manual_override: boolean }>(`/routers/${routerId}/wan/${wanId}/toggle`).then(r => r.data),
+  clearOverride: (routerId: number, wanId: number) =>
+    http.post(`/routers/${routerId}/wan/${wanId}/clear-override`).then(r => r.data),
+  createSchedule: (routerId: number, wanId: number, data: { action: string; days: string; time_start: string; time_end: string }) =>
+    http.post<WanSchedule>(`/routers/${routerId}/wan/${wanId}/schedules`, data).then(r => r.data),
+  deleteSchedule: (routerId: number, wanId: number, schedId: number) =>
+    http.delete(`/routers/${routerId}/wan/${wanId}/schedules/${schedId}`),
+  updateSchedule: (routerId: number, wanId: number, schedId: number, data: { action?: string; days?: string; time_start?: string; time_end?: string }) =>
+    http.put<WanSchedule>(`/routers/${routerId}/wan/${wanId}/schedules/${schedId}`, data).then(r => r.data),
+  applyLoadBalance: (routerId: number, wans: { wan_interface_id: number; gateway: string }[]) =>
+    http.post(`/routers/${routerId}/wan/apply-load-balance`, { wans }).then(r => r.data),
+  removeLoadBalance: (routerId: number) =>
+    http.post(`/routers/${routerId}/wan/remove-load-balance`).then(r => r.data),
+};
+
+// ── Expenses ──────────────────────────────────────────────────────────────────
+export const expensesApi = {
+  list: (params?: { category?: ExpenseCategory; date_from?: string; date_to?: string }) =>
+    http.get<Expense[]>("/expenses/", { params }).then((r) => r.data),
+  create: (data: Omit<Expense, "id" | "created_at" | "updated_at">) =>
+    http.post<Expense>("/expenses/", data).then((r) => r.data),
+  update: (id: number, data: Partial<Omit<Expense, "id" | "created_at" | "updated_at">>) =>
+    http.put<Expense>(`/expenses/${id}`, data).then((r) => r.data),
+  delete: (id: number) => http.delete(`/expenses/${id}`),
+  summary: (params?: { year?: number; month?: number }) =>
+    http.get<{ total: number; by_category: Record<string, number> }>("/expenses/summary", { params }).then((r) => r.data),
+  monthlyTotals: (year?: number) =>
+    http.get<{ year: number; months: { month: number; total: number }[] }>("/expenses/monthly-totals", { params: year ? { year } : undefined }).then((r) => r.data),
 };
 
 export default http;

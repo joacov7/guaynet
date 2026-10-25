@@ -237,6 +237,86 @@ def build_application(token: str, database_url: str, allowed_ids: List[int]) -> 
             await q.edit_message_text("❌ Operación cancelada.")
             return
 
+        # ── Seguridad: confirmación de alerta ─────────────────────────────────
+        if data.startswith("sec_safe:") or data.startswith("sec_help:"):
+            prefix, alert_id_s = data.split(":", 1)
+            if not alert_id_s.isdigit():
+                await q.edit_message_text("❌ ID de alerta inválido.")
+                return
+            alert_id = int(alert_id_s)
+            is_safe = prefix == "sec_safe"
+
+            from datetime import datetime, timezone
+            from sqlalchemy.orm import selectinload
+            from app.models.security.alert import (
+                SecurityAlert, SecurityAlertStatus,
+                AlertConfirmation, AlertConfirmationResponse,
+            )
+            from app.models.security.subscription import SecuritySubscription
+
+            async with maker() as db:
+                result = await db.execute(
+                    select(SecurityAlert)
+                    .options(selectinload(SecurityAlert.confirmations))
+                    .where(SecurityAlert.id == alert_id)
+                )
+                alert = result.scalar_one_or_none()
+
+                if not alert:
+                    await q.edit_message_text("❌ Alerta no encontrada.")
+                    return
+
+                if alert.confirmations:
+                    await q.edit_message_text("ℹ️ Esta alerta ya fue respondida.")
+                    return
+
+                now = datetime.now(timezone.utc)
+                confirmation = AlertConfirmation(
+                    alert_id=alert.id,
+                    confirmed_at=now,
+                    response=(
+                        AlertConfirmationResponse.safe
+                        if is_safe
+                        else AlertConfirmationResponse.need_help
+                    ),
+                )
+                db.add(confirmation)
+
+                if is_safe:
+                    alert.status = SecurityAlertStatus.false_alarm
+                    alert.resolved_at = now
+                    db.add(alert)
+                    await db.commit()
+                    await q.edit_message_text(
+                        "✅ Entendido, quedamos en alerta. Gracias por confirmar.\n"
+                        "_Si algo cambia, usá el botón de pánico._",
+                        parse_mode="Markdown",
+                    )
+                else:
+                    await db.commit()
+                    # Escalate to operators immediately
+                    try:
+                        from app.services.security.notifications import dispatch_alert_operator
+                        # Resolve property name for the operator message
+                        from app.models.security.property import Property
+                        prop_result = await db.execute(
+                            select(Property.name)
+                            .join(SecuritySubscription, SecuritySubscription.property_id == Property.id)
+                            .where(SecuritySubscription.id == alert.subscription_id)
+                        )
+                        prop_row = prop_result.first()
+                        property_name = prop_row[0] if prop_row else ""
+                        await dispatch_alert_operator(alert, property_name)
+                    except Exception as exc:
+                        logger.error("Failed to escalate alert %d after sec_help: %s", alert_id, exc)
+
+                    await q.edit_message_text(
+                        "🆘 *Estamos llamando al operador ahora mismo.*\n"
+                        "_Permanecé en un lugar seguro si podés._",
+                        parse_mode="Markdown",
+                    )
+            return
+
         if data.startswith("cortar:"):
             cid = int(data.split(":")[1])
             async with maker() as db:

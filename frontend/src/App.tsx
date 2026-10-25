@@ -23,11 +23,32 @@ import Settings from "@/pages/Settings";
 import Tickets from "@/pages/Tickets";
 import Inventory from "@/pages/Inventory";
 import Reports from "@/pages/Reports";
+import Zones from "@/pages/Zones";
+import WorkOrders from "@/pages/WorkOrders";
+import Alarms from "@/pages/Alarms";
+import Expenses from "@/pages/Expenses";
+import WanManagement from "@/pages/WanManagement";
+import Help from "@/pages/Help";
+import SecurityDashboard from "@/pages/security/SecurityDashboard";
+import SecurityAlerts from "@/pages/security/SecurityAlerts";
+import SecurityOperatorPanel from "@/pages/security/SecurityOperatorPanel";
+import SecuritySubscriptions from "@/pages/security/SecuritySubscriptions";
+import SecurityEvents from "@/pages/security/SecurityEvents";
+import SecurityNeighborhood from "@/pages/security/SecurityNeighborhood";
+import SecurityMembers from "@/pages/security/SecurityMembers";
+import SecurityDevices from "@/pages/security/SecurityDevices";
+import SecurityContracts from "@/pages/security/SecurityContracts";
+import SecurityProperties from "@/pages/security/SecurityProperties";
+import SecurityPlans from "@/pages/security/SecurityPlans";
+import EntrySecure from "@/pages/security/EntrySecure";
 import TechLayout from "@/pages/tech/TechLayout";
 import TechLogin from "@/pages/tech/TechLogin";
 import TechHome from "@/pages/tech/TechHome";
 import TechHistory from "@/pages/tech/TechHistory";
 import TechTicket from "@/pages/tech/TechTicket";
+import TechWorkOrders from "@/pages/tech/TechWorkOrders";
+import TechWorkOrderDetail from "@/pages/tech/TechWorkOrderDetail";
+import Portal from "@/pages/Portal";
 import Automations from "@/pages/Automations";
 import PortalLayout from "@/pages/portal/PortalLayout";
 import PortalLogin from "@/pages/portal/PortalLogin";
@@ -83,17 +104,38 @@ export default function App() {
           <Route path="tickets" element={<Tickets />} />
           <Route path="inventory" element={<Inventory />} />
           <Route path="reports" element={<Reports />} />
+          <Route path="zones" element={<Zones />} />
+          <Route path="work-orders" element={<WorkOrders />} />
+          <Route path="alarms" element={<Alarms />} />
+          <Route path="wan" element={<WanManagement />} />
+          <Route path="expenses" element={<Expenses />} />
+          <Route path="security" element={<SecurityDashboard />} />
+          <Route path="security/operator-panel" element={<SecurityOperatorPanel />} />
+          <Route path="security/alerts" element={<SecurityAlerts />} />
+          <Route path="security/subscriptions" element={<SecuritySubscriptions />} />
+          <Route path="security/entry-secure" element={<EntrySecure />} />
+          <Route path="security/events" element={<SecurityEvents />} />
+          <Route path="security/neighborhood" element={<SecurityNeighborhood />} />
+          <Route path="security/members" element={<SecurityMembers />} />
+          <Route path="security/devices" element={<SecurityDevices />} />
+          <Route path="security/contracts" element={<SecurityContracts />} />
+          <Route path="security/properties" element={<SecurityProperties />} />
+          <Route path="security/plans" element={<SecurityPlans />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="help" element={<Help />} />
           <Route path="automations" element={<Automations />} />
         </Route>
 
-        {/* Client portal — separate layout */}
+        {/* Client portal with login (invoices, tickets) — separate layout */}
         <Route path="/portal" element={<PortalLayout />}>
           <Route index element={<PortalDashboard />} />
           <Route path="login" element={<PortalLogin />} />
           <Route path="invoices" element={<PortalInvoices />} />
           <Route path="tickets" element={<PortalTickets />} />
         </Route>
+
+        {/* Security portal without login: by IP, or by link (?token=) for security-only clients */}
+        <Route path="/seguridad" element={<Portal />} />
 
         {/* Tech PWA — separate layout, no sidebar */}
         <Route path="/tech" element={<TechLayout />}>
@@ -102,6 +144,8 @@ export default function App() {
           <Route path="tickets" element={<TechHome />} />
           <Route path="tickets/:id" element={<TechTicket />} />
           <Route path="history" element={<TechHistory />} />
+          <Route path="work-orders" element={<TechWorkOrders />} />
+          <Route path="work-orders/:id" element={<TechWorkOrderDetail />} />
         </Route>
       </Routes>
     </BrowserRouter>

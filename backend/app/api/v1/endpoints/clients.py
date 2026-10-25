@@ -1,5 +1,8 @@
 import asyncio
+import logging
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, or_, select
@@ -7,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import add_audit_log, get_current_user, get_db
+from app.core.security import decrypt_value, encrypt_value
 from app.models.client import Client, ClientStatus
 from app.models.config import SystemConfig
 from app.models.invoice import Invoice
@@ -28,11 +32,11 @@ async def _get_suspension_config(db: AsyncSession) -> tuple[str, str]:
     return cfg.get("suspension_action", "disable"), cfg.get("suspension_speed", "64k")
 
 
-async def _push_to_mikrotik(client: Client, router_obj: MikrotikRouter, db):
-    """Sync a single client's queue to its Mikrotik router."""
+async def _push_to_mikrotik(client: Client, router_obj: MikrotikRouter, db) -> str:
+    """Sync a single client's queue to its Mikrotik router. Returns a description of what was done."""
     plan = await db.get(Plan, client.plan_id)
     if not plan:
-        return
+        return "sin plan"
 
     is_suspended = client.status == ClientStatus.suspended
     suspension_action, suspension_speed = await _get_suspension_config(db)
@@ -44,29 +48,69 @@ async def _push_to_mikrotik(client: Client, router_obj: MikrotikRouter, db):
         effective_max_limit = plan.mikrotik_max_limit
         effective_disabled = is_suspended
 
-    def _sync():
+    def _sync() -> str:
         svc = build_service_from_router(router_obj)
         with svc:
+            use_sfq = svc.has_queue_type("guaynet-sfq")
             existing = svc.get_queue_by_name(client.mikrotik_queue_name)
-            params = dict(
-                name=client.mikrotik_queue_name,
-                target=client.mikrotik_target,
-                max_limit=effective_max_limit,
-                burst_limit=plan.mikrotik_burst_limit if not is_suspended else None,
-                burst_threshold=plan.mikrotik_burst_threshold if not is_suspended else None,
-                burst_time=plan.mikrotik_burst_time if (plan.mikrotik_burst_limit and not is_suspended) else None,
-                comment=f"guaynet:{client.id}|{client.full_name}",
-                disabled=effective_disabled,
-            )
+            update_params = {
+                "max_limit": effective_max_limit,
+                "disabled": effective_disabled,
+                "comment": f"guaynet:{client.id}|{client.full_name}",
+            }
+            if not is_suspended and plan.mikrotik_burst_limit and plan.mikrotik_burst_threshold:
+                update_params["burst_limit"] = plan.mikrotik_burst_limit
+                update_params["burst_threshold"] = plan.mikrotik_burst_threshold
+                update_params["burst_time"] = plan.mikrotik_burst_time
+            if use_sfq:
+                update_params["queue_type"] = "guaynet-sfq"
             if existing:
-                svc.update_simple_queue(existing["id"], **{
-                    k: v for k, v in params.items()
-                    if k not in ("name", "target") and v is not None
-                })
+                svc.update_simple_queue(existing["id"], **update_params)
+                return f"updated {client.mikrotik_queue_name} → {effective_max_limit}"
             else:
-                svc.add_simple_queue(**params)
+                svc.add_simple_queue(
+                    name=client.mikrotik_queue_name,
+                    target=client.mikrotik_target,
+                    **update_params,
+                )
+                return f"created {client.mikrotik_queue_name} → {effective_max_limit}"
 
-    await asyncio.to_thread(_sync)
+    return await asyncio.to_thread(_sync)
+
+
+async def _sync_pppoe_to_mikrotik(client: Client, db: AsyncSession) -> str:
+    if not client.pppoe_username or not client.pppoe_password_encrypted:
+        return "no_pppoe"
+    if not client.router_id:
+        return "no_router"
+    rt = await db.get(MikrotikRouter, client.router_id)
+    if not rt or not rt.password_encrypted:
+        return "no_router"
+    pppoe_password = decrypt_value(client.pppoe_password_encrypted)
+    disabled = client.status != ClientStatus.active
+
+    def _sync():
+        svc = build_service_from_router(rt)
+        with svc:
+            existing = svc.get_pppoe_secrets()
+            found = next((s for s in existing if s.get("name") == client.pppoe_username), None)
+            if found:
+                return svc.update_pppoe_secret(
+                    client.pppoe_username,
+                    password=pppoe_password,
+                    ip_address=client.ip_address,
+                    disabled=disabled,
+                )
+            else:
+                return svc.add_pppoe_secret(
+                    client.pppoe_username,
+                    pppoe_password,
+                    client.ip_address,
+                    comment=f"guaynet-client-{client.id}",
+                )
+
+    success = await asyncio.to_thread(_sync)
+    return "synced" if success else "error"
 
 
 @router.get("/", response_model=List[ClientListResponse])
@@ -125,7 +169,11 @@ async def create_client(
     if not rt:
         raise HTTPException(status_code=404, detail="Router no encontrado")
 
-    client = Client(**body.model_dump())
+    data = body.model_dump()
+    pppoe_pw = data.pop("pppoe_password", None)
+    client = Client(**data)
+    if pppoe_pw:
+        client.pppoe_password_encrypted = encrypt_value(pppoe_pw)
     db.add(client)
     await db.commit()
     await db.refresh(client)
@@ -134,6 +182,10 @@ async def create_client(
     try:
         await _push_to_mikrotik(client, rt, db)
     except MikrotikError:
+        pass
+    try:
+        await _sync_pppoe_to_mikrotik(client, db)
+    except Exception:
         pass
 
     return await db.get(
@@ -177,6 +229,7 @@ async def update_client(
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
     updates = body.model_dump(exclude_unset=True)
+    pppoe_pw = updates.pop("pppoe_password", None)
 
     if "ip_address" in updates and updates["ip_address"] != client.ip_address:
         dup = await db.execute(select(Client).where(Client.ip_address == updates["ip_address"]))
@@ -186,6 +239,8 @@ async def update_client(
     old_plan_id = client.plan_id
     for field, value in updates.items():
         setattr(client, field, value)
+    if pppoe_pw:
+        client.pppoe_password_encrypted = encrypt_value(pppoe_pw)
 
     if "plan_id" in updates and updates["plan_id"] != old_plan_id:
         add_audit_log(db, current_user, "plan_change", "client", client.id, client.full_name,
@@ -194,15 +249,30 @@ async def update_client(
     db.add(client)
     await db.commit()
 
+    mt_error = None
+    mt_sync = None
     rt = await db.get(MikrotikRouter, client.router_id)
     if rt:
         try:
-            await _push_to_mikrotik(client, rt, db)
-        except MikrotikError:
-            pass
+            mt_sync = await _push_to_mikrotik(client, rt, db)
+        except MikrotikError as e:
+            mt_error = str(e)
+        except Exception as e:
+            mt_error = f"Error inesperado: {e}"
+    else:
+        mt_error = "Router no encontrado"
+
+    try:
+        await _sync_pppoe_to_mikrotik(client, db)
+    except Exception:
+        pass
 
     await db.refresh(client)
-    return client
+    resp = ClientResponse.model_validate(client)
+    resp.has_pppoe = bool(client.pppoe_password_encrypted)
+    resp.mikrotik_error = mt_error
+    resp.mikrotik_sync = mt_sync
+    return resp
 
 
 @router.delete("/{client_id}", status_code=204)
@@ -251,15 +321,21 @@ async def suspend_client(
     db.add(client)
     await db.commit()
 
+    mt_error = None
     rt = await db.get(MikrotikRouter, client.router_id)
     if rt:
         try:
             await _push_to_mikrotik(client, rt, db)
-        except MikrotikError:
-            pass
+        except (MikrotikError, Exception) as e:
+            mt_error = str(e)
+
+    from app.services.telegram import send_telegram
+    await send_telegram(f"⛔ *Servicio suspendido*\n{client.full_name} ({client.ip_address})")
 
     await db.refresh(client)
-    return client
+    resp = ClientResponse.model_validate(client)
+    resp.mikrotik_error = mt_error
+    return resp
 
 
 @router.post("/{client_id}/activate", response_model=ClientResponse)
@@ -280,15 +356,21 @@ async def activate_client(
     db.add(client)
     await db.commit()
 
+    mt_error = None
     rt = await db.get(MikrotikRouter, client.router_id)
     if rt:
         try:
             await _push_to_mikrotik(client, rt, db)
-        except MikrotikError:
-            pass
+        except (MikrotikError, Exception) as e:
+            mt_error = str(e)
+
+    from app.services.telegram import send_telegram
+    await send_telegram(f"✅ *Servicio activado*\n{client.full_name} ({client.ip_address})")
 
     await db.refresh(client)
-    return client
+    resp = ClientResponse.model_validate(client)
+    resp.mikrotik_error = mt_error
+    return resp
 
 
 @router.post("/{client_id}/sync-mikrotik", status_code=200)
@@ -307,10 +389,77 @@ async def sync_client_mikrotik(
         raise HTTPException(status_code=404, detail="Router no encontrado")
 
     try:
-        await _push_to_mikrotik(client, rt, db)
-        return {"ok": True, "message": "Queue sincronizada correctamente"}
-    except MikrotikError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        action = await _push_to_mikrotik(client, rt, db)
+        return {"ok": True, "message": action or "Queue sincronizada correctamente"}
+    except (MikrotikError, Exception) as e:
+        detail = str(e) or type(e).__name__
+        raise HTTPException(status_code=503, detail=detail)
+
+
+@router.post("/{client_id}/sync-pppoe")
+async def sync_client_pppoe(
+    client_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    client = await db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    status = await _sync_pppoe_to_mikrotik(client, db)
+    return {"status": status}
+
+
+@router.post("/{client_id}/cancel", response_model=ClientResponse)
+async def cancel_client(
+    client_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Mark client as cancelled, remove Mikrotik queue, free Ubiquiti device."""
+    result = await db.execute(
+        select(Client).options(selectinload(Client.plan), selectinload(Client.router)).where(Client.id == client_id)
+    )
+    client = result.scalar_one_or_none()
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    if client.status == ClientStatus.cancelled:
+        raise HTTPException(status_code=400, detail="El cliente ya fue dado de baja")
+
+    rt = await db.get(MikrotikRouter, client.router_id)
+    if rt:
+        def _remove():
+            svc = build_service_from_router(rt)
+            with svc:
+                q = svc.get_queue_by_name(client.mikrotik_queue_name)
+                if q:
+                    svc.remove_queue(q["id"])
+        try:
+            await asyncio.to_thread(_remove)
+        except MikrotikError:
+            pass
+
+    client.ubiquiti_device_id = None
+    client.status = ClientStatus.cancelled
+    add_audit_log(db, current_user, "cancel", "client", client.id, client.full_name)
+    db.add(client)
+    await db.commit()
+    await db.refresh(client)
+    return client
+
+
+@router.get("/resolve-location")
+async def resolve_location_url(
+    url: str,
+    _=Depends(get_current_user),
+):
+    """Follow redirects on a shortened Maps URL and return the final URL so the frontend can parse coordinates."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=6.0) as client:
+            r = await client.head(url)
+            return {"resolved_url": str(r.url)}
+    except Exception as e:
+        raise HTTPException(400, f"No se pudo resolver la URL: {e}")
 
 
 @router.get("/{client_id}/invoices", response_model=List[InvoiceResponse])

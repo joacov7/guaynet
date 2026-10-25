@@ -45,9 +45,12 @@ class Plan(Base, TimestampMixin):
     @property
     def mikrotik_burst_threshold(self) -> Optional[str]:
         if self.burst_threshold_mbps:
-            return f"{self.burst_threshold_mbps}M/{self.burst_threshold_mbps}M"
+            # threshold must not exceed the burst limit in either direction
+            upload_t = min(self.burst_threshold_mbps, self.burst_upload_mbps) if self.burst_upload_mbps else self.burst_threshold_mbps
+            download_t = min(self.burst_threshold_mbps, self.burst_download_mbps) if self.burst_download_mbps else self.burst_threshold_mbps
+            return f"{upload_t}M/{download_t}M"
         return None
 
     @property
     def mikrotik_burst_time(self) -> str:
-        return f"{self.burst_time_seconds}/{self.burst_time_seconds}"
+        return f"{self.burst_time_seconds}s/{self.burst_time_seconds}s"

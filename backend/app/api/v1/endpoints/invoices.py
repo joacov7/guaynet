@@ -1,3 +1,4 @@
+import asyncio
 import calendar
 import csv
 import io
@@ -17,6 +18,7 @@ from app.models.client import Client, ClientStatus
 from app.models.config import SystemConfig
 from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus, Payment
 from app.schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceUpdate, PaymentCreate, PaymentResponse
+from app.services.telegram import send_telegram as _send_telegram
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +35,15 @@ async def list_invoices(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    q = select(Invoice).options(selectinload(Invoice.payments), selectinload(Invoice.items)).order_by(Invoice.due_date.desc())
+    q = (
+        select(Invoice)
+        .options(
+            selectinload(Invoice.payments),
+            selectinload(Invoice.items),
+            selectinload(Invoice.client),
+        )
+        .order_by(Invoice.due_date.desc())
+    )
     if status:
         q = q.where(Invoice.status == status)
     if period:
@@ -41,7 +51,8 @@ async def list_invoices(
     if client_id:
         q = q.where(Invoice.client_id == client_id)
     result = await db.execute(q.offset(skip).limit(limit))
-    return result.scalars().all()
+    invoices = result.scalars().all()
+    return [InvoiceResponse.from_orm_with_client(inv) for inv in invoices]
 
 
 @router.post("/", response_model=InvoiceResponse, status_code=201)
@@ -122,7 +133,10 @@ async def add_payment(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    invoice = await db.get(Invoice, invoice_id)
+    result = await db.execute(
+        select(Invoice).options(selectinload(Invoice.payments)).where(Invoice.id == invoice_id)
+    )
+    invoice = result.scalar_one_or_none()
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
@@ -131,14 +145,181 @@ async def add_payment(
 
     # Mark invoice as paid if amount covers total
     total_paid = sum(p.amount for p in invoice.payments) + body.amount
+    newly_paid = False
     if total_paid >= float(invoice.amount):
         invoice.status = InvoiceStatus.paid
         invoice.paid_date = body.payment_date
         db.add(invoice)
+        newly_paid = True
 
     await db.commit()
     await db.refresh(payment)
+
+    # Auto-reactivate suspended client when this payment makes the invoice fully paid
+    if newly_paid and invoice.client_id:
+        client = await db.get(Client, invoice.client_id)
+        if client and client.status == ClientStatus.suspended:
+            # Check whether any other overdue invoice remains
+            other_overdue = await db.execute(
+                select(Invoice.id).where(
+                    Invoice.client_id == invoice.client_id,
+                    Invoice.id != invoice_id,
+                    Invoice.status == InvoiceStatus.overdue,
+                )
+            )
+            if not other_overdue.scalar_one_or_none():
+                client.status = ClientStatus.active
+                db.add(client)
+                await db.commit()
+
+                # Re-enable MikroTik queue
+                import asyncio
+                from app.models.router import MikrotikRouter
+                from app.services.mikrotik import build_service_from_router, MikrotikError
+                rt = await db.get(MikrotikRouter, client.router_id)
+                if rt:
+                    def _enable(router=rt, qname=client.mikrotik_queue_name):
+                        svc = build_service_from_router(router)
+                        with svc:
+                            q = svc.get_queue_by_name(qname)
+                            if q:
+                                svc.enable_queue(q["id"])
+                    try:
+                        await asyncio.to_thread(_enable)
+                    except MikrotikError:
+                        pass
+
+                try:
+                    await _send_telegram(
+                        f"✅ Cliente reactivado automáticamente: {client.full_name} (pago factura #{invoice_id})"
+                    )
+                except Exception:
+                    pass
+
     return payment
+
+
+@router.post("/{invoice_id}/mp-link")
+async def create_mp_link(invoice_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    result = await db.execute(
+        select(Invoice).options(selectinload(Invoice.items)).where(Invoice.id == invoice_id)
+    )
+    invoice = result.scalar_one_or_none()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+    if invoice.status in (InvoiceStatus.paid, InvoiceStatus.cancelled):
+        raise HTTPException(status_code=400, detail="La factura ya está pagada o cancelada")
+
+    client = await db.get(Client, invoice.client_id)
+
+    # Load MP access token from SystemConfig
+    from app.models.config import SystemConfig
+    cfg_result = await db.execute(select(SystemConfig).where(SystemConfig.key == "mp_access_token"))
+    cfg = cfg_result.scalar_one_or_none()
+    if not cfg or not cfg.value:
+        raise HTTPException(status_code=400, detail="No se configuró el access token de MercadoPago (Configuración → MercadoPago)")
+
+    import mercadopago
+    sdk = mercadopago.SDK(cfg.value)
+
+    title = f"Factura #{invoice_id} — {invoice.period}"
+    if invoice.items:
+        items = [{"title": it.description, "quantity": int(it.quantity), "unit_price": float(it.unit_price)} for it in invoice.items]
+    else:
+        items = [{"title": title, "quantity": 1, "unit_price": float(invoice.amount)}]
+
+    preference_data = {
+        "items": items,
+        "external_reference": str(invoice_id),
+        "statement_descriptor": "Guaynet WISP",
+    }
+    if client and client.email:
+        preference_data["payer"] = {"email": client.email}
+
+    response = sdk.preference().create(preference_data)
+    if response["status"] not in (200, 201):
+        raise HTTPException(status_code=502, detail=f"Error MercadoPago: {response.get('response', {})}")
+
+    init_point = response["response"]["init_point"]
+    return {"init_point": init_point, "preference_id": response["response"]["id"]}
+
+
+@router.post("/{invoice_id}/emit-cae")
+async def emit_afip_cae(
+    invoice_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Emit a CAE from ARCA/AFIP for this invoice."""
+    from app.models.config import SystemConfig
+    from app.services.afip import emit_cae as _emit_cae
+
+    invoice = await db.get(Invoice, invoice_id)
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if invoice.afip_cae:
+        raise HTTPException(status_code=400, detail="La factura ya tiene un CAE emitido")
+
+    async def _get_config(key: str) -> Optional[str]:
+        r = await db.execute(select(SystemConfig).where(SystemConfig.key == key))
+        row = r.scalar_one_or_none()
+        return row.value if row else None
+
+    cuit = await _get_config("afip_cuit")
+    cert_pem = await _get_config("afip_cert_pem")
+    key_pem = await _get_config("afip_key_pem")
+    punto_venta_str = await _get_config("afip_punto_venta")
+    cbte_tipo_str = await _get_config("afip_cbte_tipo")
+    production_str = await _get_config("afip_production")
+
+    if not all([cuit, cert_pem, key_pem, punto_venta_str]):
+        raise HTTPException(
+            status_code=400,
+            detail="AFIP no configurado. Configure CUIT, certificado y punto de venta en Ajustes.",
+        )
+
+    punto_venta = int(punto_venta_str)
+    cbte_tipo = int(cbte_tipo_str or "11")
+    production = production_str == "true"
+
+    client_row = await db.get(Client, invoice.client_id) if invoice.client_id else None
+    doc_tipo = 96
+    doc_nro = "0"
+    if client_row:
+        if client_row.cuit:
+            doc_tipo = 80
+            doc_nro = client_row.cuit.replace("-", "").replace(" ", "")
+        elif client_row.dni:
+            doc_tipo = 96
+            doc_nro = client_row.dni.replace(".", "").replace(" ", "")
+
+    fecha = invoice.issue_date.strftime("%Y%m%d") if invoice.issue_date else date.today().strftime("%Y%m%d")
+
+    try:
+        result = await asyncio.to_thread(
+            _emit_cae,
+            cuit=cuit,
+            punto_venta=punto_venta,
+            cbte_tipo=cbte_tipo,
+            concepto=2,
+            doc_tipo=doc_tipo,
+            doc_nro=doc_nro,
+            importe_total=float(invoice.amount),
+            fecha=fecha,
+            cert_pem=cert_pem,
+            key_pem=key_pem,
+            production=production,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error AFIP: {str(e)}")
+
+    invoice.afip_cae = result["cae"]
+    invoice.invoice_number = result["cbte_nro"]
+    invoice.invoice_point_of_sale = punto_venta
+    invoice.invoice_type = str(cbte_tipo)
+    await db.commit()
+    await db.refresh(invoice)
+    return {"cae": result["cae"], "cae_fch_vto": result["cae_fch_vto"], "cbte_nro": result["cbte_nro"]}
 
 
 @router.post("/mark-overdue", status_code=200)
@@ -387,6 +568,8 @@ async def _build_invoice_pdf(invoice_id: int, db: AsyncSession) -> bytes:
     pdf.cell(0, 6, f"Emisión: {invoice.issue_date}", ln=True)
     pdf.cell(0, 6, f"Vencimiento: {invoice.due_date}", ln=True)
     pdf.cell(0, 6, f"Estado: {invoice.status.value.upper()}", ln=True)
+    if invoice.paid_date:
+        pdf.cell(0, 6, f"Fecha de pago: {invoice.paid_date}", ln=True)
     pdf.ln(4)
 
     # Client info
@@ -396,8 +579,12 @@ async def _build_invoice_pdf(invoice_id: int, db: AsyncSession) -> bytes:
         pdf.cell(0, 8, "Cliente", ln=True)
         pdf.set_font("Helvetica", "", 10)
         pdf.cell(0, 6, client.full_name, ln=True)
+        if client.dni:
+            pdf.cell(0, 6, f"DNI/CUIT: {client.dni}", ln=True)
         if client.address:
             pdf.cell(0, 6, client.address, ln=True)
+        if client.phone:
+            pdf.cell(0, 6, f"Teléfono: {client.phone}", ln=True)
         if client.email:
             pdf.cell(0, 6, client.email, ln=True)
         pdf.ln(4)

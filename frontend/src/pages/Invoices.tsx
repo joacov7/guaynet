@@ -24,11 +24,14 @@ import {
   CheckCircleOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  FileProtectOutlined,
   FileTextOutlined,
+  FilePdfOutlined,
   PauseCircleOutlined,
   PlusOutlined,
   WarningOutlined,
   ThunderboltOutlined,
+  LinkOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { clientsApi, invoicesApi, notificationsApi } from "@/services/api";
@@ -147,11 +150,34 @@ export default function Invoices() {
     onError: () => message.error("Error al registrar pago"),
   });
 
+  const mpLinkMutation = useMutation({
+    mutationFn: (id: number) => invoicesApi.mpLink(id),
+    onSuccess: (res) => {
+      window.open(res.init_point, "_blank");
+    },
+    onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al generar link de MercadoPago"),
+  });
+
+  const emitCaeMutation = useMutation({
+    mutationFn: (id: number) => invoicesApi.emitCae(id),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      message.success(`CAE emitido: ${res.cae} (Comprobante N° ${res.cbte_nro})`);
+    },
+    onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al emitir CAE"),
+  });
+
   const formatARS = (v: number) =>
     new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(v);
 
   const columns = [
     { title: "ID", dataIndex: "id", key: "id", width: 60 },
+    {
+      title: "Cliente",
+      dataIndex: "client_name",
+      key: "client_name",
+      render: (v: string, r: Invoice) => v || `Cliente #${r.client_id}`,
+    },
     { title: "Período", dataIndex: "period", key: "period" },
     {
       title: "Monto",
@@ -177,20 +203,55 @@ export default function Invoices() {
       title: "",
       key: "actions",
       align: "right" as const,
-      render: (_: unknown, r: Invoice) =>
-        r.status !== "paid" && r.status !== "cancelled" ? (
-          <Button
-            size="small"
-            type="primary"
-            icon={<CheckCircleOutlined />}
-            onClick={() => {
-              setPayModal(r);
-              payForm.setFieldsValue({ payment_date: dayjs(), amount: r.amount, method: "cash" });
-            }}
-          >
-            Registrar pago
-          </Button>
-        ) : null,
+      render: (_: unknown, r: Invoice) => (
+        <Space size="small">
+          <Tooltip title="Descargar PDF">
+            <Button
+              size="small"
+              icon={<FilePdfOutlined />}
+              onClick={() => window.open(invoicesApi.pdfUrl(r.id), "_blank")}
+            />
+          </Tooltip>
+          {!r.afip_cae && (
+            <Tooltip title="Emitir CAE (AFIP/ARCA)">
+              <Button
+                size="small"
+                icon={<FileProtectOutlined />}
+                loading={emitCaeMutation.isPending}
+                onClick={() => emitCaeMutation.mutate(r.id)}
+              />
+            </Tooltip>
+          )}
+          {r.afip_cae && (
+            <Tooltip title={`CAE: ${r.afip_cae}`}>
+              <Tag color="green" style={{ margin: 0 }}>CAE ✓</Tag>
+            </Tooltip>
+          )}
+          {r.status !== "paid" && r.status !== "cancelled" && (
+            <>
+              <Tooltip title="Link de pago MercadoPago">
+                <Button
+                  size="small"
+                  icon={<LinkOutlined />}
+                  loading={mpLinkMutation.isPending}
+                  onClick={() => mpLinkMutation.mutate(r.id)}
+                />
+              </Tooltip>
+              <Button
+                size="small"
+                type="primary"
+                icon={<CheckCircleOutlined />}
+                onClick={() => {
+                  setPayModal(r);
+                  payForm.setFieldsValue({ payment_date: dayjs(), amount: r.amount, method: "cash" });
+                }}
+              >
+                Registrar pago
+              </Button>
+            </>
+          )}
+        </Space>
+      ),
     },
   ];
 
@@ -279,6 +340,12 @@ export default function Invoices() {
                 </>
               ) : (
                 <div style={{ color: "#999", fontSize: 13 }}>Sin pagos registrados</div>
+              )}
+              {r.afip_cae && (
+                <div style={{ marginTop: 8, fontSize: 13 }}>
+                  <span style={{ fontWeight: 600 }}>CAE AFIP:</span> {r.afip_cae}
+                  {r.invoice_number ? ` — Comprobante N° ${r.invoice_number}` : ""}
+                </div>
               )}
             </div>
           ),
@@ -432,7 +499,7 @@ export default function Invoices() {
       </Modal>
 
       <Modal
-        title="Registrar pago"
+        title={payModal ? `Registrar pago — ${payModal.client_name ?? `Cliente #${payModal.client_id}`} (${payModal.period})` : "Registrar pago"}
         open={payModal != null}
         onCancel={() => { setPayModal(null); payForm.resetFields(); }}
         onOk={() => payForm.submit()}

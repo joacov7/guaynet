@@ -33,7 +33,7 @@ async def _get_router_or_404(router_id: int, db: AsyncSession) -> MikrotikRouter
 
 # ── DHCP Scan ─────────────────────────────────────────────────────────────────
 
-@router.get("/{router_id}/dhcp-scan", response_model=DHCPScanResponse)
+@router.get("/{router_id}/dhcp-scan")
 async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
     mt_router = await _get_router_or_404(router_id, db)
     svc = build_service_from_router(mt_router)
@@ -45,7 +45,9 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
     try:
         leases_raw = await asyncio.to_thread(_scan)
     except MikrotikError as e:
-        raise HTTPException(502, str(e))
+        return DHCPScanResponse(total=0, registered=0, unregistered=0, leases=[], error=str(e))
+    except Exception as e:
+        return DHCPScanResponse(total=0, registered=0, unregistered=0, leases=[], error=f"Error inesperado: {e}")
 
     rows = await db.execute(
         select(Client.ip_address, Client.id, Client.first_name, Client.last_name)
@@ -169,7 +171,7 @@ async def dhcp_import(
 
 # ── Firewall Filter ───────────────────────────────────────────────────────────
 
-@router.get("/{router_id}/filter", response_model=List[FirewallRule])
+@router.get("/{router_id}/filter")
 async def get_filter_rules(router_id: int, db: AsyncSession = Depends(get_db)):
     mt_router = await _get_router_or_404(router_id, db)
     svc = build_service_from_router(mt_router)
@@ -180,9 +182,11 @@ async def get_filter_rules(router_id: int, db: AsyncSession = Depends(get_db)):
 
     try:
         rules = await asyncio.to_thread(_get)
+        return {"rules": [FirewallRule(**r) for r in rules], "error": None}
     except MikrotikError as e:
-        raise HTTPException(502, str(e))
-    return [FirewallRule(**r) for r in rules]
+        return {"rules": [], "error": str(e)}
+    except Exception as e:
+        return {"rules": [], "error": f"Error inesperado: {e}"}
 
 
 @router.delete("/{router_id}/filter/{rule_id}")
@@ -205,7 +209,7 @@ async def delete_filter_rule(
 
 # ── Mangle ────────────────────────────────────────────────────────────────────
 
-@router.get("/{router_id}/mangle", response_model=List[MangleRule])
+@router.get("/{router_id}/mangle")
 async def get_mangle_rules(router_id: int, db: AsyncSession = Depends(get_db)):
     mt_router = await _get_router_or_404(router_id, db)
     svc = build_service_from_router(mt_router)
@@ -216,9 +220,11 @@ async def get_mangle_rules(router_id: int, db: AsyncSession = Depends(get_db)):
 
     try:
         rules = await asyncio.to_thread(_get)
+        return {"rules": [MangleRule(**r) for r in rules], "error": None}
     except MikrotikError as e:
-        raise HTTPException(502, str(e))
-    return [MangleRule(**r) for r in rules]
+        return {"rules": [], "error": str(e)}
+    except Exception as e:
+        return {"rules": [], "error": f"Error inesperado: {e}"}
 
 
 @router.delete("/{router_id}/mangle/{rule_id}")
@@ -253,15 +259,67 @@ async def apply_template(
             return svc.apply_template(template)
 
     try:
-        count = await asyncio.to_thread(_apply)
+        counts = await asyncio.to_thread(_apply)
     except MikrotikError as e:
         raise HTTPException(502, str(e))
-    return TemplateResult(template=template, rules_added=count, message=f"{count} reglas aplicadas")
+    added = counts.get("added", 0)
+    enabled = counts.get("enabled", 0)
+    skipped = counts.get("skipped", 0)
+    msg = f"{added} agregadas, {enabled} reactivadas, {skipped} ya existían"
+    return TemplateResult(template=template, rules_added=added, rules_enabled=enabled, rules_skipped=skipped, message=msg)
+
+
+# ── Queue Tree with stats ─────────────────────────────────────────────────
+
+@router.get("/{router_id}/queue-tree-stats")
+async def get_queue_tree_stats(router_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    mt_router = await _get_router_or_404(router_id, db)
+    svc = build_service_from_router(mt_router)
+
+    def _get():
+        with svc:
+            return svc.get_queue_tree_with_stats()
+
+    try:
+        entries = await asyncio.to_thread(_get)
+        return {"entries": entries, "error": None}
+    except MikrotikError as e:
+        return {"entries": [], "error": str(e)}
+    except Exception as e:
+        return {"entries": [], "error": f"Error inesperado: {e}"}
+
+
+class ProfessionalTreeRequest(BaseModel):
+    download_mbps: int
+    upload_mbps: int
+
+
+@router.post("/{router_id}/queue-tree-professional")
+async def apply_professional_tree(
+    router_id: int,
+    body: ProfessionalTreeRequest,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    mt_router = await _get_router_or_404(router_id, db)
+    svc = build_service_from_router(mt_router)
+
+    def _apply():
+        with svc:
+            return svc.apply_professional_qos_tree(body.download_mbps, body.upload_mbps)
+
+    try:
+        result = await asyncio.to_thread(_apply)
+        return {**result, "message": f"Arbol QoS profesional aplicado ({result['added']} entradas creadas)"}
+    except MikrotikError as e:
+        raise HTTPException(502, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"Error inesperado: {e}")
 
 
 # ── PCQ ───────────────────────────────────────────────────────────────────────
 
-@router.get("/{router_id}/pcq", response_model=List[PCQQueue])
+@router.get("/{router_id}/pcq")
 async def get_pcq_queues(router_id: int, db: AsyncSession = Depends(get_db)):
     mt_router = await _get_router_or_404(router_id, db)
     svc = build_service_from_router(mt_router)
@@ -272,9 +330,11 @@ async def get_pcq_queues(router_id: int, db: AsyncSession = Depends(get_db)):
 
     try:
         queues = await asyncio.to_thread(_get)
+        return {"queues": [PCQQueue(**q) for q in queues], "error": None}
     except MikrotikError as e:
-        raise HTTPException(502, str(e))
-    return [PCQQueue(**q) for q in queues]
+        return {"queues": [], "error": str(e)}
+    except Exception as e:
+        return {"queues": [], "error": f"Error inesperado: {e}"}
 
 
 @router.post("/{router_id}/pcq/setup")

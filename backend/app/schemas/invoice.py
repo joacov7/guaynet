@@ -69,6 +69,7 @@ class InvoiceResponse(BaseModel):
 
     id: int
     client_id: int
+    client_name: Optional[str] = None
     period: str
     amount: float
     issue_date: date
@@ -81,3 +82,10 @@ class InvoiceResponse(BaseModel):
     payments: List[PaymentResponse] = []
     items: List[InvoiceItemResponse] = []
     created_at: datetime
+
+    @classmethod
+    def from_orm_with_client(cls, invoice: "Invoice") -> "InvoiceResponse":
+        obj = cls.model_validate(invoice)
+        if invoice.client:
+            obj.client_name = invoice.client.full_name
+        return obj

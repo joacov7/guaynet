@@ -7,12 +7,14 @@ import {
   Card,
   Col,
   Descriptions,
+  Divider,
   Drawer,
   Form,
   Input,
   InputNumber,
   Modal,
   Popconfirm,
+  Progress,
   Row,
   Space,
   Spin,
@@ -30,9 +32,12 @@ import {
   ApiOutlined,
   UnorderedListOutlined,
   SyncOutlined,
+  ThunderboltOutlined,
+  BarChartOutlined,
+  LoginOutlined,
 } from "@ant-design/icons";
 import { routersApi } from "@/services/api";
-import type { MikrotikQueue, Router, RouterStats } from "@/types";
+import type { MikrotikQueue, Router, RouterStats, RouterUtilization } from "@/types";
 
 const { Title } = Typography;
 
@@ -51,6 +56,10 @@ export default function Routers() {
   const [queuesDrawer, setQueuesDrawer] = useState<{ open: boolean; routerId: number | null }>({
     open: false,
     routerId: null,
+  });
+  const [utilizationDrawer, setUtilizationDrawer] = useState<{ open: boolean; router: Router | null }>({
+    open: false,
+    router: null,
   });
   const [form] = Form.useForm();
 
@@ -121,7 +130,43 @@ export default function Routers() {
         ),
       });
     },
-    onError: (err: any) => message.error(err.response?.data?.detail ?? "Error de conexión al router"),
+    onError: (err: any) => message.error(`Error MikroTik: ${err.response?.data?.detail ?? "Sin conexión"}`, 10),
+  });
+
+  const syncPppoeMutation = useMutation({
+    mutationFn: (id: number) => routersApi.syncPppoe(id),
+    onSuccess: (data) => {
+      if (data.errors.length > 0) {
+        message.warning(`PPPoE: ${data.synced} sincronizados, ${data.errors.length} error(es)`, 8);
+      } else {
+        message.success(`PPPoE: ${data.synced} secretos sincronizados`);
+      }
+    },
+    onError: (err: any) => message.error(`Error PPPoE: ${err.response?.data?.detail ?? "Sin conexión"}`, 8),
+  });
+
+  const qosMutation = useMutation({
+    mutationFn: (id: number) => routersApi.setupQos(id),
+    onSuccess: (data: any) => {
+      const parts = [];
+      if (data.added) parts.push(`${data.added} agregadas`);
+      if (data.enabled) parts.push(`${data.enabled} reactivadas`);
+      if (data.skipped) parts.push(`${data.skipped} ya existían`);
+      if (data.pcq_added) parts.push(`${data.pcq_added} PCQ`);
+      if (data.sfq_added) parts.push(`SFQ creado`);
+      if (data.tree?.added) parts.push(`${data.tree.added} Queue Tree creadas`);
+      if (data.tree?.updated) parts.push(`${data.tree.updated} Queue Tree actualizadas`);
+      message.success(`QoS: ${parts.join(", ") || "sin cambios"}`);
+    },
+    onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al aplicar QoS"),
+  });
+
+  const { data: utilizationData, isLoading: utilizationLoading } = useQuery({
+    queryKey: ["router-utilization", utilizationDrawer.router?.id],
+    queryFn: () => routersApi.utilization(utilizationDrawer.router!.id),
+    enabled: utilizationDrawer.open && utilizationDrawer.router != null,
+    refetchInterval: (query: any) => (utilizationDrawer.open && !query.state.error) ? 5000 : false,
+    retry: 1,
   });
 
   const openCreate = () => {
@@ -194,9 +239,26 @@ export default function Routers() {
           <Tooltip title="Ver queues">
             <Button size="small" icon={<UnorderedListOutlined />} onClick={() => setQueuesDrawer({ open: true, routerId: r.id })} />
           </Tooltip>
+          <Tooltip title="Utilización">
+            <Button size="small" icon={<BarChartOutlined />} onClick={() => setUtilizationDrawer({ open: true, router: r })} />
+          </Tooltip>
           <Tooltip title="Sync todos los clientes">
             <Popconfirm title="¿Sincronizar todos los clientes al router?" onConfirm={() => syncMutation.mutate(r.id)}>
               <Button size="small" icon={<SyncOutlined />} />
+            </Popconfirm>
+          </Tooltip>
+          <Tooltip title="Aplicar QoS">
+            <Popconfirm
+              title="¿Aplicar reglas QoS?"
+              description="Agrega PCQ y mangle de priorización (VoIP > DNS > HTTPS > HTTP)."
+              onConfirm={() => qosMutation.mutate(r.id)}
+            >
+              <Button size="small" icon={<ThunderboltOutlined />} />
+            </Popconfirm>
+          </Tooltip>
+          <Tooltip title="Sync PPPoE">
+            <Popconfirm title="¿Sincronizar secretos PPPoE al router?" onConfirm={() => syncPppoeMutation.mutate(r.id)}>
+              <Button size="small" icon={<LoginOutlined />} />
             </Popconfirm>
           </Tooltip>
           <Tooltip title="Editar">
@@ -289,6 +351,39 @@ export default function Routers() {
           <Form.Item name="notes" label="Notas">
             <Input.TextArea rows={2} />
           </Form.Item>
+          <Divider style={{ margin: "12px 0" }}>Capacidad del enlace (para cola padre)</Divider>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="uplink_download_mbps" label="Bajada del enlace (Mbps)">
+                <InputNumber min={1} style={{ width: "100%" }} placeholder="Ej: 100" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="uplink_upload_mbps" label="Subida del enlace (Mbps)">
+                <InputNumber min={1} style={{ width: "100%" }} placeholder="Ej: 50" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item
+                name="uplink_interface"
+                label="Interfaz WAN"
+                extra="Upload QoS (tráfico saliente al ISP)"
+              >
+                <Input placeholder="ether1" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="lan_interface"
+                label="Interfaz LAN"
+                extra="Download QoS (tráfico entrante a clientes)"
+              >
+                <Input placeholder="bridge1" />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
 
         {testResult && (
@@ -339,6 +434,156 @@ export default function Routers() {
           />
         )}
       </Drawer>
+
+      {/* Utilization Drawer */}
+      <Drawer
+        title={`Utilización — ${utilizationDrawer.router?.name ?? ""}`}
+        open={utilizationDrawer.open}
+        onClose={() => setUtilizationDrawer({ open: false, router: null })}
+        width={560}
+      >
+        {utilizationLoading ? (
+          <Spin />
+        ) : utilizationData ? (
+          <UtilizationPanel data={utilizationData} />
+        ) : null}
+      </Drawer>
     </div>
+  );
+}
+
+function UtilizationPanel({ data }: { data: RouterUtilization }) {
+  const fmtMbps = (bps: number) => `${(bps / 1_000_000).toFixed(1)} Mbps`;
+  const fmtGB = (bytes: number) => {
+    if (bytes > 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
+    if (bytes > 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+    return `${(bytes / 1e3).toFixed(0)} KB`;
+  };
+
+  const hddUsed = (data.total_hdd_space ?? 0) - (data.free_hdd_space ?? 0);
+  const hddPct = data.total_hdd_space ? Math.round((hddUsed / data.total_hdd_space) * 100) : 0;
+  const ramUsed = (data.total_memory ?? 0) - (data.free_memory ?? 0);
+  const ramPct = data.total_memory ? Math.round((ramUsed / data.total_memory) * 100) : 0;
+
+  return (
+    <>
+      {(data.uplink_download_mbps || data.uplink_upload_mbps) && (
+        <Card size="small" title="Cola padre (guaynet-uplink)" style={{ marginBottom: 16 }}>
+          <p style={{ margin: "0 0 8px", color: "#888", fontSize: 12 }}>
+            Bytes acumulados de las queues de clientes vs capacidad configurada
+          </p>
+          {data.uplink_download_mbps && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span>Bajada acumulada</span>
+                <span>{fmtGB(data.queue_total_download_bytes)}</span>
+              </div>
+              <Progress
+                percent={0}
+                format={() => `límite ${data.uplink_download_mbps} Mbps`}
+                strokeColor="#1677ff"
+                size="small"
+              />
+            </div>
+          )}
+          {data.uplink_upload_mbps && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span>Subida acumulada</span>
+                <span>{fmtGB(data.queue_total_upload_bytes)}</span>
+              </div>
+              <Progress
+                percent={0}
+                format={() => `límite ${data.uplink_upload_mbps} Mbps`}
+                strokeColor="#52c41a"
+                size="small"
+              />
+            </div>
+          )}
+        </Card>
+      )}
+
+      {(data.total_hdd_space || data.total_memory) && (
+        <Card size="small" title="Recursos del sistema" style={{ marginBottom: 16 }}>
+          {data.total_hdd_space ? (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span>Flash (almacenamiento)</span>
+                <span>{fmtGB(hddUsed)} / {fmtGB(data.total_hdd_space)}</span>
+              </div>
+              <Progress
+                percent={hddPct}
+                size="small"
+                strokeColor={hddPct > 90 ? "#f5222d" : hddPct > 70 ? "#faad14" : "#52c41a"}
+                format={p => `${p}%`}
+              />
+            </div>
+          ) : null}
+          {data.total_memory ? (
+            <div style={{ marginBottom: data.cpu_load !== undefined ? 8 : 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span>RAM</span>
+                <span>{fmtGB(ramUsed)} / {fmtGB(data.total_memory)}</span>
+              </div>
+              <Progress
+                percent={ramPct}
+                size="small"
+                strokeColor={ramPct > 90 ? "#f5222d" : ramPct > 70 ? "#faad14" : "#1677ff"}
+                format={p => `${p}%`}
+              />
+            </div>
+          ) : null}
+          {data.cpu_load !== undefined ? (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span>CPU</span>
+                <span>{data.cpu_load}%</span>
+              </div>
+              <Progress
+                percent={data.cpu_load}
+                size="small"
+                strokeColor={data.cpu_load > 90 ? "#f5222d" : data.cpu_load > 70 ? "#faad14" : "#722ed1"}
+                format={p => `${p}%`}
+              />
+            </div>
+          ) : null}
+        </Card>
+      )}
+
+      <Card size="small" title="Interfaces (se actualiza cada 5s)">
+        <Table
+          dataSource={data.interfaces}
+          rowKey="name"
+          size="small"
+          pagination={false}
+          columns={[
+            {
+              title: "Interfaz",
+              dataIndex: "name",
+              key: "name",
+              render: (v: string, r: RouterUtilization["interfaces"][0]) => (
+                <Space>
+                  <Badge status={r.running ? "success" : "default"} />
+                  {v}
+                </Space>
+              ),
+            },
+            { title: "Tipo", dataIndex: "type", key: "type", render: (v: string) => <Tag>{v}</Tag> },
+            {
+              title: "RX",
+              key: "rx",
+              render: (_: unknown, r: RouterUtilization["interfaces"][0]) =>
+                r.rx_rate ? fmtMbps(r.rx_rate) : "—",
+            },
+            {
+              title: "TX",
+              key: "tx",
+              render: (_: unknown, r: RouterUtilization["interfaces"][0]) =>
+                r.tx_rate ? fmtMbps(r.tx_rate) : "—",
+            },
+          ]}
+        />
+      </Card>
+    </>
   );
 }

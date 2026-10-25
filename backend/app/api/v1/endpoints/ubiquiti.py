@@ -1,8 +1,11 @@
 import asyncio
+import csv
+import io
+import ipaddress
 from datetime import datetime, timezone
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +15,8 @@ from app.models.client import Client
 from app.models.router import DeviceStatus, MikrotikRouter, UbiquitiDevice
 from app.schemas.ubiquiti import (
     DeviceInfo,
+    DiscoverRequest,
+    DiscoveredDevice,
     FrequencyRecommendation,
     LinkInfo,
     StationInfo,
@@ -22,14 +27,21 @@ from app.schemas.ubiquiti import (
     WirelessConfig,
     WirelessUpdate,
 )
-from app.services.ubiquiti import UbiquitiError, build_service_from_device
+from app.services.ubiquiti import UbiquitiError, build_service_from_device, quick_probe, ssh_exec as _ssh_exec
+from pydantic import BaseModel as _BaseModel
 
 router = APIRouter()
 
 
 async def _device_response(dev: UbiquitiDevice, db: AsyncSession) -> UbiquitiDeviceResponse:
+    from app.models.client import ClientStatus
     count = (
-        await db.execute(select(func.count()).where(Client.ubiquiti_device_id == dev.id))
+        await db.execute(
+            select(func.count()).where(
+                Client.ubiquiti_device_id == dev.id,
+                Client.status != ClientStatus.cancelled,
+            )
+        )
     ).scalar_one()
     data = UbiquitiDeviceResponse.model_validate(dev)
     data.client_count = count
@@ -43,12 +55,164 @@ async def _get_or_404(device_id: int, db: AsyncSession) -> UbiquitiDevice:
     return dev
 
 
+# ── Discovery ─────────────────────────────────────────────────────────────────
+
+_STATION_MODES = {"station", "managed", "sta", "client"}
+_AC_MODELS = {"litebeam", "powerbeam", "nanobeam", "airfiber", "ac", "prism"}
+
+def _suggest_type(mode: str, model: str) -> str:
+    """Guess airmax_ac_ap/station vs airmax_ap/station from mode + model string."""
+    mode_l = mode.lower()
+    model_l = model.lower()
+    is_ac = any(kw in model_l for kw in _AC_MODELS)
+    is_station = mode_l in _STATION_MODES
+    if is_ac:
+        return "airmax_ac_station" if is_station else "airmax_ac_ap"
+    return "airmax_station" if is_station else "airmax_ap"
+
+
+def _enrich(raw: dict) -> dict:
+    raw["suggested_type"] = _suggest_type(raw.get("mode", ""), raw.get("model", ""))
+    return raw
+
+
+@router.post("/probe", response_model=DiscoveredDevice)
+async def probe_single(
+    body: DiscoverRequest,
+    _=Depends(get_current_user),
+):
+    """Probe a single IP to verify connectivity before a full scan."""
+    try:
+        network = ipaddress.ip_network(body.subnet, strict=False)
+    except ValueError:
+        raise HTTPException(400, "IP o subred inválida")
+
+    host = str(next(iter(network.hosts()), network.network_address))
+    result = await asyncio.to_thread(quick_probe, host, body.username, body.password)
+    if not result:
+        raise HTTPException(503, f"No se pudo conectar a {host}. Verificá que sea accesible desde el servidor y que las credenciales sean correctas.")
+    return DiscoveredDevice(**_enrich(result))
+
+
+@router.post("/discover", response_model=List[DiscoveredDevice])
+async def discover_devices(
+    body: DiscoverRequest,
+    _=Depends(get_current_user),
+):
+    """Scan a subnet for Ubiquiti devices. Max /24 (254 hosts)."""
+    try:
+        network = ipaddress.ip_network(body.subnet, strict=False)
+    except ValueError:
+        raise HTTPException(400, "Subred inválida. Usá formato CIDR como 192.168.1.0/24")
+
+    if network.num_addresses > 256:
+        raise HTTPException(400, "Subred demasiado grande. Máximo /24 (254 hosts)")
+
+    # Support /32 (single host) — .hosts() is empty for /32
+    if network.prefixlen == 32:
+        hosts = [str(network.network_address)]
+    else:
+        hosts = [str(ip) for ip in network.hosts()]
+
+    sem = asyncio.Semaphore(30)
+
+    async def probe(ip: str):
+        async with sem:
+            return await asyncio.to_thread(quick_probe, ip, body.username, body.password)
+
+    results = await asyncio.gather(*[probe(ip) for ip in hosts])
+    return [DiscoveredDevice(**_enrich(r)) for r in results if r is not None]
+
+
 # ── CRUD ──────────────────────────────────────────────────────────────────────
 
 @router.get("/", response_model=List[UbiquitiDeviceResponse])
-async def list_devices(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
-    result = await db.execute(select(UbiquitiDevice).order_by(UbiquitiDevice.name))
+async def list_devices(
+    free: bool = False,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    from app.models.client import ClientStatus as CS
+    q = select(UbiquitiDevice).order_by(UbiquitiDevice.name)
+    if free:
+        subq = (
+            select(Client.id)
+            .where(
+                Client.ubiquiti_device_id == UbiquitiDevice.id,
+                Client.status != CS.cancelled,
+            )
+            .exists()
+        )
+        q = q.where(~subq)
+    result = await db.execute(q)
     return [await _device_response(d, db) for d in result.scalars().all()]
+
+
+@router.post("/import")
+async def import_devices_csv(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Bulk import Ubiquiti devices from a CSV file.
+    Expected columns: nombre, host, tipo, usuario, contraseña
+    Optional columns: ubicacion, router_id, latitud, longitud
+    """
+    content = (await file.read()).decode("utf-8-sig")  # utf-8-sig strips BOM
+    reader = csv.DictReader(io.StringIO(content))
+
+    VALID_TYPES = {"airmax_ap", "airmax_station", "airmax_ac_ap", "airmax_ac_station",
+                   "unifi_ap", "unifi_switch", "unifi_gateway"}
+
+    created = 0
+    errors = []
+
+    for i, row in enumerate(reader, start=2):  # row 1 = header
+        nombre = (row.get("nombre") or row.get("name") or "").strip()
+        host = (row.get("host") or row.get("ip") or "").strip()
+        tipo = (row.get("tipo") or row.get("type") or "airmax_ac_ap").strip()
+        usuario = (row.get("usuario") or row.get("username") or "ubnt").strip()
+        password = (row.get("contraseña") or row.get("password") or "ubnt").strip()
+        ubicacion = (row.get("ubicacion") or row.get("location") or "").strip() or None
+        router_id_s = (row.get("router_id") or "").strip()
+
+        if not nombre:
+            errors.append({"row": i, "error": "Falta el nombre"})
+            continue
+        if not host:
+            errors.append({"row": i, "error": "Falta el host/IP"})
+            continue
+        if tipo not in VALID_TYPES:
+            errors.append({"row": i, "error": f"Tipo inválido: {tipo}"})
+            continue
+
+        router_id = None
+        if router_id_s:
+            try:
+                router_id = int(router_id_s)
+            except ValueError:
+                errors.append({"row": i, "error": f"router_id inválido: {router_id_s}"})
+                continue
+
+        try:
+            dev = UbiquitiDevice(
+                name=nombre,
+                host=host,
+                device_type=tipo,
+                username=usuario,
+                password_encrypted=encrypt_value(password) if password else None,
+                location=ubicacion,
+                router_id=router_id,
+                status=DeviceStatus.unknown,
+            )
+            db.add(dev)
+            await db.flush()
+            created += 1
+        except Exception as e:
+            errors.append({"row": i, "error": str(e)})
+
+    await db.commit()
+    return {"created": created, "errors": errors}
 
 
 @router.post("/", response_model=UbiquitiDeviceResponse, status_code=201)
@@ -293,6 +457,55 @@ async def get_recommendations(
         return [FrequencyRecommendation(**r) for r in await asyncio.to_thread(_get)]
     except UbiquitiError as e:
         raise HTTPException(503, str(e))
+
+
+@router.post("/{device_id}/firmware")
+async def upload_firmware(
+    device_id: int,
+    firmware: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    dev = await _get_or_404(device_id, db)
+    svc = build_service_from_device(dev)
+    firmware_bytes = await firmware.read()
+    filename = firmware.filename or "firmware.bin"
+
+    def _upload():
+        with svc:
+            return svc.upload_firmware(firmware_bytes, filename)
+
+    try:
+        return await asyncio.to_thread(_upload)
+    except UbiquitiError as e:
+        raise HTTPException(503, str(e))
+
+
+class SshExecRequest(_BaseModel):
+    command: str
+
+
+@router.post("/{device_id}/ssh-exec")
+async def ssh_exec_command(
+    device_id: int,
+    body: SshExecRequest,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Execute a command on the device via SSH. Returns stdout, stderr, exit_code."""
+    device = await _get_or_404(device_id, db)
+    from app.core.security import decrypt_value
+    password = decrypt_value(device.password_encrypted) if device.password_encrypted else "ubnt"
+    username = device.username or "ubnt"
+
+    def _run():
+        return _ssh_exec(device.host, username, password, body.command)
+
+    try:
+        result = await asyncio.to_thread(_run)
+        return result
+    except UbiquitiError as e:
+        raise HTTPException(502, str(e))
 
 
 @router.get("/{device_id}/clients")

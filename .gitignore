@@ -23,6 +23,12 @@ build/
 node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/dist-app/
+
+# Android app (Capacitor): Firebase credentials and signing keys never go to git
+frontend/android/app/google-services.json
+*.jks
+*.keystore
 .npm/
 
 # Editor

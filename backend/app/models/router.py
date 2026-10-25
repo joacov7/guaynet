@@ -20,6 +20,8 @@ class DeviceStatus(str, enum.Enum):
 class UbiquitiDeviceType(str, enum.Enum):
     airmax_ap = "airmax_ap"
     airmax_station = "airmax_station"
+    airmax_ac_ap = "airmax_ac_ap"
+    airmax_ac_station = "airmax_ac_station"
     unifi_ap = "unifi_ap"
     unifi_switch = "unifi_switch"
     unifi_gateway = "unifi_gateway"
@@ -41,9 +43,14 @@ class MikrotikRouter(Base, TimestampMixin):
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    uplink_download_mbps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    uplink_upload_mbps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    uplink_interface: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    lan_interface: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     clients: Mapped[List["Client"]] = relationship(back_populates="router")
     ubiquiti_devices: Mapped[List["UbiquitiDevice"]] = relationship(back_populates="mikrotik_router")
+    wan_interfaces = relationship("WanInterface", back_populates="router", cascade="all, delete-orphan")
 
 
 class UbiquitiDevice(Base, TimestampMixin):

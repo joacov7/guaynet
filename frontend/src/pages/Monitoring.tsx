@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Badge,
   Button,
@@ -13,9 +13,10 @@ import {
   Tabs,
   Tooltip,
   Typography,
+  message,
 } from "antd";
-import { ReloadOutlined, WifiOutlined, ThunderboltOutlined } from "@ant-design/icons";
-import { routersApi } from "@/services/api";
+import { ReloadOutlined, WifiOutlined, ThunderboltOutlined, SyncOutlined, WarningOutlined } from "@ant-design/icons";
+import { routersApi, clientsApi } from "@/services/api";
 import type { BandwidthEntry, OnlineClient } from "@/types";
 
 const { Title, Text } = Typography;
@@ -61,19 +62,50 @@ export default function Monitoring() {
     refetchInterval: 30_000,
   });
 
+  const qc = useQueryClient();
+  const updateIpMut = useMutation({
+    mutationFn: ({ clientId, newIp }: { clientId: number; newIp: string }) =>
+      routersApi.updateClientIp(routerId!, clientId, newIp),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["online-clients", routerId] });
+      message.success(`IP actualizada a ${vars.newIp}`);
+    },
+    onError: () => message.error("Error al actualizar IP"),
+  });
+
   const onlineCount = online.filter((c) => c.online).length;
-  const unregisteredCount = online.filter((c) => c.online && !c.client_id).length;
+  const ipChangedCount = online.filter((c) => c.ip_changed).length;
+  const missingQueueCount = bandwidth.filter((b) => b.missing_queue).length;
+
+  const [syncingId, setSyncingId] = useState<number | null>(null);
+  const syncClient = useCallback(async (clientId: number) => {
+    setSyncingId(clientId);
+    try {
+      await clientsApi.syncMikrotik(clientId);
+      refetchBw();
+    } finally {
+      setSyncingId(null);
+    }
+  }, [refetchBw]);
 
   const bwColumns = [
     {
       title: "Cliente",
       key: "client",
-      render: (_: unknown, r: BandwidthEntry) =>
-        r.client_id ? (
-          <a onClick={() => navigate(`/clients/${r.client_id}`)}>{r.client_name}</a>
-        ) : (
-          <Text type="secondary">{r.queue_name}</Text>
-        ),
+      render: (_: unknown, r: BandwidthEntry) => (
+        <Space>
+          {r.missing_queue && (
+            <Tooltip title="Queue no existe en el router — fuera de sync">
+              <WarningOutlined style={{ color: "#faad14" }} />
+            </Tooltip>
+          )}
+          {r.client_id ? (
+            <a onClick={() => navigate(`/clients/${r.client_id}`)}>{r.client_name}</a>
+          ) : (
+            <Text type="secondary">{r.queue_name}</Text>
+          )}
+        </Space>
+      ),
     },
     { title: "IP", dataIndex: "ip_address", key: "ip" },
     { title: "Límite", dataIndex: "max_limit", key: "limit" },
@@ -81,9 +113,12 @@ export default function Monitoring() {
       title: "Estado",
       dataIndex: "disabled",
       key: "disabled",
-      render: (v: boolean) => (
-        <Tag color={v ? "orange" : "green"}>{v ? "Suspendido" : "Activo"}</Tag>
-      ),
+      render: (v: boolean, r: BandwidthEntry) =>
+        r.missing_queue ? (
+          <Tag color="warning" icon={<WarningOutlined />}>Sin queue</Tag>
+        ) : (
+          <Tag color={v ? "orange" : "green"}>{v ? "Suspendido" : "Activo"}</Tag>
+        ),
     },
     {
       title: "Descarga total",
@@ -110,6 +145,24 @@ export default function Monitoring() {
       key: "ul",
       render: (v: number) => formatBytes(v),
     },
+    {
+      title: "",
+      key: "actions",
+      width: 80,
+      render: (_: unknown, r: BandwidthEntry) =>
+        r.missing_queue && r.client_id ? (
+          <Tooltip title="Sincronizar queue en MikroTik">
+            <Button
+              size="small"
+              icon={<SyncOutlined spin={syncingId === r.client_id} />}
+              onClick={() => syncClient(r.client_id!)}
+              loading={syncingId === r.client_id}
+            >
+              Sync
+            </Button>
+          </Tooltip>
+        ) : null,
+    },
   ];
 
   const onlineColumns = [
@@ -121,6 +174,20 @@ export default function Monitoring() {
         <Space>
           <Badge status={r.online ? "success" : "default"} />
           <span>{v}</span>
+          {r.ip_changed && r.new_ip && (
+            <Tooltip title={`Nueva IP detectada: ${r.new_ip}. Hacé clic para actualizar.`}>
+              <Button
+                size="small"
+                type="link"
+                icon={<WarningOutlined style={{ color: "#faad14" }} />}
+                style={{ padding: 0, height: "auto" }}
+                loading={updateIpMut.isPending && updateIpMut.variables?.clientId === r.client_id}
+                onClick={() => r.client_id && updateIpMut.mutate({ clientId: r.client_id, newIp: r.new_ip! })}
+              >
+                <span style={{ color: "#faad14", fontSize: 11 }}>{r.new_ip}</span>
+              </Button>
+            </Tooltip>
+          )}
         </Space>
       ),
     },
@@ -197,21 +264,12 @@ export default function Monitoring() {
                     count={onlineCount}
                     style={{ marginLeft: 6, backgroundColor: "#52c41a" }}
                   />
-                  {unregisteredCount > 0 && (
-                    <Badge
-                      count={unregisteredCount}
-                      style={{ marginLeft: 4, backgroundColor: "#faad14" }}
-                    />
-                  )}
                 </span>
               ),
               children: (
                 <div>
                   <Space style={{ marginBottom: 12 }}>
                     <Tag color="green">Online: {onlineCount}</Tag>
-                    {unregisteredCount > 0 && (
-                      <Tag color="orange">Sin registrar: {unregisteredCount}</Tag>
-                    )}
                     <Tag>Total: {online.length}</Tag>
                     <Button
                       size="small"
@@ -251,6 +309,11 @@ export default function Monitoring() {
                     <Text type="secondary">
                       Estadísticas acumuladas desde el último reset del router. Se actualiza cada 30s.
                     </Text>
+                    {missingQueueCount > 0 && (
+                      <Tag color="warning" icon={<WarningOutlined />}>
+                        {missingQueueCount} sin queue en router
+                      </Tag>
+                    )}
                     <Button
                       size="small"
                       icon={<ReloadOutlined />}
@@ -267,6 +330,7 @@ export default function Monitoring() {
                     columns={bwColumns}
                     size="small"
                     pagination={{ pageSize: 50 }}
+                    rowClassName={(r: BandwidthEntry) => r.missing_queue ? "ant-table-row-warning" : ""}
                   />
                 </div>
               ),

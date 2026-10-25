@@ -7,6 +7,9 @@ from app.models.base import Base
 SECTIONS = [
     "clients", "plans", "routers", "billing", "firewall",
     "monitoring", "ubiquiti", "users", "map", "ip_pool", "audit", "bandwidth",
+    # Guaynet Seguridad sections
+    "security_properties", "security_subscriptions", "security_alerts",
+    "security_entry_sessions", "security_events", "security_reports",
 ]
 
 ROLES = ["operator", "technician"]

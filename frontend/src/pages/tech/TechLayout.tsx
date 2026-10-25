@@ -139,6 +139,7 @@ export default function TechLayout() {
       }}>
         {[
           { path: "/tech/tickets", label: "Mis tickets", icon: "🎫" },
+          { path: "/tech/work-orders", label: "Órdenes", icon: "🔧" },
           { path: "/tech/history", label: "Historial", icon: "📋" },
         ].map((item) => {
           const active = location.pathname.startsWith(item.path);

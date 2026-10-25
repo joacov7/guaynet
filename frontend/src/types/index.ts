@@ -5,6 +5,8 @@ export type PaymentMethod = "cash" | "transfer" | "mercadopago" | "other";
 export type UbiquitiDeviceType =
   | "airmax_ap"
   | "airmax_station"
+  | "airmax_ac_ap"
+  | "airmax_ac_station"
   | "unifi_ap"
   | "unifi_switch"
   | "unifi_gateway";
@@ -26,6 +28,27 @@ export interface Plan {
   client_count: number;
 }
 
+export interface RouterUtilization {
+  interfaces: {
+    name: string;
+    type: string;
+    running: boolean;
+    rx_byte: number;
+    tx_byte: number;
+    rx_rate: number;
+    tx_rate: number;
+  }[];
+  uplink_download_mbps?: number;
+  uplink_upload_mbps?: number;
+  queue_total_download_bytes: number;
+  queue_total_upload_bytes: number;
+  free_hdd_space?: number;
+  total_hdd_space?: number;
+  free_memory?: number;
+  total_memory?: number;
+  cpu_load?: number;
+}
+
 export interface Router {
   id: number;
   name: string;
@@ -36,6 +59,10 @@ export interface Router {
   notes?: string;
   latitude?: number;
   longitude?: number;
+  uplink_download_mbps?: number;
+  uplink_upload_mbps?: number;
+  uplink_interface?: string;
+  lan_interface?: string;
   status: DeviceStatus;
   last_seen?: string;
   client_count: number;
@@ -85,9 +112,15 @@ export interface Client {
   service_start_date?: string;
   billing_day: number;
   mikrotik_queue_name: string;
+  zone_id?: number;
+  pppoe_username?: string;
+  has_pppoe?: boolean;
   plan?: Pick<Plan, "id" | "name" | "download_mbps" | "upload_mbps" | "price">;
   router?: Pick<Router, "id" | "name" | "location">;
+  zone?: Pick<Zone, "id" | "name" | "color">;
   created_at: string;
+  mikrotik_error?: string;
+  mikrotik_sync?: string;
 }
 
 export interface InvoiceItem {
@@ -101,6 +134,7 @@ export interface InvoiceItem {
 export interface Invoice {
   id: number;
   client_id: number;
+  client_name?: string;
   period: string;
   amount: number;
   issue_date: string;
@@ -196,6 +230,7 @@ export interface DHCPScanResponse {
   registered: number;
   unregistered: number;
   leases: DHCPLease[];
+  error?: string | null;
 }
 
 export interface FirewallRule {
@@ -245,6 +280,21 @@ export interface TemplateResult {
   message: string;
 }
 
+export interface QueueTreeEntry {
+  id: string;
+  name: string;
+  parent: string;
+  packet_mark?: string | null;
+  priority: string;
+  limit_at?: string | null;
+  max_limit?: string | null;
+  max_limit_bps: number;
+  rate_bps: number;
+  total_bytes: number;
+  disabled: boolean;
+  comment?: string | null;
+}
+
 export interface BandwidthEntry {
   queue_name: string;
   client_id?: number;
@@ -254,12 +304,15 @@ export interface BandwidthEntry {
   disabled: boolean;
   upload_bytes: number;
   download_bytes: number;
+  missing_queue?: boolean;
 }
 
 export interface OnlineClient {
   client_id?: number;
   client_name?: string;
   ip_address: string;
+  new_ip?: string;
+  ip_changed?: boolean;
   mac_address: string;
   status?: string;
   online: boolean;
@@ -282,6 +335,17 @@ export interface OverdueReport {
   total: number;
   total_amount: number;
   items: OverdueEntry[];
+}
+
+export interface DiscoveredUbiquitiDevice {
+  host: string;
+  model: string;
+  firmware: string;
+  hostname: string;
+  mode: string;
+  ssid: string;
+  frequency_mhz?: number;
+  suggested_type: string;
 }
 
 export interface UbiquitiDevice {
@@ -387,6 +451,18 @@ export interface BandwidthHistoryEntry {
   download_bytes: number;
 }
 
+export interface Zone {
+  id: number;
+  name: string;
+  description?: string;
+  color: string;
+  router_id?: number;
+  latitude?: number;
+  longitude?: number;
+  client_count: number;
+  created_at: string;
+}
+
 export interface IpPoolEntry {
   ip: string;
   free: boolean;
@@ -448,6 +524,103 @@ export interface Ticket {
   category: TicketCategory;
   created_at: string;
   comments: TicketComment[];
+}
+
+export type WorkOrderType = "installation" | "repair" | "maintenance" | "inspection" | "other";
+export type WorkOrderStatus = "pending" | "in_progress" | "completed" | "cancelled";
+
+export interface WorkOrder {
+  id: number;
+  title: string;
+  description?: string;
+  type: WorkOrderType;
+  status: WorkOrderStatus;
+  priority: "low" | "medium" | "high";
+  client_id?: number;
+  client_name?: string;
+  assigned_to_id?: number;
+  assigned_to_name?: string;
+  scheduled_date?: string;
+  completed_at?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  completion_notes?: string;
+  photo_urls?: string[];
+  created_at: string;
+}
+
+export type AlarmType = "router_offline" | "cpu_high" | "wan_down" | "uplink_saturated" | "ram_high" | "client_device_offline";
+export type AlarmStatus = "active" | "resolved";
+
+export interface Alarm {
+  id: number;
+  router_id: number;
+  router_name?: string;
+  router_host?: string;
+  client_name?: string;
+  type: AlarmType;
+  status: AlarmStatus;
+  triggered_at: string;
+  resolved_at?: string;
+  details?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface WanSchedule {
+  id: number;
+  wan_interface_id: number;
+  action: "enable" | "disable";
+  days: string;
+  time_start: string;
+  time_end: string;
+}
+
+export interface WanInterface {
+  id: number;
+  router_id: number;
+  interface_name: string;
+  display_name: string;
+  weight: number;
+  cap_gb?: number;
+  manual_override: boolean;
+  enabled: boolean;
+  accumulated_rx_bytes: number;
+  accumulated_tx_bytes: number;
+  used_bytes: number;
+  cap_bytes: number;
+  cap_pct?: number;
+  schedules: WanSchedule[];
+  live?: {
+    rx_byte: number;
+    tx_byte: number;
+    running: boolean;
+    disabled: boolean;
+  } | null;
+}
+
+export type ExpenseCategory =
+  | "hosting"
+  | "equipment"
+  | "energy"
+  | "labor"
+  | "internet"
+  | "transport"
+  | "software"
+  | "maintenance"
+  | "other";
+
+export interface Expense {
+  id: number;
+  description: string;
+  amount: number;
+  category: ExpenseCategory;
+  expense_date: string;
+  vendor?: string | null;
+  invoice_number?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface MapDataPoint {

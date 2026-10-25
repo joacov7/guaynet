@@ -51,8 +51,10 @@ services:
       guaynet_net:
         ipv4_address: 172.28.0.10
     env_file: .env
+    # Only reachable from the host itself: nginx uses the guaynet_net IP, and
+    # skipping nginx would allow forging X-Real-IP (portal client identity).
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
       REDIS_URL: redis://redis:6379/0
@@ -80,7 +82,42 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4
+    # default queue: network monitoring tasks
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4 -Q default
+
+  worker-critical:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # critical queue: security alerts, panic, entry timeout, duress
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2 -Q critical
+
+  worker-low:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # low queue: billing, report generation, non-urgent notifications
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2 -Q low
 
   beat:
     build:
@@ -137,3 +174,10 @@ services:
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
