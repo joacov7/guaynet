@@ -66,7 +66,9 @@ class BeatMockAdapter(BeatAdapter):
 
     def get_recent_events(self, account_id: str, limit: int = 50) -> List[BeatEvent]:
         rng = random.Random(_seed_from(account_id))
-        now = datetime.now(timezone.utc)
+        # Anchor to the hour so repeated polls return the same events (and the
+        # same idempotency keys) instead of "new" ones every time.
+        now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
 
         event_pool = [
             (BeatEventType.armed,                "Sistema armado"),

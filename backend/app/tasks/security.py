@@ -18,6 +18,7 @@ Security module Celery tasks.
 
 import asyncio
 import logging
+import os
 
 from app.tasks.celery_app import celery_app
 
@@ -185,6 +186,11 @@ def poll_beat_events(self):
         from app.services.security import get_beat_adapter
 
         adapter = get_beat_adapter()
+        if adapter.adapter_name == "mock" and os.getenv("BEAT_MOCK_POLLING") != "1":
+            # Simulated data must never reach operators or clients as real
+            # alerts. Opt in explicitly for local development.
+            logger.info("poll_beat_events skipped: BEAT_ADAPTER=mock (set BEAT_MOCK_POLLING=1 to simulate)")
+            return {"skipped": "mock adapter"}
         new_events = 0
         new_alerts = 0
 
