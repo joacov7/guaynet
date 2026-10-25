@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import asc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -129,6 +129,35 @@ class ConfigUpdate(BaseModel):
     smtp_password: Optional[str] = None
     smtp_from: Optional[str] = None
     alert_email: Optional[str] = None
+    # MercadoPago
+    mp_access_token: Optional[str] = None
+    mp_public_key: Optional[str] = None
+    # AFIP / ARCA electronic invoicing
+    afip_cuit: Optional[str] = None
+    afip_punto_venta: Optional[str] = None
+    afip_cbte_tipo: Optional[str] = None
+    afip_cert_pem: Optional[str] = None
+    afip_key_pem: Optional[str] = None
+    afip_production: Optional[str] = None
+    # Router monitoring thresholds
+    cpu_alert_threshold: Optional[str] = None
+    cpu_consecutive_checks: Optional[str] = None
+    uplink_saturation_threshold: Optional[str] = None
+    ram_alert_threshold: Optional[str] = None
+    # Company data for invoice PDFs
+    company_name: Optional[str] = None
+    company_address: Optional[str] = None
+    company_cuit: Optional[str] = None
+
+    @field_validator(
+        "afip_punto_venta", "cpu_alert_threshold", "cpu_consecutive_checks",
+        "uplink_saturation_threshold", "ram_alert_threshold",
+        mode="before",
+    )
+    @classmethod
+    def _numbers_as_text(cls, v):
+        # Stored as text in SystemConfig; the form sends InputNumber values as numbers
+        return None if v is None else str(v)
 
 
 @router.get("/config")
