@@ -5,6 +5,8 @@ export type PaymentMethod = "cash" | "transfer" | "mercadopago" | "other";
 export type UbiquitiDeviceType =
   | "airmax_ap"
   | "airmax_station"
+  | "airmax_ac_ap"
+  | "airmax_ac_station"
   | "unifi_ap"
   | "unifi_switch"
   | "unifi_gateway";
@@ -26,6 +28,27 @@ export interface Plan {
   client_count: number;
 }
 
+export interface RouterUtilization {
+  interfaces: {
+    name: string;
+    type: string;
+    running: boolean;
+    rx_byte: number;
+    tx_byte: number;
+    rx_rate: number;
+    tx_rate: number;
+  }[];
+  uplink_download_mbps?: number;
+  uplink_upload_mbps?: number;
+  queue_total_download_bytes: number;
+  queue_total_upload_bytes: number;
+  free_hdd_space?: number;
+  total_hdd_space?: number;
+  free_memory?: number;
+  total_memory?: number;
+  cpu_load?: number;
+}
+
 export interface Router {
   id: number;
   name: string;
@@ -34,6 +57,12 @@ export interface Router {
   username: string;
   location?: string;
   notes?: string;
+  latitude?: number;
+  longitude?: number;
+  uplink_download_mbps?: number;
+  uplink_upload_mbps?: number;
+  uplink_interface?: string;
+  lan_interface?: string;
   status: DeviceStatus;
   last_seen?: string;
   client_count: number;
@@ -74,6 +103,8 @@ export interface Client {
   notes?: string;
   ip_address: string;
   mac_address?: string;
+  latitude?: number;
+  longitude?: number;
   plan_id: number;
   router_id: number;
   ubiquiti_device_id?: number;
@@ -81,14 +112,29 @@ export interface Client {
   service_start_date?: string;
   billing_day: number;
   mikrotik_queue_name: string;
+  zone_id?: number;
+  pppoe_username?: string;
+  has_pppoe?: boolean;
   plan?: Pick<Plan, "id" | "name" | "download_mbps" | "upload_mbps" | "price">;
   router?: Pick<Router, "id" | "name" | "location">;
+  zone?: Pick<Zone, "id" | "name" | "color">;
   created_at: string;
+  mikrotik_error?: string;
+  mikrotik_sync?: string;
+}
+
+export interface InvoiceItem {
+  id: number;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
 }
 
 export interface Invoice {
   id: number;
   client_id: number;
+  client_name?: string;
   period: string;
   amount: number;
   issue_date: string;
@@ -99,6 +145,7 @@ export interface Invoice {
   afip_cae?: string;
   invoice_number?: number;
   payments: Payment[];
+  items: InvoiceItem[];
   created_at: string;
 }
 
@@ -138,6 +185,456 @@ export interface User {
   username: string;
   email: string;
   full_name: string;
+  role: string;
   is_active: boolean;
   is_superuser: boolean;
+}
+
+export interface VpnConnection {
+  id: number;
+  name: string;
+  vpn_type: "wireguard" | "l2tp";
+  router_id?: number;
+  router_name?: string;
+  wg_server_endpoint?: string;
+  wg_server_port?: number;
+  wg_server_public_key?: string;
+  wg_client_private_key?: string;
+  wg_client_public_key?: string;
+  wg_client_ip?: string;
+  wg_server_wg_ip?: string;
+  wg_keepalive?: number;
+  l2tp_server_host?: string;
+  l2tp_username?: string;
+  l2tp_password?: string;
+  l2tp_ipsec_secret?: string;
+  l2tp_local_ip?: string;
+  l2tp_remote_ip?: string;
+  notes?: string;
+  created_at?: string;
+}
+
+export interface DHCPLease {
+  address: string;
+  mac_address: string;
+  hostname?: string;
+  comment?: string;
+  status: string;
+  is_registered: boolean;
+  client_id?: number;
+  client_name?: string;
+}
+
+export interface DHCPScanResponse {
+  total: number;
+  registered: number;
+  unregistered: number;
+  leases: DHCPLease[];
+  error?: string | null;
+}
+
+export interface FirewallRule {
+  id: string;
+  chain: string;
+  action: string;
+  src_address?: string;
+  dst_address?: string;
+  protocol?: string;
+  src_port?: string;
+  dst_port?: string;
+  in_interface?: string;
+  out_interface?: string;
+  comment?: string;
+  disabled: boolean;
+  bytes?: string;
+  packets?: string;
+}
+
+export interface MangleRule {
+  id: string;
+  chain: string;
+  action: string;
+  new_packet_mark?: string;
+  new_connection_mark?: string;
+  src_address?: string;
+  dst_address?: string;
+  protocol?: string;
+  dst_port?: string;
+  comment?: string;
+  disabled: boolean;
+  passthrough: boolean;
+}
+
+export interface PCQQueue {
+  id: string;
+  name: string;
+  kind: string;
+  pcq_rate?: string;
+  pcq_limit?: string;
+  pcq_classifier?: string;
+}
+
+export interface TemplateResult {
+  template: string;
+  rules_added: number;
+  message: string;
+}
+
+export interface QueueTreeEntry {
+  id: string;
+  name: string;
+  parent: string;
+  packet_mark?: string | null;
+  priority: string;
+  limit_at?: string | null;
+  max_limit?: string | null;
+  max_limit_bps: number;
+  rate_bps: number;
+  total_bytes: number;
+  disabled: boolean;
+  comment?: string | null;
+}
+
+export interface BandwidthEntry {
+  queue_name: string;
+  client_id?: number;
+  client_name?: string;
+  ip_address: string;
+  max_limit: string;
+  disabled: boolean;
+  upload_bytes: number;
+  download_bytes: number;
+  missing_queue?: boolean;
+}
+
+export interface OnlineClient {
+  client_id?: number;
+  client_name?: string;
+  ip_address: string;
+  new_ip?: string;
+  ip_changed?: boolean;
+  mac_address: string;
+  status?: string;
+  online: boolean;
+}
+
+export interface OverdueEntry {
+  client_id: number;
+  client_name: string;
+  phone: string;
+  email: string;
+  address: string;
+  invoice_id: number;
+  period: string;
+  amount: number;
+  due_date: string;
+  days_overdue: number;
+}
+
+export interface OverdueReport {
+  total: number;
+  total_amount: number;
+  items: OverdueEntry[];
+}
+
+export interface DiscoveredUbiquitiDevice {
+  host: string;
+  model: string;
+  firmware: string;
+  hostname: string;
+  mode: string;
+  ssid: string;
+  frequency_mhz?: number;
+  suggested_type: string;
+}
+
+export interface UbiquitiDevice {
+  id: number;
+  name: string;
+  host: string;
+  device_type: UbiquitiDeviceType;
+  username?: string;
+  mac_address?: string;
+  mikrotik_router_id?: number;
+  location?: string;
+  notes?: string;
+  latitude?: number;
+  longitude?: number;
+  status: "online" | "offline" | "unknown";
+  last_seen?: string;
+  model_name?: string;
+  firmware_version?: string;
+  ssid?: string;
+  frequency_mhz?: number;
+  channel_width_mhz?: number;
+  signal_dbm?: number;
+  ccq?: number;
+  client_count: number;
+}
+
+export interface UbiquitiDeviceInfo {
+  model: string;
+  firmware: string;
+  hostname: string;
+  uptime_seconds: number;
+  cpu_load: number;
+  ram_used_pct: number;
+}
+
+export interface UbiquitiWirelessConfig {
+  mode: string;
+  ssid: string;
+  frequency_mhz?: number;
+  channel_width_mhz?: number;
+  tx_power_dbm?: number;
+  security: string;
+}
+
+export interface UbiquitiLinkInfo {
+  remote_name: string;
+  remote_mac: string;
+  signal_dbm?: number;
+  noise_dbm?: number;
+  snr_db?: number;
+  ccq?: number;
+  rx_rate_mbps?: number;
+  tx_rate_mbps?: number;
+  distance_m?: number;
+}
+
+export interface UbiquitiStation {
+  mac: string;
+  ip: string;
+  name: string;
+  signal_dbm?: number;
+  noise_dbm?: number;
+  ccq?: number;
+  rx_rate_mbps?: number;
+  tx_rate_mbps?: number;
+  uptime_seconds?: number;
+}
+
+export interface UbiquitiSurveyScan {
+  ssid: string;
+  mac: string;
+  frequency_mhz?: number;
+  channel_width_mhz?: number;
+  signal_dbm?: number;
+  security: string;
+}
+
+export interface FrequencyRecommendation {
+  frequency_mhz: number;
+  network_count: number;
+  congestion_score: number;
+  recommendation: string;
+  networks: string[];
+}
+
+export interface AuditLogEntry {
+  id: number;
+  username: string;
+  action: string;
+  entity_type: string;
+  entity_id?: number;
+  entity_name: string;
+  details?: string;
+  created_at: string;
+}
+
+export interface BandwidthHistoryEntry {
+  sampled_at: string;
+  client_id?: number;
+  ip_address: string;
+  queue_name: string;
+  upload_bytes: number;
+  download_bytes: number;
+}
+
+export interface Zone {
+  id: number;
+  name: string;
+  description?: string;
+  color: string;
+  router_id?: number;
+  latitude?: number;
+  longitude?: number;
+  client_count: number;
+  created_at: string;
+}
+
+export interface IpPoolEntry {
+  ip: string;
+  free: boolean;
+  client_id?: number;
+  client_name?: string;
+  status?: string;
+}
+
+export interface IpPoolResponse {
+  subnet: string;
+  total_hosts: number;
+  used: number;
+  free: number;
+  ips: IpPoolEntry[];
+}
+
+export type EquipmentCondition = "new" | "good" | "damaged" | "scrapped";
+export type EquipmentStatus = "in_stock" | "assigned" | "returned" | "lost";
+
+export interface InventoryItem {
+  id: number;
+  name: string;
+  category: string;
+  brand?: string;
+  model?: string;
+  serial_number?: string;
+  quantity: number;
+  unit_cost?: number;
+  condition: EquipmentCondition;
+  status: EquipmentStatus;
+  client_id?: number;
+  notes?: string;
+  created_at: string;
+}
+
+export type TicketStatus = "open" | "in_progress" | "resolved" | "closed";
+export type TicketPriority = "low" | "medium" | "high";
+export type TicketCategory = "connectivity" | "speed" | "billing" | "equipment" | "installation" | "other";
+
+export interface TicketComment {
+  id: number;
+  ticket_id: number;
+  author_id?: number;
+  author_name?: string;
+  body: string;
+  created_at: string;
+}
+
+export interface Ticket {
+  id: number;
+  client_id?: number;
+  client_name?: string;
+  assigned_to_id?: number;
+  assigned_to_name?: string;
+  title: string;
+  description?: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  category: TicketCategory;
+  created_at: string;
+  comments: TicketComment[];
+}
+
+export type WorkOrderType = "installation" | "repair" | "maintenance" | "inspection" | "other";
+export type WorkOrderStatus = "pending" | "in_progress" | "completed" | "cancelled";
+
+export interface WorkOrder {
+  id: number;
+  title: string;
+  description?: string;
+  type: WorkOrderType;
+  status: WorkOrderStatus;
+  priority: "low" | "medium" | "high";
+  client_id?: number;
+  client_name?: string;
+  assigned_to_id?: number;
+  assigned_to_name?: string;
+  scheduled_date?: string;
+  completed_at?: string;
+  address?: string;
+  latitude?: number;
+  longitude?: number;
+  completion_notes?: string;
+  photo_urls?: string[];
+  created_at: string;
+}
+
+export type AlarmType = "router_offline" | "cpu_high" | "wan_down" | "uplink_saturated" | "ram_high" | "client_device_offline";
+export type AlarmStatus = "active" | "resolved";
+
+export interface Alarm {
+  id: number;
+  router_id: number;
+  router_name?: string;
+  router_host?: string;
+  client_name?: string;
+  type: AlarmType;
+  status: AlarmStatus;
+  triggered_at: string;
+  resolved_at?: string;
+  details?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface WanSchedule {
+  id: number;
+  wan_interface_id: number;
+  action: "enable" | "disable";
+  days: string;
+  time_start: string;
+  time_end: string;
+}
+
+export interface WanInterface {
+  id: number;
+  router_id: number;
+  interface_name: string;
+  display_name: string;
+  weight: number;
+  cap_gb?: number;
+  manual_override: boolean;
+  enabled: boolean;
+  accumulated_rx_bytes: number;
+  accumulated_tx_bytes: number;
+  used_bytes: number;
+  cap_bytes: number;
+  cap_pct?: number;
+  schedules: WanSchedule[];
+  live?: {
+    rx_byte: number;
+    tx_byte: number;
+    running: boolean;
+    disabled: boolean;
+  } | null;
+}
+
+export type ExpenseCategory =
+  | "hosting"
+  | "equipment"
+  | "energy"
+  | "labor"
+  | "internet"
+  | "transport"
+  | "software"
+  | "maintenance"
+  | "other";
+
+export interface Expense {
+  id: number;
+  description: string;
+  amount: number;
+  category: ExpenseCategory;
+  expense_date: string;
+  vendor?: string | null;
+  invoice_number?: string | null;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MapDataPoint {
+  id: number;
+  name?: string;
+  full_name?: string;
+  host?: string;
+  ip_address?: string;
+  status: string;
+  latitude: number;
+  longitude: number;
+  location?: string;
+  client_count?: number;
+  ssid?: string;
+  frequency_mhz?: number;
+  device_type?: string;
 }

@@ -1,7 +1,18 @@
+version: "3.9"
+
+networks:
+  guaynet_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    networks:
+      - guaynet_net
     environment:
       POSTGRES_USER: guaynet
       POSTGRES_PASSWORD: guaynet
@@ -19,6 +30,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    networks:
+      - guaynet_net
     volumes:
       - redis_data:/data
     ports:
@@ -34,12 +47,17 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      guaynet_net:
+        ipv4_address: 172.28.0.10
     env_file: .env
+    # Only reachable from the host itself: nginx uses the guaynet_net IP, and
+    # skipping nginx would allow forging X-Real-IP (portal client identity).
+    ports:
+      - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
       REDIS_URL: redis://redis:6379/0
-    ports:
-      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -53,6 +71,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - guaynet_net
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
@@ -62,9 +82,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4
+    # default queue: network monitoring tasks
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=4 -Q default
 
-  beat:
+  worker-critical:
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -74,14 +95,77 @@ services:
       DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
       REDIS_URL: redis://redis:6379/0
     depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # critical queue: security alerts, panic, entry timeout, duress
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2 -Q critical
+
+  worker-low:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # low queue: billing, report generation, non-urgent notifications
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2 -Q low
+
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - guaynet_net
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
       - redis
     command: celery -A app.tasks.celery_app beat --loglevel=info
+
+  bot:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    networks:
+      - guaynet_net
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+    command: python bot.py
+
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:latest
+    restart: unless-stopped
+    environment:
+      - SUBDOMAINS=TU_SUBDOMINIO
+      - TOKEN=TU_TOKEN
+      - TZ=America/Argentina/Buenos_Aires
+      - LOG_FILE=false
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - guaynet_net
     ports:
       - "3000:80"
     depends_on:
@@ -90,3 +174,10 @@ services:
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

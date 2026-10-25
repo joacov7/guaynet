@@ -11,16 +11,19 @@ class RouterStatusItem(BaseModel):
 
 
 class DashboardStats(BaseModel):
+    # Clients
     total_clients: int
     active_clients: int
     suspended_clients: int
     cancelled_clients: int
 
+    # Billing
     invoices_pending: int
     invoices_overdue: int
     revenue_this_month: float
     revenue_last_month: float
 
+    # Network
     total_routers: int
     routers_online: int
     routers_offline: int

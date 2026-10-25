@@ -9,6 +9,53 @@ import ClientForm from "@/pages/clients/ClientForm";
 import Plans from "@/pages/Plans";
 import Routers from "@/pages/Routers";
 import Invoices from "@/pages/Invoices";
+import Firewall from "@/pages/Firewall";
+import Monitoring from "@/pages/Monitoring";
+import Ubiquiti from "@/pages/Ubiquiti";
+import NetworkMap from "@/pages/NetworkMap";
+import AuditLog from "@/pages/AuditLog";
+import IpPool from "@/pages/IpPool";
+import BandwidthDashboard from "@/pages/BandwidthDashboard";
+import Permissions from "@/pages/Permissions";
+import Users from "@/pages/Users";
+import Vpn from "@/pages/Vpn";
+import Settings from "@/pages/Settings";
+import Tickets from "@/pages/Tickets";
+import Inventory from "@/pages/Inventory";
+import Reports from "@/pages/Reports";
+import Zones from "@/pages/Zones";
+import WorkOrders from "@/pages/WorkOrders";
+import Alarms from "@/pages/Alarms";
+import Expenses from "@/pages/Expenses";
+import WanManagement from "@/pages/WanManagement";
+import Help from "@/pages/Help";
+import SecurityDashboard from "@/pages/security/SecurityDashboard";
+import SecurityAlerts from "@/pages/security/SecurityAlerts";
+import SecurityOperatorPanel from "@/pages/security/SecurityOperatorPanel";
+import SecuritySubscriptions from "@/pages/security/SecuritySubscriptions";
+import SecurityEvents from "@/pages/security/SecurityEvents";
+import SecurityNeighborhood from "@/pages/security/SecurityNeighborhood";
+import SecurityMembers from "@/pages/security/SecurityMembers";
+import SecurityDevices from "@/pages/security/SecurityDevices";
+import SecurityContracts from "@/pages/security/SecurityContracts";
+import SecurityProperties from "@/pages/security/SecurityProperties";
+import SecurityPlans from "@/pages/security/SecurityPlans";
+import EntrySecure from "@/pages/security/EntrySecure";
+import TechLayout from "@/pages/tech/TechLayout";
+import TechLogin from "@/pages/tech/TechLogin";
+import TechHome from "@/pages/tech/TechHome";
+import TechHistory from "@/pages/tech/TechHistory";
+import TechTicket from "@/pages/tech/TechTicket";
+import TechWorkOrders from "@/pages/tech/TechWorkOrders";
+import TechWorkOrderDetail from "@/pages/tech/TechWorkOrderDetail";
+import Portal from "@/pages/Portal";
+import Automations from "@/pages/Automations";
+import PortalLayout from "@/pages/portal/PortalLayout";
+import PortalLogin from "@/pages/portal/PortalLogin";
+import PortalDashboard from "@/pages/portal/PortalDashboard";
+import PortalInvoices from "@/pages/portal/PortalInvoices";
+import PortalTickets from "@/pages/portal/PortalTickets";
+import { PermissionsProvider } from "@/contexts/PermissionsContext";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
@@ -22,6 +69,7 @@ export default function App() {
   if (loading) return <Spin fullscreen />;
 
   return (
+    <PermissionsProvider>
     <BrowserRouter>
       <Routes>
         <Route
@@ -43,8 +91,64 @@ export default function App() {
           <Route path="plans" element={<Plans />} />
           <Route path="routers" element={<Routers />} />
           <Route path="billing" element={<Invoices />} />
+          <Route path="firewall" element={<Firewall />} />
+          <Route path="monitoring" element={<Monitoring />} />
+          <Route path="ubiquiti" element={<Ubiquiti />} />
+          <Route path="map" element={<NetworkMap />} />
+          <Route path="audit" element={<AuditLog />} />
+          <Route path="ip-pool" element={<IpPool />} />
+          <Route path="bandwidth" element={<BandwidthDashboard />} />
+          <Route path="permissions" element={<Permissions />} />
+          <Route path="users" element={<Users />} />
+          <Route path="vpn" element={<Vpn />} />
+          <Route path="tickets" element={<Tickets />} />
+          <Route path="inventory" element={<Inventory />} />
+          <Route path="reports" element={<Reports />} />
+          <Route path="zones" element={<Zones />} />
+          <Route path="work-orders" element={<WorkOrders />} />
+          <Route path="alarms" element={<Alarms />} />
+          <Route path="wan" element={<WanManagement />} />
+          <Route path="expenses" element={<Expenses />} />
+          <Route path="security" element={<SecurityDashboard />} />
+          <Route path="security/operator-panel" element={<SecurityOperatorPanel />} />
+          <Route path="security/alerts" element={<SecurityAlerts />} />
+          <Route path="security/subscriptions" element={<SecuritySubscriptions />} />
+          <Route path="security/entry-secure" element={<EntrySecure />} />
+          <Route path="security/events" element={<SecurityEvents />} />
+          <Route path="security/neighborhood" element={<SecurityNeighborhood />} />
+          <Route path="security/members" element={<SecurityMembers />} />
+          <Route path="security/devices" element={<SecurityDevices />} />
+          <Route path="security/contracts" element={<SecurityContracts />} />
+          <Route path="security/properties" element={<SecurityProperties />} />
+          <Route path="security/plans" element={<SecurityPlans />} />
+          <Route path="settings" element={<Settings />} />
+          <Route path="help" element={<Help />} />
+          <Route path="automations" element={<Automations />} />
+        </Route>
+
+        {/* Client portal with login (invoices, tickets) — separate layout */}
+        <Route path="/portal" element={<PortalLayout />}>
+          <Route index element={<PortalDashboard />} />
+          <Route path="login" element={<PortalLogin />} />
+          <Route path="invoices" element={<PortalInvoices />} />
+          <Route path="tickets" element={<PortalTickets />} />
+        </Route>
+
+        {/* Security portal without login: by IP, or by link (?token=) for security-only clients */}
+        <Route path="/seguridad" element={<Portal />} />
+
+        {/* Tech PWA — separate layout, no sidebar */}
+        <Route path="/tech" element={<TechLayout />}>
+          <Route index element={<Navigate to="/tech/tickets" replace />} />
+          <Route path="login" element={<TechLogin />} />
+          <Route path="tickets" element={<TechHome />} />
+          <Route path="tickets/:id" element={<TechTicket />} />
+          <Route path="history" element={<TechHistory />} />
+          <Route path="work-orders" element={<TechWorkOrders />} />
+          <Route path="work-orders/:id" element={<TechWorkOrderDetail />} />
         </Route>
       </Routes>
     </BrowserRouter>
+    </PermissionsProvider>
   );
 }

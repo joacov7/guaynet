@@ -2,7 +2,7 @@ import enum
 from datetime import date
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Date, Enum as SAEnum, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from app.models.invoice import Invoice
     from app.models.plan import Plan
     from app.models.router import MikrotikRouter, UbiquitiDevice
+    from app.models.zone import Zone
 
 
 class ClientStatus(str, enum.Enum):
@@ -24,6 +25,7 @@ class Client(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
+    # Personal data
     first_name: Mapped[str] = mapped_column(String(100))
     last_name: Mapped[str] = mapped_column(String(100))
     dni: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
@@ -33,6 +35,7 @@ class Client(Base, TimestampMixin):
     address: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Network
     ip_address: Mapped[str] = mapped_column(String(45), unique=True, index=True)
     mac_address: Mapped[Optional[str]] = mapped_column(String(17), nullable=True)
     plan_id: Mapped[int] = mapped_column(ForeignKey("plans.id"))
@@ -40,15 +43,31 @@ class Client(Base, TimestampMixin):
     ubiquiti_device_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("ubiquiti_devices.id", ondelete="SET NULL"), nullable=True
     )
+    zone_id: Mapped[Optional[int]] = mapped_column(ForeignKey("zones.id"), nullable=True)
 
+    # PPPoE
+    pppoe_username: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, unique=True, index=True)
+    pppoe_password_encrypted: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Location
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Billing
     status: Mapped[ClientStatus] = mapped_column(SAEnum(ClientStatus), default=ClientStatus.active)
     service_start_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     billing_day: Mapped[int] = mapped_column(Integer, default=1)
 
+    # Client portal
+    portal_enabled: Mapped[bool] = mapped_column(default=False)
+    portal_password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    # Relationships
     plan: Mapped["Plan"] = relationship(back_populates="clients")
     router: Mapped["MikrotikRouter"] = relationship(back_populates="clients")
     ubiquiti_device: Mapped[Optional["UbiquitiDevice"]] = relationship(back_populates="clients")
     invoices: Mapped[List["Invoice"]] = relationship(back_populates="client")
+    zone: Mapped[Optional["Zone"]] = relationship("Zone", back_populates="clients", lazy="select")
 
     @property
     def full_name(self) -> str:

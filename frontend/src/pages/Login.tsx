@@ -3,18 +3,21 @@ import { useNavigate } from "react-router-dom";
 import { Button, Card, Form, Input, message, Typography } from "antd";
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { useAuth } from "@/hooks/useAuth";
+import { usePermissions } from "@/contexts/PermissionsContext";
 
 const { Title } = Typography;
 
 export default function Login() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
+  const { reload: reloadPermissions } = usePermissions();
   const navigate = useNavigate();
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
       await login(values.username, values.password);
+      await reloadPermissions();
       navigate("/");
     } catch {
       message.error("Usuario o contraseña incorrectos");

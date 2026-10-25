@@ -15,7 +15,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, DeleteOutlined, SyncOutlined } from "@ant-design/icons";
 import { plansApi } from "@/services/api";
 import type { Plan } from "@/types";
 
@@ -46,6 +46,19 @@ export default function Plans() {
     onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al eliminar"),
   });
 
+  const syncAllMutation = useMutation({
+    mutationFn: plansApi.syncAll,
+    onSuccess: (res) => {
+      if (res.errors && res.errors.length > 0) {
+        const first = (res.errors[0] as any)?.error ?? JSON.stringify(res.errors[0]);
+        message.warning(`${res.synced} sincronizados, ${res.errors.length} error(es): ${first}`, 12);
+      } else {
+        message.success(`${res.synced} queues sincronizados (plan: ${res.plan})`);
+      }
+    },
+    onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al sincronizar"),
+  });
+
   const openCreate = () => {
     setEditPlan(null);
     form.resetFields();
@@ -70,13 +83,21 @@ export default function Plans() {
     {
       title: "Velocidad (Down/Up)",
       key: "speed",
-      render: (_: unknown, r: Plan) => <Tag color="blue">{r.download_mbps}/{r.upload_mbps} Mbps</Tag>,
+      render: (_: unknown, r: Plan) => (
+        <Tag color="blue">
+          {r.download_mbps}/{r.upload_mbps} Mbps
+        </Tag>
+      ),
     },
     {
       title: "Burst",
       key: "burst",
       render: (_: unknown, r: Plan) =>
-        r.mikrotik_burst_limit ? <Tag color="geekblue">{r.mikrotik_burst_limit}</Tag> : <Tag>Sin burst</Tag>,
+        r.mikrotik_burst_limit ? (
+          <Tag color="geekblue">{r.mikrotik_burst_limit}</Tag>
+        ) : (
+          <Tag>Sin burst</Tag>
+        ),
     },
     {
       title: "Precio",
@@ -85,7 +106,12 @@ export default function Plans() {
       render: (v: number) =>
         new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS" }).format(v),
     },
-    { title: "Clientes", dataIndex: "client_count", key: "client_count", align: "right" as const },
+    {
+      title: "Clientes",
+      dataIndex: "client_count",
+      key: "client_count",
+      align: "right" as const,
+    },
     {
       title: "Activo",
       dataIndex: "is_active",
@@ -99,6 +125,12 @@ export default function Plans() {
       render: (_: unknown, r: Plan) => (
         <Space>
           <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
+          <Popconfirm
+            title="¿Re-sincronizar todos los queues de este plan en Mikrotik?"
+            onConfirm={() => syncAllMutation.mutate(r.id)}
+          >
+            <Button size="small" icon={<SyncOutlined />} loading={syncAllMutation.isPending} />
+          </Popconfirm>
           <Popconfirm title="¿Eliminar plan?" onConfirm={() => deleteMutation.mutate(r.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
@@ -111,7 +143,9 @@ export default function Plans() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>Planes</Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Nuevo plan</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          Nuevo plan
+        </Button>
       </div>
 
       <Table loading={isLoading} dataSource={data} rowKey="id" columns={columns} size="small" pagination={false} />
@@ -125,8 +159,13 @@ export default function Plans() {
         width={560}
       >
         <Form form={form} layout="vertical" onFinish={(v) => saveMutation.mutate(v)}>
-          <Form.Item name="name" label="Nombre" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="description" label="Descripción"><Input.TextArea rows={2} /></Form.Item>
+          <Form.Item name="name" label="Nombre" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label="Descripción">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+
           <Space style={{ width: "100%" }} size={16}>
             <Form.Item name="download_mbps" label="Descarga (Mbps)" rules={[{ required: true }]}>
               <InputNumber min={1} style={{ width: "100%" }} />
@@ -135,27 +174,75 @@ export default function Plans() {
               <InputNumber min={1} style={{ width: "100%" }} />
             </Form.Item>
           </Space>
-          <Title level={5} style={{ marginBottom: 8 }}>Burst (opcional)</Title>
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <Title level={5} style={{ margin: 0 }}>Burst (opcional)</Title>
+            <Button
+              size="small"
+              type="link"
+              onClick={() => {
+                const dl = form.getFieldValue("download_mbps");
+                const ul = form.getFieldValue("upload_mbps");
+                if (!dl || !ul) { message.warning("Ingresá velocidades primero"); return; }
+                const burstDl = dl * 2;
+                const burstUl = ul * 2;
+                form.setFieldsValue({
+                  burst_download_mbps: burstDl,
+                  burst_upload_mbps: burstUl,
+                  burst_threshold_mbps: Math.round(Math.min(burstDl, burstUl) / 2),
+                  burst_time_seconds: 15,
+                });
+              }}
+            >
+              Sugerir valores
+            </Button>
+          </div>
           <Space style={{ width: "100%" }} size={16}>
-            <Form.Item name="burst_download_mbps" label="Burst descarga (Mbps)">
+            <Form.Item name="burst_download_mbps" label="Burst descarga (Mbps)" extra="Pico al iniciar">
               <InputNumber min={1} style={{ width: "100%" }} />
             </Form.Item>
-            <Form.Item name="burst_upload_mbps" label="Burst subida (Mbps)">
+            <Form.Item name="burst_upload_mbps" label="Burst subida (Mbps)" extra="Pico al iniciar">
               <InputNumber min={1} style={{ width: "100%" }} />
             </Form.Item>
           </Space>
           <Space style={{ width: "100%" }} size={16}>
-            <Form.Item name="burst_threshold_mbps" label="Umbral burst (Mbps)">
+            <Form.Item
+              name="burst_threshold_mbps"
+              label="Umbral burst (Mbps)"
+              extra="Activa burst si uso promedio < umbral"
+              dependencies={["burst_upload_mbps", "burst_download_mbps"]}
+              rules={[
+                ({ getFieldValue }) => ({
+                  warningOnly: true,
+                  validator(_, value) {
+                    if (!value) return Promise.resolve();
+                    const burstUp = getFieldValue("burst_upload_mbps");
+                    const burstDl = getFieldValue("burst_download_mbps");
+                    if (burstUp && value > burstUp) {
+                      return Promise.reject(`Umbral (${value}M) supera burst subida (${burstUp}M) — se ajustará a ${burstUp}M al sincronizar`);
+                    }
+                    if (burstDl && value > burstDl) {
+                      return Promise.reject(`Umbral (${value}M) supera burst descarga (${burstDl}M) — se ajustará a ${burstDl}M al sincronizar`);
+                    }
+                    return Promise.resolve();
+                  },
+                }),
+              ]}
+            >
               <InputNumber min={1} style={{ width: "100%" }} />
             </Form.Item>
-            <Form.Item name="burst_time_seconds" label="Tiempo burst (seg)">
+            <Form.Item name="burst_time_seconds" label="Ventana burst (seg)" extra="Intervalo de promediado">
               <InputNumber min={1} max={120} style={{ width: "100%" }} />
             </Form.Item>
           </Space>
+
           <Form.Item name="price" label="Precio (ARS)" rules={[{ required: true }]}>
             <InputNumber min={0} precision={2} style={{ width: "100%" }} prefix="$" />
           </Form.Item>
-          <Form.Item name="is_active" label="Activo" valuePropName="checked"><Switch /></Form.Item>
+
+          <Form.Item name="is_active" label="Activo" valuePropName="checked">
+            <Switch />
+          </Form.Item>
         </Form>
       </Modal>
     </div>

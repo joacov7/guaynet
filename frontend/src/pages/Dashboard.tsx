@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
   Alert,
+  Badge,
   Card,
   Col,
   Row,
@@ -68,28 +69,49 @@ export default function Dashboard() {
 
   return (
     <div>
-      <Title level={4} style={{ marginTop: 0 }}>Dashboard</Title>
+      <Title level={4} style={{ marginTop: 0 }}>
+        Dashboard
+      </Title>
 
+      {/* Client stats */}
       <Row gutter={[16, 16]}>
         <Col xs={12} sm={6}>
-          <StatCard title="Clientes activos" value={data?.active_clients ?? 0} icon={<TeamOutlined />} color="#52c41a" />
+          <StatCard
+            title="Clientes activos"
+            value={data?.active_clients ?? 0}
+            icon={<TeamOutlined />}
+            color="#52c41a"
+          />
         </Col>
         <Col xs={12} sm={6}>
-          <StatCard title="Suspendidos" value={data?.suspended_clients ?? 0} icon={<PauseCircleOutlined />} color="#faad14" />
+          <StatCard
+            title="Suspendidos"
+            value={data?.suspended_clients ?? 0}
+            icon={<PauseCircleOutlined />}
+            color="#faad14"
+          />
         </Col>
         <Col xs={12} sm={6}>
-          <StatCard title="Facturas vencidas" value={data?.invoices_overdue ?? 0} icon={<WarningOutlined />} color="#ff4d4f" />
+          <StatCard
+            title="Facturas vencidas"
+            value={data?.invoices_overdue ?? 0}
+            icon={<WarningOutlined />}
+            color="#ff4d4f"
+          />
         </Col>
         <Col xs={12} sm={6}>
           <StatCard
             title="Routers online"
             value={`${data?.routers_online ?? 0} / ${data?.total_routers ?? 0}`}
             icon={<ApartmentOutlined />}
-            color={data && data.routers_offline > 0 ? "#ff4d4f" : "#52c41a"}
+            color={
+              data && data.routers_offline > 0 ? "#ff4d4f" : "#52c41a"
+            }
           />
         </Col>
       </Row>
 
+      {/* Revenue */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={12} sm={6}>
           <Card>
@@ -113,13 +135,23 @@ export default function Dashboard() {
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <StatCard title="Facturas pendientes" value={data?.invoices_pending ?? 0} icon={<DollarOutlined />} color="#faad14" />
+          <StatCard
+            title="Facturas pendientes"
+            value={data?.invoices_pending ?? 0}
+            icon={<DollarOutlined />}
+            color="#faad14"
+          />
         </Col>
         <Col xs={12} sm={6}>
-          <StatCard title="Total clientes" value={data?.total_clients ?? 0} icon={<TeamOutlined />} />
+          <StatCard
+            title="Total clientes"
+            value={data?.total_clients ?? 0}
+            icon={<TeamOutlined />}
+          />
         </Col>
       </Row>
 
+      {/* Router status table */}
       <Card title="Estado de routers" style={{ marginTop: 16 }}>
         <Table
           loading={isLoading}
@@ -127,12 +159,22 @@ export default function Dashboard() {
           rowKey="id"
           size="small"
           pagination={false}
-          onRow={() => ({ onClick: () => navigate("/routers"), style: { cursor: "pointer" } })}
+          onRow={(r) => ({ onClick: () => navigate("/routers"), style: { cursor: "pointer" } })}
           columns={[
             { title: "Nombre", dataIndex: "name", key: "name" },
             { title: "Ubicación", dataIndex: "location", key: "location", render: (v) => v ?? "—" },
-            { title: "Estado", dataIndex: "status", key: "status", render: (v) => statusTag[v] ?? <Tag>{v}</Tag> },
-            { title: "Clientes", dataIndex: "client_count", key: "client_count", align: "right" },
+            {
+              title: "Estado",
+              dataIndex: "status",
+              key: "status",
+              render: (v) => statusTag[v] ?? <Tag>{v}</Tag>,
+            },
+            {
+              title: "Clientes",
+              dataIndex: "client_count",
+              key: "client_count",
+              align: "right",
+            },
           ]}
         />
       </Card>

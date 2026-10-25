@@ -1,17 +1,20 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Alert,
   Badge,
   Button,
   Card,
   Col,
   Descriptions,
+  Divider,
   Drawer,
   Form,
   Input,
   InputNumber,
   Modal,
   Popconfirm,
+  Progress,
   Row,
   Space,
   Spin,
@@ -21,6 +24,7 @@ import {
   Typography,
   message,
 } from "antd";
+import { CheckCircleOutlined, ExclamationCircleOutlined, WarningOutlined } from "@ant-design/icons";
 import {
   PlusOutlined,
   EditOutlined,
@@ -28,9 +32,12 @@ import {
   ApiOutlined,
   UnorderedListOutlined,
   SyncOutlined,
+  ThunderboltOutlined,
+  BarChartOutlined,
+  LoginOutlined,
 } from "@ant-design/icons";
 import { routersApi } from "@/services/api";
-import type { MikrotikQueue, Router, RouterStats } from "@/types";
+import type { MikrotikQueue, Router, RouterStats, RouterUtilization } from "@/types";
 
 const { Title } = Typography;
 
@@ -49,6 +56,10 @@ export default function Routers() {
   const [queuesDrawer, setQueuesDrawer] = useState<{ open: boolean; routerId: number | null }>({
     open: false,
     routerId: null,
+  });
+  const [utilizationDrawer, setUtilizationDrawer] = useState<{ open: boolean; router: Router | null }>({
+    open: false,
+    router: null,
   });
   const [form] = Form.useForm();
 
@@ -79,8 +90,83 @@ export default function Routers() {
 
   const syncMutation = useMutation({
     mutationFn: (id: number) => routersApi.syncClients(id),
-    onSuccess: (data) => message.success(`Sincronizados: ${data.synced} clientes. Errores: ${data.errors.length}`),
-    onError: (err: any) => message.error(err.response?.data?.detail ?? "Error de conexión"),
+    onSuccess: (data) => {
+      const hasProblems = data.errors.length > 0 || data.skipped > 0 || !!data.warning;
+      if (!hasProblems && data.synced > 0) {
+        message.success(`Sincronizados ${data.synced} clientes correctamente`);
+        return;
+      }
+      Modal.info({
+        title: "Resultado de sincronización",
+        width: 520,
+        icon: hasProblems ? <ExclamationCircleOutlined style={{ color: data.synced === 0 ? "#faad14" : "#1677ff" }} /> : <CheckCircleOutlined style={{ color: "#52c41a" }} />,
+        content: (
+          <div style={{ marginTop: 12 }}>
+            <Descriptions size="small" column={2} bordered style={{ marginBottom: 12 }}>
+              <Descriptions.Item label="Clientes encontrados">{data.clients_found ?? 0}</Descriptions.Item>
+              <Descriptions.Item label="Sincronizados">{data.synced}</Descriptions.Item>
+              <Descriptions.Item label="Salteados (sin plan)">{data.skipped ?? 0}</Descriptions.Item>
+              <Descriptions.Item label="Con error">{data.errors.length}</Descriptions.Item>
+            </Descriptions>
+            {data.warning && (
+              <Alert type="warning" icon={<WarningOutlined />} showIcon message={data.warning} style={{ marginBottom: 8 }} />
+            )}
+            {data.errors.length > 0 && (
+              <>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Errores por cliente:</div>
+                <Table
+                  size="small"
+                  pagination={false}
+                  dataSource={data.errors.map((e) => ({ ...e, key: e.client_id }))}
+                  columns={[
+                    { title: "ID", dataIndex: "client_id", width: 60 },
+                    { title: "Nombre", dataIndex: "name" },
+                    { title: "Error", dataIndex: "error", render: (v: string) => <span style={{ color: "#cf1322", fontSize: 12 }}>{v}</span> },
+                  ]}
+                />
+              </>
+            )}
+          </div>
+        ),
+      });
+    },
+    onError: (err: any) => message.error(`Error MikroTik: ${err.response?.data?.detail ?? "Sin conexión"}`, 10),
+  });
+
+  const syncPppoeMutation = useMutation({
+    mutationFn: (id: number) => routersApi.syncPppoe(id),
+    onSuccess: (data) => {
+      if (data.errors.length > 0) {
+        message.warning(`PPPoE: ${data.synced} sincronizados, ${data.errors.length} error(es)`, 8);
+      } else {
+        message.success(`PPPoE: ${data.synced} secretos sincronizados`);
+      }
+    },
+    onError: (err: any) => message.error(`Error PPPoE: ${err.response?.data?.detail ?? "Sin conexión"}`, 8),
+  });
+
+  const qosMutation = useMutation({
+    mutationFn: (id: number) => routersApi.setupQos(id),
+    onSuccess: (data: any) => {
+      const parts = [];
+      if (data.added) parts.push(`${data.added} agregadas`);
+      if (data.enabled) parts.push(`${data.enabled} reactivadas`);
+      if (data.skipped) parts.push(`${data.skipped} ya existían`);
+      if (data.pcq_added) parts.push(`${data.pcq_added} PCQ`);
+      if (data.sfq_added) parts.push(`SFQ creado`);
+      if (data.tree?.added) parts.push(`${data.tree.added} Queue Tree creadas`);
+      if (data.tree?.updated) parts.push(`${data.tree.updated} Queue Tree actualizadas`);
+      message.success(`QoS: ${parts.join(", ") || "sin cambios"}`);
+    },
+    onError: (err: any) => message.error(err.response?.data?.detail ?? "Error al aplicar QoS"),
+  });
+
+  const { data: utilizationData, isLoading: utilizationLoading } = useQuery({
+    queryKey: ["router-utilization", utilizationDrawer.router?.id],
+    queryFn: () => routersApi.utilization(utilizationDrawer.router!.id),
+    enabled: utilizationDrawer.open && utilizationDrawer.router != null,
+    refetchInterval: (query: any) => (utilizationDrawer.open && !query.state.error) ? 5000 : false,
+    retry: 1,
   });
 
   const openCreate = () => {
@@ -106,12 +192,21 @@ export default function Routers() {
 
   const handleTest = async () => {
     const values = form.getFieldsValue();
-    if (!values.host || !values.username) { message.warning("Completá host y usuario antes de probar"); return; }
-    if (!editRouter && !values.password) { message.warning("Ingresá la contraseña"); return; }
+    if (!values.host || !values.username) {
+      message.warning("Completá host y usuario antes de probar");
+      return;
+    }
+    if (!editRouter && !values.password) {
+      message.warning("Ingresá la contraseña");
+      return;
+    }
     setTestLoading(true);
     setTestResult(null);
     try {
-      const saved = editRouter ? await routersApi.update(editRouter.id, values) : await routersApi.create(values);
+      // Save first to get an ID, then test
+      const saved = editRouter
+        ? await routersApi.update(editRouter.id, values)
+        : await routersApi.create(values);
       const stats = await routersApi.test(saved.id);
       setTestResult(stats);
       qc.invalidateQueries({ queryKey: ["routers"] });
@@ -128,7 +223,12 @@ export default function Routers() {
     { title: "Host", dataIndex: "host", key: "host" },
     { title: "Puerto", dataIndex: "port", key: "port" },
     { title: "Ubicación", dataIndex: "location", key: "location", render: (v: string) => v ?? "—" },
-    { title: "Estado", dataIndex: "status", key: "status", render: (s: string) => statusTag[s] ?? <Badge status="default" text={s} /> },
+    {
+      title: "Estado",
+      dataIndex: "status",
+      key: "status",
+      render: (s: string) => statusTag[s] ?? <Badge status="default" text={s} />,
+    },
     { title: "Clientes", dataIndex: "client_count", key: "client_count", align: "right" as const },
     {
       title: "",
@@ -139,9 +239,26 @@ export default function Routers() {
           <Tooltip title="Ver queues">
             <Button size="small" icon={<UnorderedListOutlined />} onClick={() => setQueuesDrawer({ open: true, routerId: r.id })} />
           </Tooltip>
+          <Tooltip title="Utilización">
+            <Button size="small" icon={<BarChartOutlined />} onClick={() => setUtilizationDrawer({ open: true, router: r })} />
+          </Tooltip>
           <Tooltip title="Sync todos los clientes">
             <Popconfirm title="¿Sincronizar todos los clientes al router?" onConfirm={() => syncMutation.mutate(r.id)}>
               <Button size="small" icon={<SyncOutlined />} />
+            </Popconfirm>
+          </Tooltip>
+          <Tooltip title="Aplicar QoS">
+            <Popconfirm
+              title="¿Aplicar reglas QoS?"
+              description="Agrega PCQ y mangle de priorización (VoIP > DNS > HTTPS > HTTP)."
+              onConfirm={() => qosMutation.mutate(r.id)}
+            >
+              <Button size="small" icon={<ThunderboltOutlined />} />
+            </Popconfirm>
+          </Tooltip>
+          <Tooltip title="Sync PPPoE">
+            <Popconfirm title="¿Sincronizar secretos PPPoE al router?" onConfirm={() => syncPppoeMutation.mutate(r.id)}>
+              <Button size="small" icon={<LoginOutlined />} />
             </Popconfirm>
           </Tooltip>
           <Tooltip title="Editar">
@@ -159,11 +276,14 @@ export default function Routers() {
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>Routers Mikrotik</Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Nuevo router</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          Nuevo router
+        </Button>
       </div>
 
       <Table loading={isLoading} dataSource={data} rowKey="id" columns={columns} size="small" pagination={false} />
 
+      {/* Create / Edit Modal */}
       <Modal
         title={editRouter ? "Editar router" : "Nuevo router"}
         open={modalOpen}
@@ -173,7 +293,9 @@ export default function Routers() {
         width={560}
         footer={[
           <Button key="cancel" onClick={closeModal}>Cancelar</Button>,
-          <Button key="test" icon={<ApiOutlined />} onClick={handleTest} loading={testLoading}>Probar conexión</Button>,
+          <Button key="test" icon={<ApiOutlined />} onClick={handleTest} loading={testLoading}>
+            Probar conexión
+          </Button>,
           <Button key="save" type="primary" onClick={() => form.submit()} loading={saveMutation.isPending}>
             {editRouter ? "Guardar" : "Crear"}
           </Button>,
@@ -197,10 +319,16 @@ export default function Routers() {
           </Row>
           <Row gutter={12}>
             <Col span={12}>
-              <Form.Item name="username" label="Usuario" rules={[{ required: true }]}><Input /></Form.Item>
+              <Form.Item name="username" label="Usuario" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="password" label="Contraseña" rules={editRouter ? [] : [{ required: true }]}>
+              <Form.Item
+                name="password"
+                label="Contraseña"
+                rules={editRouter ? [] : [{ required: true }]}
+              >
                 <Input.Password placeholder={editRouter ? "(sin cambios)" : ""} />
               </Form.Item>
             </Col>
@@ -208,8 +336,56 @@ export default function Routers() {
           <Form.Item name="location" label="Ubicación / Zona">
             <Input placeholder="Ej: Zona Norte" />
           </Form.Item>
-          <Form.Item name="notes" label="Notas"><Input.TextArea rows={2} /></Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="latitude" label="Latitud">
+                <InputNumber style={{ width: "100%" }} placeholder="-34.6037" step={0.0001} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="longitude" label="Longitud">
+                <InputNumber style={{ width: "100%" }} placeholder="-58.3816" step={0.0001} />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="notes" label="Notas">
+            <Input.TextArea rows={2} />
+          </Form.Item>
+          <Divider style={{ margin: "12px 0" }}>Capacidad del enlace (para cola padre)</Divider>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="uplink_download_mbps" label="Bajada del enlace (Mbps)">
+                <InputNumber min={1} style={{ width: "100%" }} placeholder="Ej: 100" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="uplink_upload_mbps" label="Subida del enlace (Mbps)">
+                <InputNumber min={1} style={{ width: "100%" }} placeholder="Ej: 50" />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item
+                name="uplink_interface"
+                label="Interfaz WAN"
+                extra="Upload QoS (tráfico saliente al ISP)"
+              >
+                <Input placeholder="ether1" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                name="lan_interface"
+                label="Interfaz LAN"
+                extra="Download QoS (tráfico entrante a clientes)"
+              >
+                <Input placeholder="bridge1" />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
+
         {testResult && (
           <Card size="small" style={{ marginTop: 12, background: "#f6ffed", border: "1px solid #b7eb8f" }}>
             <Descriptions size="small" column={2} title="Conexión exitosa">
@@ -223,13 +399,16 @@ export default function Routers() {
         )}
       </Modal>
 
+      {/* Queues Drawer */}
       <Drawer
         title="Simple Queues"
         open={queuesDrawer.open}
         onClose={() => setQueuesDrawer({ open: false, routerId: null })}
         width={600}
       >
-        {queuesLoading ? <Spin /> : (
+        {queuesLoading ? (
+          <Spin />
+        ) : (
           <Table
             dataSource={queues}
             rowKey="id"
@@ -239,12 +418,172 @@ export default function Routers() {
               { title: "Nombre", dataIndex: "name", key: "name" },
               { title: "Target", dataIndex: "target", key: "target" },
               { title: "Límite", dataIndex: "max_limit", key: "max_limit" },
-              { title: "Estado", dataIndex: "disabled", key: "disabled", render: (v: boolean) => <Tag color={v ? "orange" : "green"}>{v ? "Deshabilitada" : "Activa"}</Tag> },
-              { title: "Comentario", dataIndex: "comment", key: "comment", render: (v: string) => v ?? "—" },
+              {
+                title: "Estado",
+                dataIndex: "disabled",
+                key: "disabled",
+                render: (v: boolean) => <Tag color={v ? "orange" : "green"}>{v ? "Deshabilitada" : "Activa"}</Tag>,
+              },
+              {
+                title: "Comentario",
+                dataIndex: "comment",
+                key: "comment",
+                render: (v: string) => v ?? "—",
+              },
             ]}
           />
         )}
       </Drawer>
+
+      {/* Utilization Drawer */}
+      <Drawer
+        title={`Utilización — ${utilizationDrawer.router?.name ?? ""}`}
+        open={utilizationDrawer.open}
+        onClose={() => setUtilizationDrawer({ open: false, router: null })}
+        width={560}
+      >
+        {utilizationLoading ? (
+          <Spin />
+        ) : utilizationData ? (
+          <UtilizationPanel data={utilizationData} />
+        ) : null}
+      </Drawer>
     </div>
+  );
+}
+
+function UtilizationPanel({ data }: { data: RouterUtilization }) {
+  const fmtMbps = (bps: number) => `${(bps / 1_000_000).toFixed(1)} Mbps`;
+  const fmtGB = (bytes: number) => {
+    if (bytes > 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
+    if (bytes > 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
+    return `${(bytes / 1e3).toFixed(0)} KB`;
+  };
+
+  const hddUsed = (data.total_hdd_space ?? 0) - (data.free_hdd_space ?? 0);
+  const hddPct = data.total_hdd_space ? Math.round((hddUsed / data.total_hdd_space) * 100) : 0;
+  const ramUsed = (data.total_memory ?? 0) - (data.free_memory ?? 0);
+  const ramPct = data.total_memory ? Math.round((ramUsed / data.total_memory) * 100) : 0;
+
+  return (
+    <>
+      {(data.uplink_download_mbps || data.uplink_upload_mbps) && (
+        <Card size="small" title="Cola padre (guaynet-uplink)" style={{ marginBottom: 16 }}>
+          <p style={{ margin: "0 0 8px", color: "#888", fontSize: 12 }}>
+            Bytes acumulados de las queues de clientes vs capacidad configurada
+          </p>
+          {data.uplink_download_mbps && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span>Bajada acumulada</span>
+                <span>{fmtGB(data.queue_total_download_bytes)}</span>
+              </div>
+              <Progress
+                percent={0}
+                format={() => `límite ${data.uplink_download_mbps} Mbps`}
+                strokeColor="#1677ff"
+                size="small"
+              />
+            </div>
+          )}
+          {data.uplink_upload_mbps && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span>Subida acumulada</span>
+                <span>{fmtGB(data.queue_total_upload_bytes)}</span>
+              </div>
+              <Progress
+                percent={0}
+                format={() => `límite ${data.uplink_upload_mbps} Mbps`}
+                strokeColor="#52c41a"
+                size="small"
+              />
+            </div>
+          )}
+        </Card>
+      )}
+
+      {(data.total_hdd_space || data.total_memory) && (
+        <Card size="small" title="Recursos del sistema" style={{ marginBottom: 16 }}>
+          {data.total_hdd_space ? (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span>Flash (almacenamiento)</span>
+                <span>{fmtGB(hddUsed)} / {fmtGB(data.total_hdd_space)}</span>
+              </div>
+              <Progress
+                percent={hddPct}
+                size="small"
+                strokeColor={hddPct > 90 ? "#f5222d" : hddPct > 70 ? "#faad14" : "#52c41a"}
+                format={p => `${p}%`}
+              />
+            </div>
+          ) : null}
+          {data.total_memory ? (
+            <div style={{ marginBottom: data.cpu_load !== undefined ? 8 : 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span>RAM</span>
+                <span>{fmtGB(ramUsed)} / {fmtGB(data.total_memory)}</span>
+              </div>
+              <Progress
+                percent={ramPct}
+                size="small"
+                strokeColor={ramPct > 90 ? "#f5222d" : ramPct > 70 ? "#faad14" : "#1677ff"}
+                format={p => `${p}%`}
+              />
+            </div>
+          ) : null}
+          {data.cpu_load !== undefined ? (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
+                <span>CPU</span>
+                <span>{data.cpu_load}%</span>
+              </div>
+              <Progress
+                percent={data.cpu_load}
+                size="small"
+                strokeColor={data.cpu_load > 90 ? "#f5222d" : data.cpu_load > 70 ? "#faad14" : "#722ed1"}
+                format={p => `${p}%`}
+              />
+            </div>
+          ) : null}
+        </Card>
+      )}
+
+      <Card size="small" title="Interfaces (se actualiza cada 5s)">
+        <Table
+          dataSource={data.interfaces}
+          rowKey="name"
+          size="small"
+          pagination={false}
+          columns={[
+            {
+              title: "Interfaz",
+              dataIndex: "name",
+              key: "name",
+              render: (v: string, r: RouterUtilization["interfaces"][0]) => (
+                <Space>
+                  <Badge status={r.running ? "success" : "default"} />
+                  {v}
+                </Space>
+              ),
+            },
+            { title: "Tipo", dataIndex: "type", key: "type", render: (v: string) => <Tag>{v}</Tag> },
+            {
+              title: "RX",
+              key: "rx",
+              render: (_: unknown, r: RouterUtilization["interfaces"][0]) =>
+                r.rx_rate ? fmtMbps(r.rx_rate) : "—",
+            },
+            {
+              title: "TX",
+              key: "tx",
+              render: (_: unknown, r: RouterUtilization["interfaces"][0]) =>
+                r.tx_rate ? fmtMbps(r.tx_rate) : "—",
+            },
+          ]}
+        />
+      </Card>
+    </>
   );
 }

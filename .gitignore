@@ -1,25 +1,43 @@
 # Python
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+.Python
 venv/
 .venv/
+env/
 *.egg-info/
+dist/
+build/
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
 
 # Environment
 .env
 .env.local
+.env.*.local
 
 # Node / Frontend
 node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/dist-app/
+
+# Android app (Capacitor): Firebase credentials and signing keys never go to git
+frontend/android/app/google-services.json
+*.jks
+*.keystore
+.npm/
 
 # Editor
 .vscode/
 .idea/
 *.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
 
 # OS
 .DS_Store
@@ -36,3 +54,4 @@ redis_data/
 # Coverage
 htmlcov/
 .coverage
+coverage.xml
