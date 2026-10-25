@@ -1,4 +1,4 @@
-"""security monthly reports table
+"""security monthly reports: one report per subscription and period
 
 Revision ID: 035
 Revises: 034
@@ -14,29 +14,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "sec_monthly_reports",
-        sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("subscription_id", sa.Integer(), sa.ForeignKey("sec_subscriptions.id"), nullable=False),
-        sa.Column("period", sa.String(7), nullable=False),  # YYYY-MM
-        sa.Column("generated_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("file_path", sa.String(500), nullable=True),
-        sa.Column(
-            "status",
-            sa.String(20),
-            nullable=False,
-            server_default="generating",
-        ),
-        sa.Column("event_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("alert_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("test_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("visit_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("error_message", sa.String(500), nullable=True),
-        sa.UniqueConstraint("subscription_id", "period", name="uq_sec_monthly_report"),
+    # The table, its columns and indexes already come from 026; this revision
+    # only adds the one-report-per-period guarantee used by generate_and_deliver.
+    op.create_unique_constraint(
+        "uq_sec_monthly_report", "sec_monthly_reports", ["subscription_id", "period"]
     )
-    op.create_index("ix_sec_monthly_reports_subscription_id", "sec_monthly_reports", ["subscription_id"])
-    op.create_index("ix_sec_monthly_reports_period", "sec_monthly_reports", ["period"])
 
 
 def downgrade() -> None:
-    op.drop_table("sec_monthly_reports")
+    op.drop_constraint("uq_sec_monthly_report", "sec_monthly_reports", type_="unique")

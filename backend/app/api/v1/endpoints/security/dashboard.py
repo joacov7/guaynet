@@ -26,8 +26,14 @@ async def security_dashboard(
     from app.models.security.subscription import SecuritySubscription, SecuritySubscriptionStatus
     from app.models.security.subscription import SecurityPlan
 
+    from sqlalchemy import literal_column
+    from app.services.security.schedule import AR_TZ
+
     now = datetime.now(timezone.utc)
-    today = now.date()
+    # Day boundaries in Argentina time, not UTC (otherwise alerts after 21:00
+    # are counted on the next day)
+    today = now.astimezone(AR_TZ).date()
+    start_of_today = datetime.combine(today, datetime.min.time(), tzinfo=AR_TZ)
     week_ago = now - timedelta(days=7)
     month_ago = now - timedelta(days=30)
 
@@ -54,7 +60,7 @@ async def security_dashboard(
 
     alerts_today_result = await db.execute(
         select(func.count()).select_from(SecurityAlert).where(
-            SecurityAlert.triggered_at >= now.replace(hour=0, minute=0, second=0, microsecond=0)
+            SecurityAlert.triggered_at >= start_of_today
         )
     )
     alerts_today = alerts_today_result.scalar() or 0
@@ -85,16 +91,18 @@ async def security_dashboard(
     vacation_active_count = vacation_result.scalar() or 0
 
     # ── Alerts by day (last 7 days) ───────────────────────────────────────────
-    day_counts_result = await db.execute(
-        select(
-            func.date_trunc("day", SecurityAlert.triggered_at).label("day"),
-            func.count().label("cnt"),
-        )
-        .where(SecurityAlert.triggered_at >= week_ago)
-        .group_by(func.date_trunc("day", SecurityAlert.triggered_at))
-        .order_by(func.date_trunc("day", SecurityAlert.triggered_at))
+    # Inline literal (not a bind param) so SELECT and GROUP BY render the same
+    # expression; PostgreSQL rejects them as different otherwise.
+    local_day = func.date(
+        func.timezone(literal_column("'America/Argentina/Buenos_Aires'"), SecurityAlert.triggered_at)
     )
-    day_counts_raw = {row.day.date(): row.cnt for row in day_counts_result.all()}
+    day_counts_result = await db.execute(
+        select(local_day.label("day"), func.count().label("cnt"))
+        .where(SecurityAlert.triggered_at >= start_of_today - timedelta(days=6))
+        .group_by(local_day)
+        .order_by(local_day)
+    )
+    day_counts_raw = {row.day: row.cnt for row in day_counts_result.all()}
     alerts_by_day = []
     for i in range(6, -1, -1):
         d = today - timedelta(days=i)

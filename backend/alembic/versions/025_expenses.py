@@ -29,7 +29,7 @@ def upgrade():
             nullable=False,
             server_default="other",
         ),
-        sa.Column("expense_date", sa.Date(), nullable=False, index=True),
+        sa.Column("expense_date", sa.Date(), nullable=False),
         sa.Column("vendor", sa.String(255), nullable=True),
         sa.Column("invoice_number", sa.String(100), nullable=True),
         sa.Column("notes", sa.Text(), nullable=True),
