@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 def _run(coro):
-    return asyncio.run(coro)
+    from app.tasks._async import run_async
+    return run_async(coro)
 
 
 @celery_app.task(

@@ -9,7 +9,8 @@ from app.tasks.celery_app import celery_app
 
 
 def _run(coro):
-    return asyncio.run(coro)
+    from app.tasks._async import run_async
+    return run_async(coro)
 
 
 from app.services.telegram import send_telegram as _send_telegram
