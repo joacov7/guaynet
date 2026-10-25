@@ -57,7 +57,9 @@ def build_application(token: str, database_url: str, allowed_ids: List[int]) -> 
     maker = async_sessionmaker(engine, expire_on_commit=False)
 
     def ok(update: Update) -> bool:
-        return not allowed_ids or update.effective_chat.id in allowed_ids
+        # Commands can suspend clients in MikroTik: with no authorized chats
+        # configured nobody may use them (previously an empty list allowed anyone).
+        return bool(allowed_ids) and update.effective_chat.id in allowed_ids
 
     # ── /start /help ──────────────────────────────────────────────────────────
 
@@ -264,6 +266,23 @@ def build_application(token: str, database_url: str, allowed_ids: List[int]) -> 
 
                 if not alert:
                     await q.edit_message_text("❌ Alerta no encontrada.")
+                    return
+
+                # Only the subscription's own client chat may answer, and only
+                # for an alert that is actually waiting for that confirmation.
+                sub = await db.get(SecuritySubscription, alert.subscription_id)
+                chat_id = q.message.chat.id if q.message else None
+                if (
+                    sub is None
+                    or not sub.client_telegram_id
+                    or str(chat_id) != str(sub.client_telegram_id).strip()
+                    or alert.confirmation_sent_at is None
+                    or alert.status != SecurityAlertStatus.new
+                ):
+                    logger.warning(
+                        "Rejected alert confirmation for alert %s from chat %s", alert_id, chat_id
+                    )
+                    await q.edit_message_text("❌ No se puede responder esta alerta desde este chat.")
                     return
 
                 if alert.confirmations:
