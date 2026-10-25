@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -20,6 +21,8 @@ from app.schemas.router import (
     UbiquitiDeviceResponse,
 )
 from app.services.mikrotik import MikrotikError, MikrotikService, build_service_from_router
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -191,11 +194,18 @@ async def sync_clients_to_router(
     )
     clients = result.scalars().all()
 
+    if not clients:
+        logger.warning("sync router=%d: no clients assigned to this router", router_id)
+        return {"synced": 0, "skipped": 0, "errors": [], "clients_found": 0,
+                "warning": "No hay clientes asignados a este router"}
+
     # Pre-load plans
     plan_ids = {c.plan_id for c in clients}
     from app.models.plan import Plan
     plan_result = await db.execute(select(Plan).where(Plan.id.in_(plan_ids)))
     plans = {p.id: p for p in plan_result.scalars().all()}
+
+    logger.info("sync router=%d: found %d clients, %d plans", router_id, len(clients), len(plans))
 
     has_uplink = bool(rt.uplink_download_mbps and rt.uplink_upload_mbps)
     uplink_max_limit = f"{rt.uplink_upload_mbps}M/{rt.uplink_download_mbps}M" if has_uplink else None
@@ -219,6 +229,11 @@ async def sync_clients_to_router(
             for client in clients:
                 plan = plans.get(client.plan_id)
                 if not plan:
+                    logger.warning(
+                        "sync router=%d client=%d: plan_id=%d not found, skipping",
+                        router_id, client.id, client.plan_id,
+                    )
+                    skipped += 1
                     continue
                 qname = client.mikrotik_queue_name
                 disabled = client.status == "suspended"
@@ -248,6 +263,7 @@ async def sync_clients_to_router(
                         if use_sfq:
                             update_params["queue_type"] = "guaynet-sfq"
                         svc.update_simple_queue(eq["id"], **update_params)
+                        action = "updated"
                     else:
                         svc.add_simple_queue(
                             name=qname,
@@ -261,15 +277,21 @@ async def sync_clients_to_router(
                             parent=want_parent,
                             queue_type="guaynet-sfq" if use_sfq else None,
                         )
+                        action = "created"
+                    logger.info("sync router=%d client=%d queue=%s %s", router_id, client.id, qname, action)
                     synced += 1
                 except Exception as e:
-                    errors.append({"client_id": client.id, "error": str(e)})
-            return {"synced": synced, "skipped": skipped, "errors": errors}
+                    logger.error("sync router=%d client=%d queue=%s error: %s", router_id, client.id, qname, e)
+                    errors.append({"client_id": client.id, "name": client.full_name, "error": str(e)})
+            return {"synced": synced, "skipped": skipped, "errors": errors,
+                    "clients_found": len(clients)}
 
     try:
         result = await asyncio.to_thread(_sync)
+        logger.info("sync router=%d result: %s", router_id, result)
         return result
     except MikrotikError as e:
+        logger.error("sync router=%d connection error: %s", router_id, e)
         raise HTTPException(status_code=503, detail=str(e))
 
 

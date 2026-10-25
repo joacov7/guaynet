@@ -44,7 +44,12 @@ async def lifespan(app: FastAPI):
                 db.add(RolePermission(role=role, section=section, can_view=can_view, can_edit=can_edit))
         await db.commit()
 
+    from app import scheduler as sched
+    sched.start()
+
     yield
+
+    sched.stop()
 
 
 app = FastAPI(

@@ -24,6 +24,7 @@ import {
   Typography,
   message,
 } from "antd";
+import { CheckCircleOutlined, ExclamationCircleOutlined, WarningOutlined } from "@ant-design/icons";
 import {
   PlusOutlined,
   EditOutlined,
@@ -90,12 +91,44 @@ export default function Routers() {
   const syncMutation = useMutation({
     mutationFn: (id: number) => routersApi.syncClients(id),
     onSuccess: (data) => {
-      if (data.errors.length > 0) {
-        const first = (data.errors[0] as any)?.error ?? JSON.stringify(data.errors[0]);
-        message.warning(`Sincronizados ${data.synced}. ${data.errors.length} error(es): ${first}`, 10);
-      } else {
-        message.success(`Sincronizados: ${data.synced} clientes`);
+      const hasProblems = data.errors.length > 0 || data.skipped > 0 || !!data.warning;
+      if (!hasProblems && data.synced > 0) {
+        message.success(`Sincronizados ${data.synced} clientes correctamente`);
+        return;
       }
+      Modal.info({
+        title: "Resultado de sincronización",
+        width: 520,
+        icon: hasProblems ? <ExclamationCircleOutlined style={{ color: data.synced === 0 ? "#faad14" : "#1677ff" }} /> : <CheckCircleOutlined style={{ color: "#52c41a" }} />,
+        content: (
+          <div style={{ marginTop: 12 }}>
+            <Descriptions size="small" column={2} bordered style={{ marginBottom: 12 }}>
+              <Descriptions.Item label="Clientes encontrados">{data.clients_found ?? 0}</Descriptions.Item>
+              <Descriptions.Item label="Sincronizados">{data.synced}</Descriptions.Item>
+              <Descriptions.Item label="Salteados (sin plan)">{data.skipped ?? 0}</Descriptions.Item>
+              <Descriptions.Item label="Con error">{data.errors.length}</Descriptions.Item>
+            </Descriptions>
+            {data.warning && (
+              <Alert type="warning" icon={<WarningOutlined />} showIcon message={data.warning} style={{ marginBottom: 8 }} />
+            )}
+            {data.errors.length > 0 && (
+              <>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>Errores por cliente:</div>
+                <Table
+                  size="small"
+                  pagination={false}
+                  dataSource={data.errors.map((e) => ({ ...e, key: e.client_id }))}
+                  columns={[
+                    { title: "ID", dataIndex: "client_id", width: 60 },
+                    { title: "Nombre", dataIndex: "name" },
+                    { title: "Error", dataIndex: "error", render: (v: string) => <span style={{ color: "#cf1322", fontSize: 12 }}>{v}</span> },
+                  ]}
+                />
+              </>
+            )}
+          </div>
+        ),
+      });
     },
     onError: (err: any) => message.error(`Error MikroTik: ${err.response?.data?.detail ?? "Sin conexión"}`, 10),
   });

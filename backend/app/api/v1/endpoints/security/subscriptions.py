@@ -115,7 +115,7 @@ async def regenerate_portal_token(
     sub.portal_token = uuid.uuid4().hex
     await db.commit()
 
-    portal_url = f"{settings.PUBLIC_URL}/portal?token={sub.portal_token}"
+    portal_url = f"{settings.PUBLIC_URL}/seguridad?token={sub.portal_token}"
 
     if sub.client_telegram_id:
         from app.services.telegram import send_telegram_to

@@ -136,7 +136,13 @@ export const routersApi = {
     http.get<MikrotikQueue[]>(`/routers/${id}/queues`).then((r) => r.data),
   syncClients: (id: number) =>
     http
-      .post<{ synced: number; errors: unknown[] }>(`/routers/${id}/sync-clients`)
+      .post<{
+        synced: number;
+        skipped: number;
+        clients_found: number;
+        errors: { client_id: number; name: string; error: string }[];
+        warning?: string;
+      }>(`/routers/${id}/sync-clients`)
       .then((r) => r.data),
   bandwidth: (id: number) =>
     http.get<BandwidthEntry[]>(`/routers/${id}/bandwidth`).then((r) => r.data),
@@ -242,6 +248,9 @@ export const invoicesApi = {
     http.post<{ init_point: string; preference_id: string }>(`/invoices/${id}/mp-link`).then((r) => r.data),
   emitCae: (id: number) =>
     http.post<{ cae: string; cae_fch_vto: string; cbte_nro: number }>(`/invoices/${id}/emit-cae`).then((r) => r.data),
+  downloadPdf: (id: number) => {
+    window.open(`/api/v1/invoices/${id}/pdf`, "_blank");
+  },
 };
 
 // ── Ubiquiti ──────────────────────────────────────────────────────────────────
@@ -416,6 +425,72 @@ export const notificationsApi = {
     http.post("/notifications/whatsapp/send", { client_id, message, phone }).then((r) => r.data),
   bulkReminder: (params?: { template?: string; min_days_overdue?: number; dry_run?: boolean }) =>
     http.post<{ sent: number; failed: number; skipped_no_phone: number; details: any[] }>("/notifications/whatsapp/bulk-reminder", params ?? {}).then((r) => r.data),
+};
+
+// ── Automations ───────────────────────────────────────────────────────────────
+export const automationsApi = {
+  getSettings: () => http.get<{
+    auto_suspend_enabled: boolean;
+    auto_suspend_days: number;
+    auto_invoice_enabled: boolean;
+    auto_whatsapp_enabled: boolean;
+    whatsapp_reminder_days: number;
+  }>("/automations/settings").then((r) => r.data),
+  updateSettings: (data: Partial<{
+    auto_suspend_enabled: boolean;
+    auto_suspend_days: number;
+    auto_invoice_enabled: boolean;
+    auto_whatsapp_enabled: boolean;
+    whatsapp_reminder_days: number;
+  }>) => http.put("/automations/settings", data).then((r) => r.data),
+  getLogs: (limit = 50) =>
+    http.get<Array<{ id: number; job: string; status: string; message: string; affected: number; created_at: string }>>("/automations/logs", { params: { limit } }).then((r) => r.data),
+  runJob: (job_name: string) => http.post(`/automations/run/${job_name}`).then((r) => r.data),
+};
+
+// ── Client portal ─────────────────────────────────────────────────────────────
+const portalHttp = axios.create({ baseURL: "/api/v1", headers: { "Content-Type": "application/json" } });
+portalHttp.interceptors.request.use((config) => {
+  const token = localStorage.getItem("portal_access_token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+portalHttp.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401) {
+      localStorage.removeItem("portal_access_token");
+      window.location.href = "/portal/login";
+    }
+    return Promise.reject(err);
+  }
+);
+
+type PortalClient = { id: number; full_name: string; email: string | null; phone: string | null; address: string | null; status: string; plan_name: string | null; ip_address: string };
+type PortalInvoice = { id: number; period: string | null; amount: number; status: string; issue_date: string | null; due_date: string | null; paid_date: string | null };
+type PortalTicket = { id: number; title: string; description: string | null; status: string; priority: string; category: string; created_at: string; comment_count: number };
+
+export const portalApi = {
+  login: (email: string, password: string) =>
+    http.post<{ access_token: string; token_type: string; client: PortalClient }>("/portal/login", { email, password }).then((r) => r.data),
+  me: () => portalHttp.get<PortalClient>("/portal/me").then((r) => r.data),
+  getInvoices: () => portalHttp.get<PortalInvoice[]>("/portal/invoices").then((r) => r.data),
+  getTickets: () => portalHttp.get<PortalTicket[]>("/portal/tickets").then((r) => r.data),
+  createTicket: (data: { title: string; description?: string; category?: string }) =>
+    portalHttp.post<{ id: number }>("/portal/tickets", data).then((r) => r.data),
+  setPortalPassword: (clientId: number, password: string, enabled = true) =>
+    http.put(`/portal/clients/${clientId}/portal-password`, { password, enabled }).then((r) => r.data),
+  getMpPreference: (invoiceId: number) =>
+    portalHttp.post<{ init_point: string; sandbox_init_point: string; preference_id: string }>(`/payments/portal/mp-preference/${invoiceId}`).then((r) => r.data),
+  downloadInvoicePdf: async (invoiceId: number) => {
+    const res = await portalHttp.get(`/portal/invoices/${invoiceId}/pdf`, { responseType: "blob" });
+    const url = URL.createObjectURL(res.data as Blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `factura_${invoiceId}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
 };
 
 // ── Push notifications ────────────────────────────────────────────────────────

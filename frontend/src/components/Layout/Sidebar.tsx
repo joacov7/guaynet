@@ -31,6 +31,7 @@ import {
   UserSwitchOutlined,
   FileProtectOutlined,
   HomeOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import { usePermissions } from "@/contexts/PermissionsContext";
 
@@ -55,6 +56,7 @@ const ALL_ITEMS = [
   { key: "/work-orders", icon: <ToolOutlined />,           label: "Órdenes de Trabajo", section: null, adminOnly: false },
   { key: "/inventory",  icon: <DatabaseOutlined />,      label: "Inventario",      section: null, adminOnly: false },
   { key: "/reports",    icon: <BarChartOutlined />,      label: "Reportes",        section: null, adminOnly: false },
+  { key: "/automations", icon: <ThunderboltOutlined />,  label: "Automatizaciones", section: null, adminOnly: true },
   { key: "/vpn",        icon: <LockOutlined />,        label: "VPN",             section: null, adminOnly: true },
   { key: "/users",      icon: <UserOutlined />,        label: "Usuarios",        section: null, adminOnly: true },
   { key: "/permissions",icon: <SettingOutlined />,    label: "Permisos",        section: null, adminOnly: true },

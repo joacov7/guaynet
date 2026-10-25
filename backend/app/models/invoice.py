@@ -40,6 +40,9 @@ class Invoice(Base, TimestampMixin):
     status: Mapped[InvoiceStatus] = mapped_column(SAEnum(InvoiceStatus), default=InvoiceStatus.pending)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # MercadoPago
+    mp_payment_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
     # AFIP (Argentina electronic invoicing)
     afip_cae: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     afip_cae_expiry: Mapped[Optional[date]] = mapped_column(Date, nullable=True)

@@ -26,6 +26,7 @@ export default function Settings() {
   const [waForm] = Form.useForm();
   const [smtpForm] = Form.useForm();
   const [mpForm] = Form.useForm();
+  const [companyForm] = Form.useForm();
   const [afipForm] = Form.useForm();
   const [testPhone, setTestPhone] = useState("");
   const [testMsg, setTestMsg] = useState("");
@@ -57,6 +58,12 @@ export default function Settings() {
       });
       mpForm.setFieldsValue({
         mp_access_token: data.mp_access_token ?? "",
+        mp_public_key: data.mp_public_key ?? "",
+      });
+      companyForm.setFieldsValue({
+        company_name: data.company_name ?? "",
+        company_address: data.company_address ?? "",
+        company_cuit: data.company_cuit ?? "",
       });
       afipForm.setFieldsValue({
         afip_cuit: data.afip_cuit ?? "",
@@ -67,7 +74,7 @@ export default function Settings() {
         afip_production: data.afip_production ?? "false",
       });
     }
-  }, [data, form, waForm, smtpForm, mpForm, afipForm]);
+  }, [data, form, waForm, smtpForm, mpForm, afipForm, companyForm]);
 
   const mutation = useMutation({
     mutationFn: adminApi.updateConfig,
@@ -294,6 +301,9 @@ export default function Settings() {
           >
             <Input.Password placeholder="APP_USR-..." />
           </Form.Item>
+          <Form.Item name="mp_public_key" label="Public Key">
+            <Input placeholder="APP_USR-..." />
+          </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={mutation.isPending}>
               Guardar configuración MercadoPago
@@ -426,6 +436,35 @@ export default function Settings() {
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={mutation.isPending}>
               Guardar
+            </Button>
+          </Form.Item>
+        </Form>
+      </Card>
+
+      <Card title="Empresa / Datos para PDF" loading={isLoading} style={{ marginTop: 16 }}>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 20 }}
+          message="Estos datos aparecen en el encabezado de los PDFs de facturas."
+        />
+        <Form
+          form={companyForm}
+          layout="vertical"
+          onFinish={(values) => mutation.mutate(values)}
+        >
+          <Form.Item name="company_name" label="Nombre de la empresa">
+            <Input placeholder="Mi ISP S.A." />
+          </Form.Item>
+          <Form.Item name="company_address" label="Dirección">
+            <Input placeholder="Calle 123, Ciudad, Provincia" />
+          </Form.Item>
+          <Form.Item name="company_cuit" label="CUIT">
+            <Input placeholder="20-12345678-9" />
+          </Form.Item>
+          <Form.Item>
+            <Button type="primary" htmlType="submit" loading={mutation.isPending}>
+              Guardar datos empresa
             </Button>
           </Form.Item>
         </Form>

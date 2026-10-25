@@ -294,7 +294,7 @@ export default function SecuritySubscriptions() {
       key: "portal",
       render: (_: unknown, r: SecuritySubscription) => {
         if (r.portal_token) {
-          const url = `/portal?token=${r.portal_token}`;
+          const url = `/seguridad?token=${r.portal_token}`;
           return (
             <Space size={4}>
               <Tooltip title="Copiar enlace">

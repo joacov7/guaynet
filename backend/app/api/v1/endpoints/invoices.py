@@ -2,11 +2,12 @@ import asyncio
 import calendar
 import csv
 import io
+import logging
 from datetime import date
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,9 +15,12 @@ from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_current_user, get_db
 from app.models.client import Client, ClientStatus
+from app.models.config import SystemConfig
 from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus, Payment
 from app.schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceUpdate, PaymentCreate, PaymentResponse
 from app.services.telegram import send_telegram as _send_telegram
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -193,90 +197,6 @@ async def add_payment(
                     pass
 
     return payment
-
-
-def _build_invoice_pdf(invoice: Invoice, client: Client) -> bytes:
-    """Build a simple PDF receipt using reportlab."""
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
-    from reportlab.pdfgen import canvas as rl_canvas
-
-    buf = io.BytesIO()
-    c = rl_canvas.Canvas(buf, pagesize=A4)
-    w, h = A4
-
-    c.setFont("Helvetica-Bold", 18)
-    c.drawString(20 * mm, h - 25 * mm, "Factura de servicio")
-
-    c.setFont("Helvetica", 11)
-    c.drawString(20 * mm, h - 35 * mm, f"N° {invoice.id}  |  Período: {invoice.period}")
-    c.drawString(20 * mm, h - 42 * mm, f"Cliente: {client.full_name}")
-    if client.dni:
-        c.drawString(20 * mm, h - 49 * mm, f"DNI/CUIT: {client.dni}")
-    if client.address:
-        c.drawString(20 * mm, h - 56 * mm, f"Dirección: {client.address}")
-    if client.phone:
-        c.drawString(20 * mm, h - 63 * mm, f"Teléfono: {client.phone}")
-
-    c.line(20 * mm, h - 68 * mm, w - 20 * mm, h - 68 * mm)
-
-    y = h - 78 * mm
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(20 * mm, y, "Descripción")
-    c.drawString(100 * mm, y, "Cant.")
-    c.drawString(130 * mm, y, "P. Unit.")
-    c.drawString(160 * mm, y, "Subtotal")
-    y -= 7 * mm
-
-    c.setFont("Helvetica", 10)
-    if invoice.items:
-        for item in invoice.items:
-            c.drawString(20 * mm, y, item.description[:55])
-            c.drawRightString(115 * mm, y, str(item.quantity))
-            c.drawRightString(148 * mm, y, f"${item.unit_price:,.2f}")
-            c.drawRightString(178 * mm, y, f"${item.subtotal:,.2f}")
-            y -= 6 * mm
-    else:
-        c.drawString(20 * mm, y, f"Servicio de internet — {invoice.period}")
-        c.drawRightString(178 * mm, y, f"${invoice.amount:,.2f}")
-        y -= 6 * mm
-
-    c.line(20 * mm, y, w - 20 * mm, y)
-    y -= 8 * mm
-    c.setFont("Helvetica-Bold", 12)
-    c.drawString(130 * mm, y, "Total:")
-    c.drawRightString(178 * mm, y, f"${invoice.amount:,.2f}")
-
-    y -= 15 * mm
-    c.setFont("Helvetica", 10)
-    c.drawString(20 * mm, y, f"Emisión: {invoice.issue_date}  |  Vencimiento: {invoice.due_date}  |  Estado: {invoice.status.value}")
-    if invoice.paid_date:
-        y -= 6 * mm
-        c.drawString(20 * mm, y, f"Fecha de pago: {invoice.paid_date}")
-
-    c.save()
-    return buf.getvalue()
-
-
-@router.get("/{invoice_id}/pdf")
-async def invoice_pdf(invoice_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
-    result = await db.execute(
-        select(Invoice).options(selectinload(Invoice.items), selectinload(Invoice.payments)).where(Invoice.id == invoice_id)
-    )
-    invoice = result.scalar_one_or_none()
-    if not invoice:
-        raise HTTPException(status_code=404, detail="Factura no encontrada")
-    client = await db.get(Client, invoice.client_id)
-    if not client:
-        raise HTTPException(status_code=404, detail="Cliente no encontrado")
-
-    pdf_bytes = _build_invoice_pdf(invoice, client)
-    filename = f"factura_{invoice_id}_{invoice.period}.pdf"
-    return StreamingResponse(
-        io.BytesIO(pdf_bytes),
-        media_type="application/pdf",
-        headers={"Content-Disposition": f"inline; filename={filename}"},
-    )
 
 
 @router.post("/{invoice_id}/mp-link")
@@ -597,3 +517,117 @@ async def overdue_report(
 
     total_amount = sum(r["amount"] for r in data)
     return {"total": len(data), "total_amount": total_amount, "items": data}
+
+
+async def _build_invoice_pdf(invoice_id: int, db: AsyncSession) -> bytes:
+    """Generate a PDF for the given invoice and return raw bytes."""
+    result = await db.execute(
+        select(Invoice)
+        .options(selectinload(Invoice.items), selectinload(Invoice.client))
+        .where(Invoice.id == invoice_id)
+    )
+    invoice = result.scalar_one_or_none()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Factura no encontrada")
+
+    # Load company info from SystemConfig
+    async def cfg(key: str, default: str = "") -> str:
+        r = await db.execute(select(SystemConfig).where(SystemConfig.key == key))
+        row = r.scalar_one_or_none()
+        return row.value if row and row.value else default
+
+    company_name = await cfg("company_name", "Guaynet")
+    company_address = await cfg("company_address", "")
+    company_cuit = await cfg("company_cuit", "")
+
+    try:
+        from fpdf import FPDF
+    except ImportError:
+        raise HTTPException(status_code=503, detail="PDF generation not available (fpdf2 not installed)")
+
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 18)
+
+    # Header
+    pdf.cell(0, 10, company_name, ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    if company_address:
+        pdf.cell(0, 6, company_address, ln=True)
+    if company_cuit:
+        pdf.cell(0, 6, f"CUIT: {company_cuit}", ln=True)
+    pdf.ln(4)
+
+    # Invoice title
+    pdf.set_font("Helvetica", "B", 14)
+    pdf.cell(0, 10, f"Factura #{invoice.id}", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    if invoice.period:
+        pdf.cell(0, 6, f"Período: {invoice.period}", ln=True)
+    pdf.cell(0, 6, f"Emisión: {invoice.issue_date}", ln=True)
+    pdf.cell(0, 6, f"Vencimiento: {invoice.due_date}", ln=True)
+    pdf.cell(0, 6, f"Estado: {invoice.status.value.upper()}", ln=True)
+    if invoice.paid_date:
+        pdf.cell(0, 6, f"Fecha de pago: {invoice.paid_date}", ln=True)
+    pdf.ln(4)
+
+    # Client info
+    client = invoice.client
+    if client:
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 8, "Cliente", ln=True)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.cell(0, 6, client.full_name, ln=True)
+        if client.dni:
+            pdf.cell(0, 6, f"DNI/CUIT: {client.dni}", ln=True)
+        if client.address:
+            pdf.cell(0, 6, client.address, ln=True)
+        if client.phone:
+            pdf.cell(0, 6, f"Teléfono: {client.phone}", ln=True)
+        if client.email:
+            pdf.cell(0, 6, client.email, ln=True)
+        pdf.ln(4)
+
+    # Items table
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 8, "Detalle", ln=True)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(110, 7, "Descripción", border=1)
+    pdf.cell(25, 7, "Cant.", border=1, align="C")
+    pdf.cell(30, 7, "P. Unitario", border=1, align="R")
+    pdf.cell(25, 7, "Subtotal", border=1, align="R", ln=True)
+
+    pdf.set_font("Helvetica", "", 10)
+    if invoice.items:
+        for item in invoice.items:
+            pdf.cell(110, 7, str(item.description)[:60], border=1)
+            pdf.cell(25, 7, str(float(item.quantity)), border=1, align="C")
+            pdf.cell(30, 7, f"${float(item.unit_price):.2f}", border=1, align="R")
+            pdf.cell(25, 7, f"${float(item.subtotal):.2f}", border=1, align="R", ln=True)
+    else:
+        pdf.cell(110, 7, "Servicio de internet", border=1)
+        pdf.cell(25, 7, "1", border=1, align="C")
+        pdf.cell(30, 7, f"${float(invoice.amount):.2f}", border=1, align="R")
+        pdf.cell(25, 7, f"${float(invoice.amount):.2f}", border=1, align="R", ln=True)
+
+    pdf.ln(4)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, f"Total: ${float(invoice.amount):.2f}", ln=True, align="R")
+
+    return pdf.output()
+
+
+@router.get("/{invoice_id}/pdf")
+async def download_invoice_pdf(
+    invoice_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    pdf_bytes = await _build_invoice_pdf(invoice_id, db)
+    filename = f"factura_{invoice_id}.pdf"
+    return Response(
+        content=bytes(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )

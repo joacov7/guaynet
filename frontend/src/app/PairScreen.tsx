@@ -58,7 +58,7 @@ export default function PairScreen({
           onFinish={pair}
         >
           <Form.Item name="portal_link" label="Enlace del portal" rules={[{ required: true, message: "Pegá el enlace" }]}>
-            <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="https://…/portal?token=…" />
+            <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="https://…/seguridad?token=…" />
           </Form.Item>
           <Form.Item name="pin" label="PIN de la alarma" rules={[{ required: true, message: "Ingresá el PIN" }]}>
             <Input.Password inputMode="numeric" autoComplete="off" maxLength={12} />

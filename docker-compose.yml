@@ -1,9 +1,18 @@
 version: "3.9"
 
+networks:
+  guaynet_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    networks:
+      - guaynet_net
     environment:
       POSTGRES_USER: guaynet
       POSTGRES_PASSWORD: guaynet
@@ -21,6 +30,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    networks:
+      - guaynet_net
     volumes:
       - redis_data:/data
     ports:
@@ -36,12 +47,17 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      guaynet_net:
+        ipv4_address: 172.28.0.10
     env_file: .env
+    # Only reachable from the host itself: nginx uses the guaynet_net IP, and
+    # skipping nginx would allow forging X-Real-IP (portal client identity).
+    ports:
+      - "127.0.0.1:8000:8000"
     environment:
       DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
       REDIS_URL: redis://redis:6379/0
-    ports:
-      - "127.0.0.1:8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -55,6 +71,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - guaynet_net
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
@@ -106,6 +124,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - guaynet_net
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
@@ -119,6 +139,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - guaynet_net
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://guaynet:guaynet@db:5432/guaynet
@@ -142,6 +164,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - guaynet_net
     ports:
       - "3000:80"
     depends_on:

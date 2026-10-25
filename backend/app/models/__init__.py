@@ -18,6 +18,7 @@ from app.models.work_order import WorkOrder, WorkOrderType, WorkOrderStatus
 from app.models.alarm import Alarm, AlarmType, AlarmStatus
 from app.models.wan import WanInterface, WanSchedule
 from app.models.expense import Expense, ExpenseCategory
+from app.models.automation_log import AutomationLog
 
 # ── Security module ────────────────────────────────────────────────────────────
 from app.models.security import (  # noqa: F401

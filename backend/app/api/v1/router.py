@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import admin, alarms, auth, clients, dashboard, expenses, firewall, inventory, invoices, mobile, notifications, permissions, plans, portal, push, reports, routers, tickets, ubiquiti, vpn, wan, work_orders, zones
+from app.api.v1.endpoints import admin, alarms, auth, automations, clients, dashboard, expenses, firewall, inventory, invoices, mobile, notifications, payments, permissions, plans, portal, push, reports, routers, tickets, ubiquiti, vpn, wan, work_orders, zones
 from app.api.v1.endpoints.security import (
     alerts as sec_alerts,
     certificates as sec_certificates,
@@ -40,6 +40,8 @@ api_router.include_router(inventory.router, prefix="/inventory", tags=["inventor
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
 api_router.include_router(push.router, prefix="/push", tags=["push"])
 api_router.include_router(portal.router, prefix="/portal", tags=["portal"])
+api_router.include_router(automations.router, prefix="/automations", tags=["automations"])
+api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
 api_router.include_router(zones.router, prefix="/zones", tags=["zones"])
 api_router.include_router(work_orders.router, prefix="/work-orders", tags=["work_orders"])
 api_router.include_router(alarms.router, prefix="/alarms", tags=["alarms"])

@@ -1,6 +1,6 @@
 /**
  * Client self-service portal.
- * Accessed at /portal — clients are identified by their IP address.
+ * Accessed at /seguridad — identified by IP, by link (?token=) or, in the mobile app, by device credential.
  * Shows plan info, invoices, and a speed test comparing measured vs contracted speed.
  */
 import { useEffect, useState } from "react";
@@ -311,7 +311,7 @@ export default function Portal({ appMode = false }: { appMode?: boolean } = {}) 
         .catch(() => {});
     } else {
       axios
-        .get<PortalData>("/api/v1/portal/me")
+        .get<PortalData>("/api/v1/portal/by-ip")
         .then((r) => setData(r.data))
         .catch((e) => setNotFound(e.response?.data?.detail ?? "Error al cargar datos"))
         .finally(() => setLoading(false));

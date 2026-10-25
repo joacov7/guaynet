@@ -49,6 +49,12 @@ import TechTicket from "@/pages/tech/TechTicket";
 import TechWorkOrders from "@/pages/tech/TechWorkOrders";
 import TechWorkOrderDetail from "@/pages/tech/TechWorkOrderDetail";
 import Portal from "@/pages/Portal";
+import Automations from "@/pages/Automations";
+import PortalLayout from "@/pages/portal/PortalLayout";
+import PortalLogin from "@/pages/portal/PortalLogin";
+import PortalDashboard from "@/pages/portal/PortalDashboard";
+import PortalInvoices from "@/pages/portal/PortalInvoices";
+import PortalTickets from "@/pages/portal/PortalTickets";
 import { PermissionsProvider } from "@/contexts/PermissionsContext";
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -117,10 +123,19 @@ export default function App() {
           <Route path="security/plans" element={<SecurityPlans />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
+          <Route path="automations" element={<Automations />} />
         </Route>
 
-        {/* Client self-service portal — public, no auth */}
-        <Route path="/portal" element={<Portal />} />
+        {/* Client portal with login (invoices, tickets) — separate layout */}
+        <Route path="/portal" element={<PortalLayout />}>
+          <Route index element={<PortalDashboard />} />
+          <Route path="login" element={<PortalLogin />} />
+          <Route path="invoices" element={<PortalInvoices />} />
+          <Route path="tickets" element={<PortalTickets />} />
+        </Route>
+
+        {/* Security portal without login: by IP, or by link (?token=) for security-only clients */}
+        <Route path="/seguridad" element={<Portal />} />
 
         {/* Tech PWA — separate layout, no sidebar */}
         <Route path="/tech" element={<TechLayout />}>
