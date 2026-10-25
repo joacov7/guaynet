@@ -373,6 +373,8 @@ async def _security_payload(sub, prop, db: AsyncSession) -> dict:
     from app.models.security.report import SecurityMonthlyReport
     from app.models.security.subscription import SecurityPlan
 
+    from app.services.runtime_config import int_param
+
     plan = await db.get(SecurityPlan, sub.plan_id)
 
     events_result = await db.execute(
@@ -412,6 +414,7 @@ async def _security_payload(sub, prop, db: AsyncSession) -> dict:
             "property_name": prop.name if prop else "—",
             "property_address": prop.address if prop else "—",
             "entry_secure_enabled": sub.has_feature("entry_secure"),
+            "entry_default_minutes": await int_param("sec_entry_default_minutes"),
         },
         "active_alerts": active_alerts,
         "recent_events": [
@@ -496,7 +499,7 @@ async def portal_security(request: Request, db: AsyncSession = Depends(get_db)):
 
 
 class EntrySessionRequest(BaseModel):
-    duration_minutes: int = 5
+    duration_minutes: Optional[int] = None  # None = default from Seguridad → Configuración
     token: Optional[str] = None  # portal token for non-IP clients
 
 
@@ -530,9 +533,11 @@ async def portal_start_entry_session(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Ya hay una sesión de entrada activa")
 
+    from app.services.runtime_config import int_param
+    minutes = body.duration_minutes or await int_param("sec_entry_default_minutes")
     session_body = EntrySessionCreate(
         subscription_id=sub.id,
-        duration_minutes=max(1, min(body.duration_minutes, 30)),
+        duration_minutes=max(1, min(minutes, 30)),
     )
     session = await start_entry_session(db=db, body=session_body, activated_by_user_id=None)
     return {

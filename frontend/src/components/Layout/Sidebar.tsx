@@ -72,6 +72,7 @@ const ALL_ITEMS = [
   { key: "/security/neighborhood",  icon: <UsergroupAddOutlined />,   label: "Grupos Vecinales",    section: "security_neighborhood" },
   { key: "/security/members",       icon: <UserSwitchOutlined />,     label: "Miembros",            section: "security_members" },
   { key: "/security/contracts",       icon: <FileProtectOutlined />,     label: "Contratos",           section: "security_subscriptions" },
+  { key: "/security/settings",        icon: <SettingOutlined />,        label: "Config. Seguridad",   section: "security_subscriptions" },
   { key: "/help",       icon: <QuestionCircleOutlined />, label: "Ayuda",          section: null, adminOnly: false },
 ];
 

@@ -17,6 +17,7 @@ from app.api.v1.endpoints.security import (
     plans as sec_plans,
     properties as sec_properties,
     schedule as sec_schedule,
+    settings as sec_settings,
     subscriptions as sec_subscriptions,
     vacation as sec_vacation,
 )
@@ -67,5 +68,6 @@ api_router.include_router(sec_neighborhood.router, prefix="/security/neighborhoo
 api_router.include_router(sec_monthly_reports.router, prefix="/security/subscriptions", tags=["security"])
 api_router.include_router(sec_schedule.router, prefix="/security/subscriptions", tags=["security"])
 api_router.include_router(sec_contracts.router, prefix="/security/contracts", tags=["security"])
+api_router.include_router(sec_settings.router, prefix="/security/settings", tags=["security"])
 api_router.include_router(mobile.router, prefix="/mobile", tags=["mobile"])
 api_router.include_router(mobile.admin_router, prefix="/security", tags=["security"])

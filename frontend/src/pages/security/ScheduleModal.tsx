@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, InputNumber, Modal, Space, Spin, Switch, TimePicker, Typography, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
-import { scheduleApi } from "@/services/security/api";
+import { scheduleApi, securitySettingsApi } from "@/services/security/api";
 import type { ScheduleDay, SecuritySubscription } from "@/types/security";
 
 const { Text } = Typography;
@@ -22,11 +22,11 @@ interface Row {
   tolerance_minutes: number;
 }
 
-const defaultRow = (weekday: number): Row => ({
+const defaultRow = (weekday: number, tolerance = 15): Row => ({
   open: weekday < 5,
   open_time: hm("09:00"),
   close_time: hm(weekday === 5 ? "13:00" : "18:00"),
-  tolerance_minutes: 15,
+  tolerance_minutes: tolerance,
 });
 
 export default function ScheduleModal({
@@ -40,6 +40,13 @@ export default function ScheduleModal({
   const [rows, setRows] = useState<Row[]>(() => DAYS.map((_, i) => defaultRow(i)));
   const featureOn = !!subscription?.features.find((f) => f.feature_name === "schedule_alerts" && f.enabled);
 
+  const { data: settings } = useQuery({
+    queryKey: ["security-settings"],
+    queryFn: securitySettingsApi.get,
+    enabled: !!subscription,
+  });
+  const defaultTolerance = settings?.params.sec_schedule_default_tolerance ?? 15;
+
   const { data, isLoading } = useQuery({
     queryKey: ["security-schedule", subscription?.id],
     queryFn: () => scheduleApi.get(subscription!.id),
@@ -49,7 +56,7 @@ export default function ScheduleModal({
   useEffect(() => {
     if (!data) return;
     if (data.length === 0) {
-      setRows(DAYS.map((_, i) => defaultRow(i)));
+      setRows(DAYS.map((_, i) => defaultRow(i, defaultTolerance)));
       return;
     }
     setRows(
@@ -62,10 +69,10 @@ export default function ScheduleModal({
               close_time: hm(d.close_time),
               tolerance_minutes: d.tolerance_minutes,
             }
-          : { ...defaultRow(i), open: false };
+          : { ...defaultRow(i, defaultTolerance), open: false };
       }),
     );
-  }, [data]);
+  }, [data, defaultTolerance]);
 
   const saveMutation = useMutation({
     mutationFn: () => {

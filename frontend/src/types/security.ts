@@ -180,6 +180,29 @@ export interface PropertyMember {
   status: string;
 }
 
+export type SecurityParamKey =
+  | "sec_confirmation_window_seconds"
+  | "sec_entry_default_minutes"
+  | "sec_schedule_default_tolerance";
+
+export interface SecuritySettings {
+  telegram: {
+    configured: boolean;
+    token_hint: string | null;
+    token_source: "panel" | "env" | "none";
+    operator_chat_ids: number[];
+    operator_chat_ids_source: "panel" | "env" | "none";
+  };
+  params: Record<SecurityParamKey, number>;
+  param_limits: Record<SecurityParamKey, { default: number; min: number; max: number }>;
+  integrations: {
+    beat_adapter: string;
+    beat_mock_polling: boolean;
+    push: "fcm" | "simulado";
+    public_url: string;
+  };
+}
+
 export interface AppDevice {
   id: number;
   subscription_id: number;

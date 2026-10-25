@@ -266,6 +266,23 @@ export const devicesApi = {
     api.put(`/security/devices/${id}/zones`, zones).then((r) => r.data),
 };
 
+// ── Settings ──────────────────────────────────────────────────────────────
+
+export const securitySettingsApi = {
+  get: (): Promise<import("../../types/security").SecuritySettings> =>
+    api.get("/security/settings/").then((r) => r.data),
+
+  update: (data: {
+    telegram_token?: string;
+    operator_chat_ids?: number[];
+    params?: Partial<Record<import("../../types/security").SecurityParamKey, number>>;
+  }): Promise<import("../../types/security").SecuritySettings> =>
+    api.put("/security/settings/", data).then((r) => r.data),
+
+  telegramTest: (): Promise<{ bot_username: string; results: { chat_id: number; ok: boolean; error?: string }[] }> =>
+    api.post("/security/settings/telegram-test").then((r) => r.data),
+};
+
 // ── Mobile app devices ────────────────────────────────────────────────────
 
 export const appDevicesApi = {

@@ -114,6 +114,10 @@ async def update_user(
 
 # ── System config ─────────────────────────────────────────────────────────────
 
+# Managed from Seguridad → Configuración; never returned here (secret, encrypted)
+_PANEL_ONLY_KEYS = {"telegram_bot_token"}
+
+
 class ConfigUpdate(BaseModel):
     suspension_action: Optional[str] = None
     suspension_speed: Optional[str] = None
@@ -166,7 +170,7 @@ async def get_config(
     _=Depends(require_admin),
 ):
     rows = (await db.execute(select(SystemConfig))).scalars().all()
-    return {r.key: r.value for r in rows}
+    return {r.key: r.value for r in rows if r.key not in _PANEL_ONLY_KEYS}
 
 
 @router.put("/config")
@@ -186,7 +190,7 @@ async def update_config(
             db.add(SystemConfig(key=key, value=value))
     await db.commit()
     rows = (await db.execute(select(SystemConfig))).scalars().all()
-    return {r.key: r.value for r in rows}
+    return {r.key: r.value for r in rows if r.key not in _PANEL_ONLY_KEYS}
 
 
 @router.post("/test-email")

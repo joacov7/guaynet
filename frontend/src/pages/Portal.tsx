@@ -76,6 +76,7 @@ interface SecurityData {
     property_name: string;
     property_address: string;
     entry_secure_enabled: boolean;
+    entry_default_minutes?: number;
   };
   active_alerts: number;
   recent_events: {
@@ -410,7 +411,7 @@ export default function Portal({ appMode = false }: { appMode?: boolean } = {}) 
     try {
       const r = await axios.post<{ expires_at: string; duration_minutes: number }>(
         "/api/v1/portal/security/entry-session",
-        { duration_minutes: 5, ...(portalToken ? { token: portalToken } : {}) },
+        { ...(portalToken ? { token: portalToken } : {}) },
       );
       setEntryResult(r.data);
     } catch (e: any) {
@@ -750,7 +751,7 @@ export default function Portal({ appMode = false }: { appMode?: boolean } = {}) 
                   <Text strong>Entrada segura</Text>
                   <br />
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    Iniciá una cuenta regresiva de 5 minutos. Si no ingresás tu PIN en el teclado antes de que expire, se notifica a la central.
+                    Iniciá una cuenta regresiva de {security.subscription.entry_default_minutes ?? 5} minutos. Si no ingresás tu PIN en el teclado antes de que expire, se notifica a la central.
                   </Text>
                 </div>
                 {entryResult ? (

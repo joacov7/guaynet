@@ -34,8 +34,8 @@ _NO_CONFIRMATION_TYPES = {"DURESS"}
 # Alert types broadcast to the neighborhood Telegram group.
 _NEIGHBORHOOD_ALERT_TYPES = {"PANIC", "INTRUSION", "DURESS"}
 
-# Window for the client to respond before operators are called.
-CONFIRMATION_WINDOW_SECONDS = 180  # 3 minutes
+# Window for the client to respond before operators are called: configurable
+# in Seguridad → Configuración (runtime_config "sec_confirmation_window_seconds").
 
 _ALERT_EMOJI = {
     "PANIC":              "🚨",
@@ -295,7 +295,9 @@ async def _dispatch_with_confirmation(
 
         now = datetime.now(timezone.utc)
         alert.confirmation_sent_at = now
-        alert.confirmation_expires_at = now + timedelta(seconds=CONFIRMATION_WINDOW_SECONDS)
+        from app.services.runtime_config import int_param
+        window = await int_param("sec_confirmation_window_seconds")
+        alert.confirmation_expires_at = now + timedelta(seconds=window)
         if msg_id:
             alert.confirmation_telegram_msg_id = msg_id
 
