@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Badge,
@@ -22,10 +22,11 @@ import {
 } from "antd";
 import { BarChartOutlined, CalendarOutlined, ClockCircleOutlined, MobileOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, TeamOutlined, ToolOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import ScheduleModal from "./ScheduleModal";
+import { featureLabels } from "./labels";
 import AppDevicesModal from "./AppDevicesModal";
-import { subscriptionsApi, pinsApi, certificatesApi, elderlyApi, monthlyReportsApi, vacationApi } from "@/services/security/api";
+import { subscriptionsApi, pinsApi, certificatesApi, elderlyApi, monthlyReportsApi, vacationApi, propertiesApi, plansApi } from "@/services/security/api";
 import type { ElderlyConfig, MonthlyReport, VacationMode } from "@/types/security";
 import type { SecuritySubscription, SecurityFeatureName } from "@/types/security";
 
@@ -45,29 +46,10 @@ const statusLabel: Record<string, string> = {
   pending_install: "Pendiente instalación",
 };
 
-const featureLabels: Record<SecurityFeatureName, string> = {
-  entry_secure:            "Entrada Segura",
-  panic_button:            "Botón de pánico",
-  duress_pin:              "PIN de coacción",
-  safe_word:               "Palabra segura",
-  vacation_mode:           "Modo ausencia",
-  member_access:           "Miembros",
-  camera_access:           "Cámaras",
-  elderly_care:            "Adultos mayores",
-  schedule_alerts:         "Alertas de horario",
-  alert_confirmation:      "Confirmación de alerta",
-  equipment_status:        "Estado de equipos",
-  monitoring_certificate:  "Certificado de monitoreo",
-  tech_survey:             "Encuesta técnica",
-  event_history:           "Historial de eventos",
-  monthly_report:          "Reporte mensual",
-  weekly_report:           "Reporte semanal",
-  digital_contract:        "Contrato digital",
-};
-
 export default function SecuritySubscriptions() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [createOpen, setCreateOpen] = useState(false);
   const [featuresModal, setFeaturesModal] = useState<SecuritySubscription | null>(null);
   const [editModal, setEditModal] = useState<SecuritySubscription | null>(null);
@@ -242,19 +224,49 @@ export default function SecuritySubscriptions() {
     onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al cancelar"),
   });
 
+  const { data: properties = [] } = useQuery({
+    queryKey: ["security-properties"],
+    queryFn: () => propertiesApi.list(),
+  });
+  const { data: plans = [] } = useQuery({
+    queryKey: ["security-plans-all"],
+    queryFn: () => plansApi.list(false),
+  });
+  const propertyById = useMemo(() => new Map(properties.map((p) => [p.id, p])), [properties]);
+  const planById = useMemo(() => new Map(plans.map((p) => [p.id, p])), [plans]);
+
+  // /security/subscriptions?new=<property_id> opens the create form preselected
+  useEffect(() => {
+    const pre = searchParams.get("new");
+    if (pre) {
+      form.setFieldsValue({ property_id: Number(pre) });
+      setCreateOpen(true);
+      searchParams.delete("new");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams, form]);
+
   const columns = [
     { title: "ID", dataIndex: "id", key: "id", width: 60 },
     {
       title: "Propiedad",
       dataIndex: "property_id",
       key: "property",
-      render: (v: number) => `Prop. #${v}`,
+      render: (v: number) => {
+        const p = propertyById.get(v);
+        return p ? (
+          <div>
+            <div>{p.name}</div>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>{p.address}</Typography.Text>
+          </div>
+        ) : `Prop. #${v}`;
+      },
     },
     {
       title: "Plan",
       dataIndex: "plan_id",
       key: "plan",
-      render: (v: number) => `Plan #${v}`,
+      render: (v: number) => planById.get(v)?.name ?? `Plan #${v}`,
     },
     {
       title: "Estado",
@@ -458,11 +470,34 @@ export default function SecuritySubscriptions() {
         footer={null}
       >
         <Form form={form} layout="vertical" onFinish={(v) => createMutation.mutate(v)}>
-          <Form.Item name="property_id" label="ID de propiedad" rules={[{ required: true }]}>
-            <InputNumber style={{ width: "100%" }} />
+          <Form.Item
+            name="property_id"
+            label="Propiedad"
+            rules={[{ required: true, message: "Elegí la propiedad" }]}
+            extra={properties.length === 0 ? <a onClick={() => navigate("/security/properties")}>Primero creá una propiedad</a> : undefined}
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder="Buscar por nombre o dirección"
+              options={properties.map((p) => ({ value: p.id, label: `${p.name} — ${p.address}` }))}
+            />
           </Form.Item>
-          <Form.Item name="plan_id" label="ID de plan" rules={[{ required: true }]}>
-            <InputNumber style={{ width: "100%" }} />
+          <Form.Item
+            name="plan_id"
+            label="Plan"
+            rules={[{ required: true, message: "Elegí el plan" }]}
+            extra={plans.every((p) => !p.is_active) ? <a onClick={() => navigate("/security/plans")}>Primero creá un plan</a> : undefined}
+          >
+            <Select
+              placeholder="Elegí el plan"
+              options={plans
+                .filter((p) => p.is_active)
+                .map((p) => ({
+                  value: p.id,
+                  label: `${p.name} — ${new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 }).format(p.price)}`,
+                }))}
+            />
           </Form.Item>
           <Form.Item name="beat_account_id" label="Cuenta BEAT (opcional)">
             <Input />

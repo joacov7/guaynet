@@ -57,6 +57,14 @@ async def get_subscription(db: AsyncSession, subscription_id: int) -> SecuritySu
 async def create_subscription(
     db: AsyncSession, body: SecuritySubscriptionCreate
 ) -> SecuritySubscription:
+    from app.models.security.property import Property
+    from app.models.security.subscription import SecurityPlan as _Plan
+    if await db.get(Property, body.property_id) is None:
+        raise HTTPException(status_code=404, detail="Propiedad no encontrada")
+    _plan = await db.get(_Plan, body.plan_id)
+    if _plan is None or not _plan.is_active:
+        raise HTTPException(status_code=404, detail="Plan no encontrado o inactivo")
+
     # Enforce one active subscription per property
     existing = await db.execute(
         select(SecuritySubscription).where(

@@ -27,7 +27,22 @@ async def get_property(db: AsyncSession, property_id: int) -> Property:
     return prop
 
 
+async def _check_internet_client(db: AsyncSession, client_id: Optional[int], property_id: Optional[int] = None) -> None:
+    if client_id is None:
+        return
+    from app.models.client import Client
+    if await db.get(Client, client_id) is None:
+        raise HTTPException(status_code=404, detail="Cliente de internet no encontrado")
+    # The IP portal resolves one property per client
+    q = select(Property.id).where(Property.internet_client_id == client_id)
+    if property_id is not None:
+        q = q.where(Property.id != property_id)
+    if (await db.execute(q)).first():
+        raise HTTPException(status_code=409, detail="Ese cliente de internet ya está vinculado a otra propiedad")
+
+
 async def create_property(db: AsyncSession, body: PropertyCreate) -> Property:
+    await _check_internet_client(db, body.internet_client_id)
     prop = Property(**body.model_dump())
     db.add(prop)
     await db.commit()
@@ -39,7 +54,10 @@ async def update_property(
     db: AsyncSession, property_id: int, body: PropertyUpdate
 ) -> Property:
     prop = await get_property(db, property_id)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    if "internet_client_id" in changes:
+        await _check_internet_client(db, changes["internet_client_id"], property_id)
+    for field, value in changes.items():
         setattr(prop, field, value)
     await db.commit()
     await db.refresh(prop)

@@ -21,9 +21,11 @@ async def list_properties(
 @router.post("/", response_model=PropertyResponse, status_code=201)
 async def create_property(
     body: PropertyCreate,
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
     db=Depends(get_db),
 ):
+    if body.owner_user_id is None:
+        body.owner_user_id = current_user.id
     return await svc.create_property(db, body)
 
 

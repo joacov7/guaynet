@@ -87,7 +87,8 @@ export interface Property {
   address: string;
   property_type: PropertyType;
   owner_user_id: number;
-  internet_client_id?: number;
+  internet_client_id?: number | null;
+  city?: string;
   notes?: string;
 }
 

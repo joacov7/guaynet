@@ -30,6 +30,7 @@ import {
   UsergroupAddOutlined,
   UserSwitchOutlined,
   FileProtectOutlined,
+  HomeOutlined,
 } from "@ant-design/icons";
 import { usePermissions } from "@/contexts/PermissionsContext";
 
@@ -60,6 +61,8 @@ const ALL_ITEMS = [
   { key: "/settings",   icon: <SettingOutlined />,    label: "Configuración",   section: null, adminOnly: true },
   { key: "/security",                  icon: <SafetyCertificateOutlined />,        label: "Seguridad",           section: null },
   { key: "/security/operator-panel",   icon: <MonitorOutlined />,       label: "Central Monitoreo",   section: "security_alerts" },
+  { key: "/security/properties",       icon: <HomeOutlined />,           label: "Propiedades",         section: "security_subscriptions" },
+  { key: "/security/plans",            icon: <TagsOutlined />,           label: "Planes Seguridad",    section: "security_subscriptions" },
   { key: "/security/subscriptions",    icon: <SafetyCertificateOutlined />,        label: "Abonados Seguridad",  section: "security_subscriptions" },
   { key: "/security/alerts",           icon: <BellOutlined />,          label: "Historial Alertas",   section: "security_alerts" },
   { key: "/security/entry-secure",icon: <SafetyOutlined />,        label: "Entrada Segura",     section: "security_entry_sessions" },

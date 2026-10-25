@@ -28,23 +28,36 @@ export const securityDashboardApi = {
 
 export const propertiesApi = {
   list: (): Promise<Property[]> =>
-    api.get("/security/properties").then((r) => r.data),
+    api.get("/security/properties/").then((r) => r.data),
 
   get: (id: number): Promise<Property> =>
     api.get(`/security/properties/${id}`).then((r) => r.data),
 
-  create: (data: Omit<Property, "id">): Promise<Property> =>
-    api.post("/security/properties", data).then((r) => r.data),
+  create: (data: Omit<Property, "id" | "owner_user_id">): Promise<Property> =>
+    api.post("/security/properties/", data).then((r) => r.data),
 
   update: (id: number, data: Partial<Property>): Promise<Property> =>
     api.patch(`/security/properties/${id}`, data).then((r) => r.data),
+};
+
+// ── Plans ──────────────────────────────────────────────────────────────────
+
+export const plansApi = {
+  list: (active_only = true): Promise<import("../../types/security").SecurityPlan[]> =>
+    api.get("/security/plans/", { params: { active_only } }).then((r) => r.data),
+
+  create: (data: Omit<import("../../types/security").SecurityPlan, "id">): Promise<import("../../types/security").SecurityPlan> =>
+    api.post("/security/plans/", data).then((r) => r.data),
+
+  update: (id: number, data: Partial<import("../../types/security").SecurityPlan>): Promise<import("../../types/security").SecurityPlan> =>
+    api.patch(`/security/plans/${id}`, data).then((r) => r.data),
 };
 
 // ── Subscriptions ──────────────────────────────────────────────────────────
 
 export const subscriptionsApi = {
   list: (): Promise<SecuritySubscription[]> =>
-    api.get("/security/subscriptions").then((r) => r.data),
+    api.get("/security/subscriptions/").then((r) => r.data),
 
   get: (id: number): Promise<SecuritySubscription> =>
     api.get(`/security/subscriptions/${id}`).then((r) => r.data),
@@ -55,7 +68,7 @@ export const subscriptionsApi = {
     beat_account_id?: string;
     contract_number?: string;
   }): Promise<SecuritySubscription> =>
-    api.post("/security/subscriptions", data).then((r) => r.data),
+    api.post("/security/subscriptions/", data).then((r) => r.data),
 
   update: (
     id: number,
@@ -86,7 +99,7 @@ export const alertsApi = {
     api.get("/security/alerts/panel").then((r) => r.data),
 
   list: (): Promise<SecurityAlert[]> =>
-    api.get("/security/alerts").then((r) => r.data),
+    api.get("/security/alerts/").then((r) => r.data),
 
   get: (id: number): Promise<SecurityAlert> =>
     api.get(`/security/alerts/${id}`).then((r) => r.data),
@@ -107,7 +120,7 @@ export const entrySessionsApi = {
     duration_minutes?: number;
     notes?: string;
   }): Promise<EntrySession> =>
-    api.post("/security/entry-sessions", data).then((r) => r.data),
+    api.post("/security/entry-sessions/", data).then((r) => r.data),
 
   listActive: (): Promise<EntrySession[]> =>
     api.get("/security/entry-sessions/active").then((r) => r.data),
@@ -320,5 +333,5 @@ export const eventsApi = {
     from_date?: string;
     to_date?: string;
   }): Promise<SecurityEvent[]> =>
-    api.get("/security/events", { params }).then((r) => r.data),
+    api.get("/security/events/", { params }).then((r) => r.data),
 };

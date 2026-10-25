@@ -38,6 +38,8 @@ import SecurityNeighborhood from "@/pages/security/SecurityNeighborhood";
 import SecurityMembers from "@/pages/security/SecurityMembers";
 import SecurityDevices from "@/pages/security/SecurityDevices";
 import SecurityContracts from "@/pages/security/SecurityContracts";
+import SecurityProperties from "@/pages/security/SecurityProperties";
+import SecurityPlans from "@/pages/security/SecurityPlans";
 import EntrySecure from "@/pages/security/EntrySecure";
 import TechLayout from "@/pages/tech/TechLayout";
 import TechLogin from "@/pages/tech/TechLogin";
@@ -111,6 +113,8 @@ export default function App() {
           <Route path="security/members" element={<SecurityMembers />} />
           <Route path="security/devices" element={<SecurityDevices />} />
           <Route path="security/contracts" element={<SecurityContracts />} />
+          <Route path="security/properties" element={<SecurityProperties />} />
+          <Route path="security/plans" element={<SecurityPlans />} />
           <Route path="settings" element={<Settings />} />
           <Route path="help" element={<Help />} />
         </Route>

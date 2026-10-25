@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from app.models.security.subscription import SecuritySubscriptionStatus, SecurityFeatureName
 
 
@@ -14,6 +14,24 @@ class SecurityPlanResponse(BaseModel):
     default_features: Optional[list] = None
     is_active: bool
     includes_monitoring: bool = False
+
+
+class SecurityPlanCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: Optional[str] = None
+    price: float = Field(ge=0)
+    default_features: List[SecurityFeatureName] = []
+    includes_monitoring: bool = False
+    is_active: bool = True
+
+
+class SecurityPlanUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    price: Optional[float] = Field(default=None, ge=0)
+    default_features: Optional[List[SecurityFeatureName]] = None
+    includes_monitoring: Optional[bool] = None
+    is_active: Optional[bool] = None
 
 
 class SecurityFeatureResponse(BaseModel):
