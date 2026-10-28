@@ -1127,3 +1127,56 @@ def check_schedule_closing(self):
     except Exception as exc:
         logger.error("check_schedule_closing failed: %s", exc)
         raise self.retry(exc=exc)
+
+
+BEAT_WEBHOOK_KEEP = 500
+
+
+@celery_app.task(
+    name="app.tasks.security.fetch_beat_event",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=20,
+)
+def fetch_beat_event(self, webhook_id: int):
+    """
+    Capture mode: fetch the full event for a received BEAT webhook and store
+    it next to the raw notification. Does not create alerts yet.
+    """
+    async def _execute():
+        from sqlalchemy import delete, select
+        from app.core.database import AsyncSessionLocal
+        from app.models.security.beat_webhook import SecurityBeatWebhook
+        from app.services.security.beat_api import BeatApiError, get_event
+
+        async with AsyncSessionLocal() as db:
+            row = await db.get(SecurityBeatWebhook, webhook_id)
+            if row is None:
+                return {"status": "missing"}
+            if not row.event_id:
+                row.fetch_status = "no_event_id"
+            else:
+                try:
+                    row.event_detail = await get_event(row.event_id)
+                    row.fetch_status, row.fetch_error = "ok", None
+                except BeatApiError as exc:
+                    row.fetch_status, row.fetch_error = "error", str(exc)
+
+            # Keep only the most recent notifications
+            cutoff = await db.execute(
+                select(SecurityBeatWebhook.id)
+                .order_by(SecurityBeatWebhook.id.desc())
+                .offset(BEAT_WEBHOOK_KEEP)
+                .limit(1)
+            )
+            old_id = cutoff.scalar_one_or_none()
+            if old_id is not None:
+                await db.execute(delete(SecurityBeatWebhook).where(SecurityBeatWebhook.id <= old_id))
+            await db.commit()
+            return {"status": row.fetch_status}
+
+    try:
+        return _run(_execute())
+    except Exception as exc:
+        logger.error("fetch_beat_event %s failed: %s", webhook_id, exc)
+        raise self.retry(exc=exc)

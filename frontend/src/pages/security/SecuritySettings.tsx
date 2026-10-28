@@ -20,6 +20,7 @@ import { SendOutlined } from "@ant-design/icons";
 import { securitySettingsApi } from "@/services/security/api";
 import { usePermissions } from "@/contexts/PermissionsContext";
 import type { SecurityParamKey } from "@/types/security";
+import BeatCard from "./BeatCard";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -77,13 +78,17 @@ export default function SecuritySettings() {
       message.success("Configuración guardada");
       setTestResult(null);
     },
-    onError: (e) => message.error(errorText(e), 8),
+    onError: (e) => {
+      message.error(errorText(e), 8);
+    },
   });
 
   const test = useMutation({
     mutationFn: securitySettingsApi.telegramTest,
     onSuccess: setTestResult,
-    onError: (e) => message.error(errorText(e), 8),
+    onError: (e) => {
+      message.error(errorText(e), 8);
+    },
   });
 
   if (isLoading || !data) return <Spin style={{ margin: 40 }} />;
@@ -184,6 +189,8 @@ export default function SecuritySettings() {
         )}
       </Card>
 
+      <BeatCard settings={data} isAdmin={isAdmin} />
+
       <Card title="Parámetros de operación" style={{ marginBottom: 16 }}>
         <Form form={paramsForm} layout="vertical" disabled={!isAdmin} onFinish={(v) => save.mutate({ params: v })}>
           {PARAMS.map((p) => {
@@ -213,9 +220,11 @@ export default function SecuritySettings() {
               <Space wrap>
                 <Tag color="orange">Simulado</Tag>
                 <Text type="secondary">
-                  {data.integrations.beat_mock_polling
-                    ? "Generando eventos de prueba (BEAT_MOCK_POLLING=1)."
-                    : "No se consultan eventos hasta conectar la API real de BEAT."}
+                  {data.beat.webhook_configured
+                    ? "Webhook en modo captura: los eventos se guardan pero aún no generan alertas."
+                    : data.integrations.beat_mock_polling
+                      ? "Generando eventos de prueba (BEAT_MOCK_POLLING=1)."
+                      : "Sin conexión con BEAT todavía."}
                 </Text>
               </Space>
             )}

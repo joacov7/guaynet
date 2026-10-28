@@ -16,6 +16,7 @@ from app.models.security.contract import SecurityContract, SecurityContractTempl
 from app.models.security.report import SecurityMonthlyReport, SecurityMonthlyReportStatus
 from app.models.security.schedule import SecuritySchedule
 from app.models.security.app_device import SecurityAppDevice
+from app.models.security.beat_webhook import SecurityBeatWebhook
 
 __all__ = [
     "Property", "PropertyType",
@@ -33,4 +34,5 @@ __all__ = [
     "SecurityMonthlyReport", "SecurityMonthlyReportStatus",
     "SecuritySchedule",
     "SecurityAppDevice",
+    "SecurityBeatWebhook",
 ]

@@ -19,6 +19,18 @@ class SettingsUpdate(BaseModel):
     telegram_token: Optional[str] = Field(default=None, max_length=200)
     operator_chat_ids: Optional[List[int]] = None
     params: Optional[Dict[str, int]] = None
+    beat_api_url: Optional[str] = Field(default=None, max_length=300)
+    beat_api_key: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("beat_api_url")
+    @classmethod
+    def _https_url(cls, v):
+        if v in (None, ""):
+            return v
+        v = v.strip().rstrip("/")
+        if not v.startswith("https://"):
+            raise ValueError("La dirección de la API de BEAT tiene que empezar con https://")
+        return v
 
     @field_validator("params")
     @classmethod
@@ -65,6 +77,7 @@ async def _set(db: AsyncSession, key: str, value: Optional[str]) -> None:
 async def _payload() -> dict:
     rc.invalidate_cache()
     token = await rc.telegram_token()
+    beat_key = await rc.beat_api_key()
     push_file = settings.FCM_SERVICE_ACCOUNT_FILE
     return {
         "telegram": {
@@ -73,6 +86,12 @@ async def _payload() -> dict:
             "token_source": await rc.telegram_token_source(),
             "operator_chat_ids": await rc.operator_chat_ids(),
             "operator_chat_ids_source": await rc.operator_chat_ids_source(),
+        },
+        "beat": {
+            "api_url": await rc.beat_api_url(),
+            "api_key_configured": bool(beat_key),
+            "api_key_hint": _hint(beat_key),
+            "webhook_configured": bool(await rc.beat_webhook_secret()),
         },
         "params": {key: await rc.int_param(key) for key in rc.INT_PARAMS},
         "param_limits": {key: {"default": d, "min": lo, "max": hi} for key, (d, lo, hi) in rc.INT_PARAMS.items()},
@@ -119,6 +138,11 @@ async def update_settings(
         await _set(db, rc.TELEGRAM_CHAT_IDS_KEY, ",".join(str(i) for i in dict.fromkeys(body.operator_chat_ids)))
     for key, value in (body.params or {}).items():
         await _set(db, key, str(value))
+    if body.beat_api_url is not None:
+        await _set(db, rc.BEAT_API_URL_KEY, body.beat_api_url or None)
+    if body.beat_api_key is not None:
+        k = body.beat_api_key.strip()
+        await _set(db, rc.BEAT_API_KEY_KEY, encrypt_value(k) if k else None)
     await db.commit()
     return await _payload()
 

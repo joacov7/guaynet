@@ -276,11 +276,29 @@ export const securitySettingsApi = {
     telegram_token?: string;
     operator_chat_ids?: number[];
     params?: Partial<Record<import("../../types/security").SecurityParamKey, number>>;
+    beat_api_url?: string;
+    beat_api_key?: string;
   }): Promise<import("../../types/security").SecuritySettings> =>
     api.put("/security/settings/", data).then((r) => r.data),
 
   telegramTest: (): Promise<{ bot_username: string; results: { chat_id: number; ok: boolean; error?: string }[] }> =>
     api.post("/security/settings/telegram-test").then((r) => r.data),
+};
+
+// ── BEAT integration ──────────────────────────────────────────────────────
+
+export const beatApi = {
+  testConnection: (): Promise<{ ok: boolean; api_url: string }> =>
+    api.post("/security/beat/test-connection").then((r) => r.data),
+
+  getWebhookUrl: (): Promise<{ webhook_url: string | null }> =>
+    api.get("/security/beat/webhook-url").then((r) => r.data),
+
+  regenerateWebhookUrl: (): Promise<{ webhook_url: string }> =>
+    api.post("/security/beat/webhook-url").then((r) => r.data),
+
+  listWebhooks: (limit = 30): Promise<import("../../types/security").BeatWebhookCapture[]> =>
+    api.get("/security/beat/webhooks", { params: { limit } }).then((r) => r.data),
 };
 
 // ── Mobile app devices ────────────────────────────────────────────────────

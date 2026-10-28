@@ -17,6 +17,11 @@ CACHE_SECONDS = 30
 TELEGRAM_TOKEN_KEY = "telegram_bot_token"          # encrypted
 TELEGRAM_CHAT_IDS_KEY = "telegram_operator_chat_ids"  # comma separated
 
+BEAT_API_URL_KEY = "beat_api_url"
+BEAT_API_KEY_KEY = "beat_api_key"                 # encrypted
+BEAT_WEBHOOK_SECRET_KEY = "beat_webhook_secret"   # encrypted
+BEAT_DEFAULT_API_URL = "https://beat.netio.com.ar/api/v1"
+
 # key → (default, min, max)
 INT_PARAMS: Dict[str, tuple] = {
     "sec_confirmation_window_seconds": (180, 30, 900),
@@ -41,7 +46,8 @@ async def _load() -> Dict[str, Optional[str]]:
     from app.core.database import AsyncSessionLocal
     from app.models.config import SystemConfig
 
-    keys = [TELEGRAM_TOKEN_KEY, TELEGRAM_CHAT_IDS_KEY, *INT_PARAMS]
+    keys = [TELEGRAM_TOKEN_KEY, TELEGRAM_CHAT_IDS_KEY, BEAT_API_URL_KEY, BEAT_API_KEY_KEY,
+            BEAT_WEBHOOK_SECRET_KEY, *INT_PARAMS]
     try:
         async with AsyncSessionLocal() as db:
             rows = await db.execute(select(SystemConfig).where(SystemConfig.key.in_(keys)))
@@ -94,3 +100,21 @@ async def int_param(key: str) -> int:
     except ValueError:
         value = default
     return max(lo, min(hi, value))
+
+
+async def beat_api_url() -> str:
+    return ((await _load()).get(BEAT_API_URL_KEY) or BEAT_DEFAULT_API_URL).rstrip("/")
+
+
+async def _decrypted(key: str) -> str:
+    from app.core.security import decrypt_value
+    stored = (await _load()).get(key)
+    return decrypt_value(stored) if stored else ""
+
+
+async def beat_api_key() -> str:
+    return await _decrypted(BEAT_API_KEY_KEY)
+
+
+async def beat_webhook_secret() -> str:
+    return await _decrypted(BEAT_WEBHOOK_SECRET_KEY)

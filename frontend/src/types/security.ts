@@ -193,6 +193,12 @@ export interface SecuritySettings {
     operator_chat_ids: number[];
     operator_chat_ids_source: "panel" | "env" | "none";
   };
+  beat: {
+    api_url: string;
+    api_key_configured: boolean;
+    api_key_hint: string | null;
+    webhook_configured: boolean;
+  };
   params: Record<SecurityParamKey, number>;
   param_limits: Record<SecurityParamKey, { default: number; min: number; max: number }>;
   integrations: {
@@ -201,6 +207,18 @@ export interface SecuritySettings {
     push: "fcm" | "simulado";
     public_url: string;
   };
+}
+
+export interface BeatWebhookCapture {
+  id: number;
+  received_at: string | null;
+  remote_ip: string | null;
+  event_id: string | null;
+  event_type: string | null;
+  fetch_status: "pending" | "ok" | "error" | "no_event_id";
+  fetch_error: string | null;
+  payload: unknown;
+  event_detail: unknown;
 }
 
 export interface AppDevice {

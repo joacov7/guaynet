@@ -115,7 +115,7 @@ async def update_user(
 # ── System config ─────────────────────────────────────────────────────────────
 
 # Managed from Seguridad → Configuración; never returned here (secret, encrypted)
-_PANEL_ONLY_KEYS = {"telegram_bot_token"}
+_PANEL_ONLY_KEYS = {"telegram_bot_token", "beat_api_key", "beat_webhook_secret"}
 
 
 class ConfigUpdate(BaseModel):
