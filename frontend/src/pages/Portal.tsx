@@ -36,6 +36,7 @@ import {
   FileProtectOutlined,
   ExclamationCircleOutlined,
   SafetyOutlined,
+  SendOutlined,
   ThunderboltOutlined,
   WarningOutlined,
 } from "@ant-design/icons";
@@ -77,6 +78,7 @@ interface SecurityData {
     property_address: string;
     entry_secure_enabled: boolean;
     entry_default_minutes?: number;
+    telegram_linked?: boolean;
   };
   active_alerts: number;
   recent_events: {
@@ -255,6 +257,12 @@ export default function Portal({ appMode = false }: { appMode?: boolean } = {}) 
   const [showCancelPin, setShowCancelPin] = useState(false);
   const [cancelPin, setCancelPin] = useState("");
 
+  const [tgOpen, setTgOpen] = useState(false);
+  const [tgPin, setTgPin] = useState("");
+  const [tgLoading, setTgLoading] = useState(false);
+  const [tgError, setTgError] = useState<string | null>(null);
+  const [tgUrl, setTgUrl] = useState<string | null>(null);
+
   const [contract, setContract] = useState<ContractState | null>(null);
   const [signOpen, setSignOpen] = useState(false);
   const [signLoading, setSignLoading] = useState(false);
@@ -401,6 +409,28 @@ export default function Portal({ appMode = false }: { appMode?: boolean } = {}) 
     } finally {
       setCancelPin("");
       setVacationLoading(false);
+    }
+  }
+
+  async function createTelegramLink() {
+    if (!tgPin) {
+      setTgError("Ingresá el PIN de tu alarma");
+      return;
+    }
+    setTgLoading(true);
+    setTgError(null);
+    try {
+      const r = await axios.post<{ url: string }>("/api/v1/portal/security/telegram-link", {
+        pin: tgPin,
+        ...(portalToken ? { token: portalToken } : {}),
+      });
+      setTgUrl(r.data.url);
+      setTgOpen(false);
+    } catch (e: any) {
+      setTgError(e.response?.data?.detail ?? "No se pudo generar el enlace");
+    } finally {
+      setTgPin("");
+      setTgLoading(false);
     }
   }
 
@@ -866,6 +896,55 @@ export default function Portal({ appMode = false }: { appMode?: boolean } = {}) 
                 )}
               </div>
             )}
+
+            {/* Telegram notices */}
+            <div style={{ borderTop: "1px solid #f0f0f0", paddingTop: 12, marginTop: 12 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <Text strong><SendOutlined /> Avisos por Telegram</Text>
+                {security.subscription.telegram_linked ? <Tag color="blue">Vinculado</Tag> : <Tag>Sin vincular</Tag>}
+              </div>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Recibí las alertas en Telegram y consultá tu alarma con /estado, /historial, /entrada o /panico.
+              </Text>
+              {tgError && <Alert type="error" message={tgError} showIcon style={{ marginTop: 8 }} />}
+              {tgUrl ? (
+                <div style={{ marginTop: 8 }}>
+                  <Button type="primary" size="small" icon={<SendOutlined />} href={tgUrl} target="_blank" rel="noreferrer">
+                    Abrir Telegram y vincular
+                  </Button>
+                  <br />
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    Tocá «Iniciar» en el bot. El enlace sirve una sola vez y vence en 48 horas.
+                  </Text>
+                </div>
+              ) : !tgOpen ? (
+                <div>
+                  <Button size="small" style={{ marginTop: 8 }} onClick={() => { setTgOpen(true); setTgError(null); }}>
+                    {security.subscription.telegram_linked ? "Vincular otro Telegram" : "Vincular Telegram"}
+                  </Button>
+                </div>
+              ) : (
+                <Space wrap style={{ marginTop: 8 }}>
+                  <Input.Password
+                    size="small"
+                    placeholder="PIN de la alarma"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={8}
+                    value={tgPin}
+                    onChange={(e) => setTgPin(e.target.value)}
+                    onPressEnter={createTelegramLink}
+                    style={{ width: 160 }}
+                  />
+                  <Button size="small" type="primary" loading={tgLoading} onClick={createTelegramLink}>
+                    Continuar
+                  </Button>
+                  <Button size="small" onClick={() => { setTgOpen(false); setTgPin(""); }}>
+                    Volver
+                  </Button>
+                </Space>
+              )}
+            </div>
 
             {/* Electronic contract */}
             {contract?.enabled && contract.template && (

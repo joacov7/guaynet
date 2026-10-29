@@ -43,3 +43,4 @@ class PropertyMemberResponse(PropertyMemberBase):
     status: str
     invited_at: Optional[datetime] = None
     accepted_at: Optional[datetime] = None
+    telegram_linked_at: Optional[datetime] = None  # set while the member's Telegram is linked

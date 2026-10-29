@@ -20,14 +20,15 @@ import {
   Typography,
   message,
 } from "antd";
-import { BarChartOutlined, CalendarOutlined, ClockCircleOutlined, MobileOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SettingOutlined, TeamOutlined, ToolOutlined } from "@ant-design/icons";
+import { BarChartOutlined, CalendarOutlined, ClockCircleOutlined, MobileOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, HeartOutlined, KeyOutlined, LinkOutlined, PlusOutlined, ReloadOutlined, SendOutlined, SettingOutlined, TeamOutlined, ToolOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import ScheduleModal from "./ScheduleModal";
 import { featureLabels } from "./labels";
 import AppDevicesModal from "./AppDevicesModal";
+import TelegramLinkModal from "./TelegramLinkModal";
 import { subscriptionsApi, pinsApi, certificatesApi, elderlyApi, monthlyReportsApi, vacationApi, propertiesApi, plansApi } from "@/services/security/api";
-import type { ElderlyConfig, MonthlyReport, VacationMode } from "@/types/security";
+import type { ElderlyConfig, MonthlyReport, TelegramLink, VacationMode } from "@/types/security";
 import type { SecuritySubscription, SecurityFeatureName } from "@/types/security";
 
 const { Title } = Typography;
@@ -58,6 +59,7 @@ export default function SecuritySubscriptions() {
   const [reportsModal, setReportsModal] = useState<SecuritySubscription | null>(null);
   const [vacationModal, setVacationModal] = useState<SecuritySubscription | null>(null);
   const [scheduleModal, setScheduleModal] = useState<SecuritySubscription | null>(null);
+  const [tgLink, setTgLink] = useState<TelegramLink | null>(null);
   const [appDevicesModal, setAppDevicesModal] = useState<SecuritySubscription | null>(null);
   const [vacationForm] = Form.useForm();
   const [form] = Form.useForm();
@@ -182,6 +184,14 @@ export default function SecuritySubscriptions() {
     onError: (e: any) => message.error(e.response?.data?.detail ?? "Error al generar certificado"),
   });
 
+  const tgLinkMutation = useMutation({
+    mutationFn: (id: number) => subscriptionsApi.telegramLink(id),
+    onSuccess: setTgLink,
+    onError: (e: any) => {
+      message.error(e?.response?.data?.detail ?? "No se pudo generar el enlace");
+    },
+  });
+
   const portalTokenMutation = useMutation({
     mutationFn: (id: number) => subscriptionsApi.regeneratePortalToken(id),
     onSuccess: (data) => {
@@ -278,9 +288,19 @@ export default function SecuritySubscriptions() {
       title: "Notificación",
       key: "notification",
       render: (_: unknown, r: SecuritySubscription) => (
-        <Tag color={r.client_telegram_id ? "blue" : "default"}>
-          {r.client_telegram_id ? "Telegram cliente" : "Sin canal"}
-        </Tag>
+        <Space size={4}>
+          <Tag color={r.client_telegram_id ? "blue" : "default"}>
+            {r.client_telegram_id ? "Telegram cliente" : "Sin canal"}
+          </Tag>
+          <Tooltip title={r.client_telegram_id ? "Nuevo enlace (reemplaza el Telegram del titular)" : "Enlace para que el titular vincule su Telegram"}>
+            <Button
+              size="small"
+              icon={<SendOutlined />}
+              loading={tgLinkMutation.isPending && tgLinkMutation.variables === r.id}
+              onClick={() => tgLinkMutation.mutate(r.id)}
+            />
+          </Tooltip>
+        </Space>
       ),
     },
     {
@@ -518,6 +538,8 @@ export default function SecuritySubscriptions() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <TelegramLinkModal link={tgLink} who="titular" onClose={() => setTgLink(null)} />
 
       {/* Edit modal — beat_account_id, client_telegram_id, notes */}
       <Modal

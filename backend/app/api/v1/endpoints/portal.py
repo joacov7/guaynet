@@ -414,6 +414,7 @@ async def _security_payload(sub, prop, db: AsyncSession) -> dict:
             "property_name": prop.name if prop else "—",
             "property_address": prop.address if prop else "—",
             "entry_secure_enabled": sub.has_feature("entry_secure"),
+            "telegram_linked": bool(sub.client_telegram_id),
             "entry_default_minutes": await int_param("sec_entry_default_minutes"),
         },
         "active_alerts": active_alerts,
@@ -710,6 +711,50 @@ async def portal_cancel_vacation(
         await dispatch_alert(alert, db)
 
     return {"cancelled": True, "id": cancelled.id}
+
+
+class TelegramLinkRequest(BaseModel):
+    pin: str
+    token: Optional[str] = None
+
+
+@router.post("/security/telegram-link")
+async def portal_telegram_link(
+    body: TelegramLinkRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    The titular links their Telegram from the portal / app. Requires the alarm PIN,
+    since anyone on the household connection reaches the portal and the link
+    redirects every notice to the chat that opens it. A duress PIN works as usual
+    but raises a silent DURESS alert, as in the other PIN-protected actions.
+    """
+    from datetime import datetime, timezone
+    from app.models.security.alert import SecurityAlert, SecurityAlertStatus, SecurityAlertType
+    from app.models.security.pin import PinType
+    from app.services.security.notifications import dispatch_alert
+    from app.services.security.pins import verify_owner_pin
+    from app.services.security.telegram_link import create_link
+
+    sub = await _resolve_portal_subscription(body.token, request, db)
+    pin_type = await verify_owner_pin(db, sub.id, body.pin)
+    link = await create_link(db, sub.id)
+
+    if pin_type == PinType.duress:
+        alert = SecurityAlert(
+            subscription_id=sub.id,
+            alert_type=SecurityAlertType.DURESS,
+            status=SecurityAlertStatus.new,
+            triggered_at=datetime.now(timezone.utc),
+            idempotency_key=f"duress_telegram_link:{sub.id}:{int(datetime.now(timezone.utc).timestamp())}",
+            operator_notes="PIN de coacción usado para vincular Telegram desde el portal",
+        )
+        db.add(alert)
+        await db.commit()
+        await db.refresh(alert)
+        await dispatch_alert(alert, db)
+    return link
 
 
 # ── Electronic contract ───────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ from app.models.client import Client, ClientStatus
 from app.models.plan import Plan
 from app.models.router import MikrotikRouter
 from app.services.mikrotik import MikrotikError, build_service_from_router
+from app.services.security.telegram_client_bot import build_client_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +62,15 @@ def build_application(token: str, database_url: str, allowed_ids: List[int]) -> 
         # configured nobody may use them (previously an empty list allowed anyone).
         return bool(allowed_ids) and update.effective_chat.id in allowed_ids
 
+    # Security clients (titular / linked members) — see telegram_client_bot
+    client_cmds = build_client_handlers(maker)
+
     # ── /start /help ──────────────────────────────────────────────────────────
 
-    async def cmd_start(update: Update, _ctx: ContextTypes.DEFAULT_TYPE):
-        if not ok(update):
+    async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+        # Deep link (/start <code>) and non-operators go to the client side
+        if ctx.args or not ok(update):
+            await client_cmds["start"](update, ctx)
             return
         await update.message.reply_text(
             "🛰 *Guaynet Bot*\n\n"
@@ -74,7 +80,8 @@ def build_application(token: str, database_url: str, allowed_ids: List[int]) -> 
             "/planes — Listar planes activos\n"
             "/cortar `<id>` — Suspender servicio\n"
             "/activar `<id>` — Activar servicio\n"
-            "/plan `<id_cliente> <id_plan>` — Cambiar plan",
+            "/plan `<id_cliente> <id_plan>` — Cambiar plan\n\n"
+            "Si además tenés una alarma vinculada: /ayuda",
             parse_mode="Markdown",
         )
 
@@ -106,7 +113,16 @@ def build_application(token: str, database_url: str, allowed_ids: List[int]) -> 
     # ── /estado ───────────────────────────────────────────────────────────────
 
     async def cmd_estado(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-        if not ok(update):
+        # "/estado <id>" from an operator = internet client; plain "/estado" = own alarm
+        if not ok(update) or not ctx.args:
+            if ok(update):
+                from app.services.security.telegram_link import chat_links
+                async with maker() as db:
+                    linked = await chat_links(db, update.effective_chat.id)
+                if not linked:
+                    await update.message.reply_text("Uso: /estado <id>")
+                    return
+            await client_cmds["estado"](update, ctx)
             return
         if not ctx.args or not ctx.args[0].isdigit():
             await update.message.reply_text("Uso: /estado <id>")
@@ -238,6 +254,19 @@ def build_application(token: str, database_url: str, allowed_ids: List[int]) -> 
         if data == "cancelar":
             await q.edit_message_text("❌ Operación cancelada.")
             return
+
+        if data.startswith("cli:"):
+            await client_cmds["callback"](update, _ctx)
+            return
+
+        # Callback data can be forged by any chat that has a message with buttons
+        # (clients get them too): service changes are for operator chats only.
+        if data.split(":", 1)[0] in ("cortar", "activar", "plan"):
+            chat_id = q.message.chat.id if q.message else None
+            if not allowed_ids or chat_id not in allowed_ids:
+                logger.warning("Rejected operator callback %r from chat %s", data, chat_id)
+                await q.edit_message_text("❌ No autorizado.")
+                return
 
         # ── Seguridad: confirmación de alerta ─────────────────────────────────
         if data.startswith("sec_safe:") or data.startswith("sec_help:"):
@@ -429,5 +458,8 @@ def build_application(token: str, database_url: str, allowed_ids: List[int]) -> 
     app.add_handler(CommandHandler("cortar", cmd_cortar))
     app.add_handler(CommandHandler("activar", cmd_activar))
     app.add_handler(CommandHandler("plan", cmd_plan))
+    app.add_handler(CommandHandler("ayuda", client_cmds["start"]))
+    for name in ("historial", "entrada", "llegue", "vacaciones", "panico", "desvincular"):
+        app.add_handler(CommandHandler(name, client_cmds[name]))
     app.add_handler(CallbackQueryHandler(on_callback))
     return app

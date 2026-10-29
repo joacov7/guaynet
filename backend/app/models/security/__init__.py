@@ -17,6 +17,7 @@ from app.models.security.report import SecurityMonthlyReport, SecurityMonthlyRep
 from app.models.security.schedule import SecuritySchedule
 from app.models.security.app_device import SecurityAppDevice
 from app.models.security.beat_webhook import SecurityBeatWebhook
+from app.models.security.telegram_link import SecurityTelegramLink
 
 __all__ = [
     "Property", "PropertyType",
@@ -35,4 +36,5 @@ __all__ = [
     "SecuritySchedule",
     "SecurityAppDevice",
     "SecurityBeatWebhook",
+    "SecurityTelegramLink",
 ]

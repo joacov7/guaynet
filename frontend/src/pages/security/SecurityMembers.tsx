@@ -20,11 +20,13 @@ import {
   EditOutlined,
   PlusOutlined,
   RollbackOutlined,
+  SendOutlined,
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { membersApi, propertiesApi } from "../../services/security/api";
-import type { PropertyMember, PropertyMemberRole } from "../../types/security";
+import type { PropertyMember, PropertyMemberRole, TelegramLink } from "../../types/security";
+import TelegramLinkModal from "./TelegramLinkModal";
 
 const { Title, Text } = Typography;
 
@@ -71,6 +73,7 @@ export default function SecurityMembers() {
   const [showRevoked, setShowRevoked] = useState(false);
   const [modal, setModal] = useState<{ open: boolean; editing?: PropertyMember }>({ open: false });
   const [form] = Form.useForm<MemberFormValues>();
+  const [tgLink, setTgLink] = useState<{ link: TelegramLink; who: string } | null>(null);
 
   const { data: property } = useQuery({
     queryKey: ["security", "properties", propertyId],
@@ -110,6 +113,25 @@ export default function SecurityMembers() {
     mutationFn: (id: number) => membersApi.update(id, { status: "active" } as any),
     onSuccess: () => { invalidate(); message.success("Miembro reactivado"); },
     onError: () => message.error("Error al reactivar"),
+  });
+
+  const tgLinkMutation = useMutation({
+    mutationFn: (m: PropertyMember) => membersApi.telegramLink(m.id).then((link) => ({ link, who: m.name })),
+    onSuccess: setTgLink,
+    onError: (e: any) => {
+      message.error(e?.response?.data?.detail ?? "No se pudo generar el enlace");
+    },
+  });
+
+  const tgUnlinkMutation = useMutation({
+    mutationFn: (id: number) => membersApi.telegramUnlink(id),
+    onSuccess: () => {
+      invalidate();
+      message.success("Telegram desvinculado");
+    },
+    onError: () => {
+      message.error("No se pudo desvincular");
+    },
   });
 
   const openCreate = () => {
@@ -184,6 +206,36 @@ export default function SecurityMembers() {
     boolCol("Alarma", "notify_on_alarm"),
     boolCol("Entrada", "notify_on_entry"),
     {
+      title: "Telegram",
+      key: "telegram",
+      render: (_: any, m: PropertyMember) =>
+        m.status !== "active" ? null : m.telegram_linked_at ? (
+          <Space size={4}>
+            <Tooltip title={`Vinculado el ${new Date(m.telegram_linked_at).toLocaleDateString("es-AR")}`}>
+              <Tag color="blue">Vinculado</Tag>
+            </Tooltip>
+            <Popconfirm
+              title="¿Desvincular Telegram?"
+              description="Deja de recibir avisos y de usar el bot."
+              onConfirm={() => tgUnlinkMutation.mutate(m.id)}
+              okText="Desvincular"
+              cancelText="Cancelar"
+            >
+              <Button size="small" type="link">Quitar</Button>
+            </Popconfirm>
+          </Space>
+        ) : (
+          <Button
+            size="small"
+            icon={<SendOutlined />}
+            loading={tgLinkMutation.isPending && tgLinkMutation.variables?.id === m.id}
+            onClick={() => tgLinkMutation.mutate(m)}
+          >
+            Enlace
+          </Button>
+        ),
+    },
+    {
       title: "",
       key: "actions",
       width: 100,
@@ -240,6 +292,8 @@ export default function SecurityMembers() {
           </Button>
         </Space>
       </div>
+
+      <TelegramLinkModal link={tgLink?.link ?? null} who={tgLink?.who ?? ""} onClose={() => setTgLink(null)} />
 
       <Table
         rowKey="id"

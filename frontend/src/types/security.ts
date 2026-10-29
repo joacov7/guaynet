@@ -178,6 +178,13 @@ export interface PropertyMember {
   notify_on_alarm: boolean;
   notify_on_entry: boolean;
   status: string;
+  telegram_linked_at?: string | null;
+}
+
+/** One-time link that binds a Telegram chat through the bot (valid 48 h). */
+export interface TelegramLink {
+  url: string;
+  expires_at: string;
 }
 
 export type SecurityParamKey =

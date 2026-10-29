@@ -75,6 +75,38 @@ async def create_duress_alert(
     return alert
 
 
+async def create_panic_alert(
+    db: AsyncSession,
+    subscription_id: int,
+    idempotency_key: str,
+    notes: str,
+) -> SecurityAlert:
+    """PANIC raised by a person (Telegram bot); dispatched like any other alert."""
+    from sqlalchemy import select
+    existing = (await db.execute(
+        select(SecurityAlert).where(SecurityAlert.idempotency_key == idempotency_key)
+    )).scalar_one_or_none()
+    if existing:
+        return existing
+
+    alert = SecurityAlert(
+        subscription_id=subscription_id,
+        alert_type=SecurityAlertType.PANIC,
+        status=SecurityAlertStatus.new,
+        triggered_at=datetime.now(timezone.utc),
+        idempotency_key=idempotency_key,
+        operator_notes=notes,
+    )
+    db.add(alert)
+    await db.commit()
+    await db.refresh(alert)
+
+    from app.services.security.notifications import dispatch_alert
+    await dispatch_alert(alert, db, skip_confirmation=True)
+    await db.commit()
+    return alert
+
+
 async def create_alert_from_event(
     db: AsyncSession,
     subscription_id: int,

@@ -15,6 +15,7 @@ import type {
   SecurityCertificate,
   ElderlyConfig,
   TemporaryPin,
+  TelegramLink,
 } from "../../types/security";
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
@@ -90,6 +91,9 @@ export const subscriptionsApi = {
 
   regeneratePortalToken: (id: number): Promise<{ portal_token: string; portal_url: string }> =>
     api.post(`/security/subscriptions/${id}/regenerate-portal-token`).then((r) => r.data),
+
+  telegramLink: (id: number): Promise<TelegramLink> =>
+    api.post(`/security/subscriptions/${id}/telegram-link`).then((r) => r.data),
 };
 
 // ── Alerts ─────────────────────────────────────────────────────────────────
@@ -221,6 +225,12 @@ export const membersApi = {
 
   revoke: (id: number): Promise<import("../../types/security").PropertyMember> =>
     api.delete(`/security/members/${id}`).then((r) => r.data),
+
+  telegramLink: (id: number): Promise<TelegramLink> =>
+    api.post(`/security/members/${id}/telegram-link`).then((r) => r.data),
+
+  telegramUnlink: (id: number): Promise<import("../../types/security").PropertyMember> =>
+    api.post(`/security/members/${id}/telegram-unlink`).then((r) => r.data),
 };
 
 // ── Neighborhood Groups ────────────────────────────────────────────────────

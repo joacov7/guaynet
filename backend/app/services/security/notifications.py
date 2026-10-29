@@ -17,6 +17,9 @@ Routing logic per alert:
        → Plain message to client.
   5. Neither channel → log warning.
 
+Linked members (family / employees with notify_on_alarm) get an informative copy
+in every case except DURESS, which must stay silent.
+
 Fire-and-forget: errors are logged, never raised.
 """
 import logging
@@ -62,6 +65,13 @@ _ALERT_LABELS = {
 }
 
 
+def _md(text: str) -> str:
+    """Escape Telegram Markdown (v1) so a name like "Casa_Perez" does not make the send fail."""
+    for ch in ("_", "*", "`", "["):
+        text = text.replace(ch, "\\" + ch)
+    return text
+
+
 def _alert_type_str(alert: "SecurityAlert") -> str:
     return alert.alert_type.value if hasattr(alert.alert_type, "value") else str(alert.alert_type)
 
@@ -74,15 +84,48 @@ def _build_message(alert: "SecurityAlert", property_name: str, for_client: bool)
     header = f"{emoji} *{'Alerta en tu propiedad' if for_client else 'ALERTA DE SEGURIDAD'}*"
     lines = [header, f"*Tipo:* {label}"]
     if property_name:
-        lines.append(f"*Propiedad:* {property_name}")
+        lines.append(f"*Propiedad:* {_md(property_name)}")
     lines.append(f"*Suscripción:* #{alert.subscription_id}")
     if for_client:
         lines.append("\n_¿Podés confirmarnos que estás bien?_")
     else:
         if alert.operator_notes:
-            lines.append(f"*Detalle:* {alert.operator_notes}")
+            lines.append(f"*Detalle:* {_md(alert.operator_notes)}")
         lines.append(f"*Estado:* nuevo")
     return "\n".join(lines)
+
+
+def _family_message(alert: "SecurityAlert", property_name: str, note: str = "") -> str:
+    atype = _alert_type_str(alert)
+    lines = [
+        f"{_ALERT_EMOJI.get(atype, '🔔')} *Alerta de la alarma*",
+        f"*Tipo:* {_ALERT_LABELS.get(atype, atype)}",
+    ]
+    if property_name:
+        lines.append(f"*Propiedad:* {_md(property_name)}")
+    if note:
+        lines.append(f"\n_{note}_")
+    return "\n".join(lines)
+
+
+async def dispatch_alert_family(alert: "SecurityAlert", db, property_name: str = "", note: str = "") -> int:
+    """Send an informative copy to the linked members. Returns how many chats."""
+    try:
+        from app.models.security.subscription import SecuritySubscription
+        from app.services.security.telegram_link import family_chat_ids
+        from app.services.telegram import send_telegram_to
+
+        sub = await db.get(SecuritySubscription, alert.subscription_id)
+        if sub is None:
+            return 0
+        chats = await family_chat_ids(db, sub, "alarm")
+        text = _family_message(alert, property_name, note)
+        for chat in chats:
+            await send_telegram_to(chat, text)
+        return len(chats)
+    except Exception as exc:
+        logger.warning("Family Telegram dispatch failed for alert %s: %s", getattr(alert, "id", "?"), exc)
+        return 0
 
 
 async def dispatch_alert_neighborhood(
@@ -178,10 +221,12 @@ async def dispatch_alert_app(alert: "SecurityAlert", db, property_name: str = ""
         logger.warning("App push dispatch failed for alert %s: %s", getattr(alert, "id", "?"), exc)
 
 
-async def dispatch_alert(alert: "SecurityAlert", db=None) -> None:
+async def dispatch_alert(alert: "SecurityAlert", db=None, skip_confirmation: bool = False) -> None:
     """
     Route a new alert through the correct notification channels.
     See module docstring for the full routing logic.
+    skip_confirmation: the person already confirmed (e.g. panic from the bot), so
+    no "¿Estás bien?" is asked.
     """
     property_name = ""
     client_telegram_id: Optional[str] = None
@@ -239,13 +284,18 @@ async def dispatch_alert(alert: "SecurityAlert", db=None) -> None:
         await dispatch_alert_app(alert, db, property_name)
 
     use_confirmation = (
-        confirmation_enabled
+        not skip_confirmation
+        and confirmation_enabled
         and client_telegram_id
         and atype not in _NO_CONFIRMATION_TYPES
     )
 
     if use_confirmation:
         await _dispatch_with_confirmation(alert, client_telegram_id, property_name, db)
+        if db is not None:
+            await dispatch_alert_family(
+                alert, db, property_name, "Le preguntamos al titular si está todo bien."
+            )
         return
 
     dispatched = False
@@ -257,6 +307,10 @@ async def dispatch_alert(alert: "SecurityAlert", db=None) -> None:
     if client_telegram_id:
         await dispatch_alert_client(alert, client_telegram_id, property_name)
         dispatched = True
+
+    if db is not None and atype not in _NO_CONFIRMATION_TYPES:
+        if await dispatch_alert_family(alert, db, property_name):
+            dispatched = True
 
     if not dispatched:
         logger.warning(

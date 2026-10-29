@@ -128,3 +128,19 @@ async def regenerate_portal_token(
         )
 
     return RegenerateTokenResponse(portal_token=sub.portal_token, portal_url=portal_url)
+
+
+class TelegramLinkResponse(BaseModel):
+    url: str
+    expires_at: str
+
+
+@router.post("/{subscription_id}/telegram-link", response_model=TelegramLinkResponse)
+async def telegram_link_titular(
+    subscription_id: int,
+    _=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """One-time link (48 h) that binds the titular's Telegram chat to this subscription."""
+    from app.services.security.telegram_link import create_link
+    return await create_link(db, subscription_id)

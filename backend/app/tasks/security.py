@@ -152,6 +152,11 @@ async def _notify_power_event(db, sub_id: int, event_type: str) -> None:
             await send_telegram(operator_msg)
             sent = True
 
+        from app.services.security.telegram_link import family_chat_ids
+        for chat in await family_chat_ids(db, sub, "alarm"):
+            await send_telegram_to(chat, client_msg)
+            sent = True
+
         if not sent:
             logger.warning(
                 "Power event %s for sub #%s: no notification channel configured.",
@@ -411,10 +416,16 @@ def check_confirmation_timeouts(self):
                     except Exception as exc:
                         logger.error("Failed to escalate alert %d after timeout: %s", alert.id, exc)
                 else:
-                    logger.warning(
-                        "Alert %d confirmation timed out but plan has no monitoring — no operator dispatch.",
-                        alert.id,
+                    # No central: the family is the safety net
+                    from app.services.security.notifications import dispatch_alert_family
+                    notified = await dispatch_alert_family(
+                        alert, db, property_name, "El titular no respondió si está todo bien."
                     )
+                    if not notified:
+                        logger.warning(
+                            "Alert %d confirmation timed out, plan has no monitoring and no family linked.",
+                            alert.id,
+                        )
 
             await db.commit()
 

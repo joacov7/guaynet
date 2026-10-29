@@ -1,6 +1,7 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 
 from app.core.deps import get_current_user, get_db
 from app.schemas.security.member import PropertyMemberCreate, PropertyMemberResponse, PropertyMemberUpdate
@@ -54,3 +55,37 @@ async def revoke_member(
     db=Depends(get_db),
 ):
     return await svc.revoke_member(db, member_id)
+
+
+@router.post("/{member_id}/telegram-link")
+async def telegram_link_member(
+    member_id: int,
+    _=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """One-time link (48 h) for this member to receive the alarm notices on Telegram."""
+    from app.models.security.subscription import SecuritySubscription, SecuritySubscriptionStatus
+    from app.services.security.telegram_link import create_link
+
+    member = await svc.get_member(db, member_id)
+    sub = (await db.execute(
+        select(SecuritySubscription)
+        .where(
+            SecuritySubscription.property_id == member.property_id,
+            SecuritySubscription.status != SecuritySubscriptionStatus.cancelled,
+        )
+        .order_by(SecuritySubscription.id.desc())
+    )).scalars().first()
+    if sub is None:
+        raise HTTPException(status_code=404, detail="La propiedad no tiene una suscripción de seguridad")
+    return await create_link(db, sub.id, member_id)
+
+
+@router.post("/{member_id}/telegram-unlink", response_model=PropertyMemberResponse)
+async def telegram_unlink_member(
+    member_id: int,
+    _=Depends(get_current_user),
+    db=Depends(get_db),
+):
+    from app.services.security.telegram_link import unlink_member
+    return await unlink_member(db, member_id)

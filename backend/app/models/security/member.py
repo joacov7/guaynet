@@ -51,6 +51,10 @@ class PropertyMember(Base, TimestampMixin):
     schedule_restricted: Mapped[bool] = mapped_column(Boolean, default=False)
     schedule_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
+    # Linked through the bot deep link (see SecurityTelegramLink)
+    telegram_chat_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    telegram_linked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
     status: Mapped[str] = mapped_column(String(20), default="active")  # active | revoked
     invited_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
