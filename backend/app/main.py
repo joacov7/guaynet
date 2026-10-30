@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from app.api.v1.router import api_router
-from app.core.config import settings
+from app.core.config import check_initial_admin_password, settings
 from app.core.database import AsyncSessionLocal
 from app.core.security import get_password_hash
 from app.models import Base  # noqa: F401 — imported so Alembic detects all models
@@ -22,6 +22,7 @@ async def lifespan(app: FastAPI):
 
         result = await db.execute(select(User).where(User.username == settings.FIRST_SUPERUSER))
         if not result.scalar_one_or_none():
+            check_initial_admin_password(settings)
             admin = User(
                 username=settings.FIRST_SUPERUSER,
                 email=settings.FIRST_SUPERUSER_EMAIL,
