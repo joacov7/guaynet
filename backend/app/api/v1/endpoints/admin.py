@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import asc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db, require_admin
+from app.core.deps import require_permission, get_db, require_admin
 from app.core.security import get_password_hash
 from app.models.audit import AuditLog
 from app.models.bandwidth import BandwidthSample
@@ -213,7 +213,7 @@ async def list_audit_logs(
     entity_id: Optional[int] = None,
     limit: int = Query(default=100, le=500),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    _: User = Depends(require_permission("audit")),
 ):
     q = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit)
     if entity_type:
@@ -242,7 +242,7 @@ async def list_audit_logs(
 async def ip_pool(
     subnet: str = Query(..., description="CIDR subnet, e.g. 192.168.1.0/24"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    _: User = Depends(require_permission("ip_pool")),
 ):
     try:
         network = ipaddress.ip_network(subnet, strict=False)
@@ -280,7 +280,7 @@ async def bandwidth_history(
     router_id: int,
     hours: int = Query(default=24, ge=1, le=168),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    _: User = Depends(require_permission("bandwidth")),
 ):
     since = datetime.now(timezone.utc) - timedelta(hours=hours)
     rows = (await db.execute(
@@ -308,7 +308,7 @@ async def bandwidth_history(
 @router.get("/map-data")
 async def map_data(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_admin),
+    _: User = Depends(require_permission("map")),
 ):
     from app.models.router import MikrotikRouter, UbiquitiDevice
 

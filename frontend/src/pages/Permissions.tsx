@@ -35,6 +35,13 @@ const SECTION_LABELS: Record<string, string> = {
   ip_pool:    "Pool de IPs",
   audit:      "Auditoría",
   bandwidth:  "Ancho de Banda",
+  security_alerts:         "Seguridad · Central de monitoreo y alertas",
+  security_subscriptions:  "Seguridad · Abonados, planes, contratos y configuración",
+  security_properties:     "Seguridad · Propiedades",
+  security_members:        "Seguridad · Miembros",
+  security_entry_sessions: "Seguridad · Entrada segura",
+  security_events:         "Seguridad · Historial de eventos",
+  security_neighborhood:   "Seguridad · Grupos vecinales",
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -114,7 +121,7 @@ function UserPermissionsPanel() {
     onError: () => message.error("Error al eliminar"),
   });
 
-  const rows = (perms as UserPermissionEntry[]).map((p) => ({
+  const rows = (perms as UserPermissionEntry[]).filter((p) => p.section in SECTION_LABELS).map((p) => ({
     key: p.section,
     label: SECTION_LABELS[p.section] ?? p.section,
     ...p,

@@ -10,6 +10,7 @@ SECTIONS = [
     # Guaynet Seguridad sections
     "security_properties", "security_subscriptions", "security_alerts",
     "security_entry_sessions", "security_events", "security_reports",
+    "security_members", "security_neighborhood",
 ]
 
 ROLES = ["operator", "technician"]

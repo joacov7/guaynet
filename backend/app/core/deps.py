@@ -1,6 +1,6 @@
 from typing import AsyncGenerator, Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,25 +51,60 @@ async def require_admin(current_user=Depends(get_current_user)):
     return current_user
 
 
+def _is_admin(user) -> bool:
+    return user.role == "admin" or bool(user.is_superuser)
+
+
+async def effective_permissions(db: AsyncSession, user) -> dict:
+    """{section: (can_view, can_edit)} for a non-admin: role baseline, user overrides win."""
+    from app.models.permission import RolePermission
+    from app.models.user_permission import UserPermission
+
+    perms = {
+        r.section: (r.can_view, r.can_edit)
+        for r in (await db.execute(select(RolePermission).where(RolePermission.role == user.role))).scalars()
+    }
+    for r in (await db.execute(select(UserPermission).where(UserPermission.user_id == user.id))).scalars():
+        perms[r.section] = (r.can_view, r.can_edit)
+    return perms
+
+
 def require_permission(section: str, action: str = "view"):
+    """Endpoint-level check of one section and action ("view" or "edit")."""
     async def _dep(current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-        if current_user.role == "admin" or current_user.is_superuser:
+        if _is_admin(current_user):
             return current_user
-        from app.models.permission import RolePermission
-        from sqlalchemy import select as sa_select
-        result = await db.execute(
-            sa_select(RolePermission).where(
-                RolePermission.role == current_user.role,
-                RolePermission.section == section,
+        view, edit = (await effective_permissions(db, current_user)).get(section, (False, False))
+        if not (edit if action == "edit" else view):
+            raise HTTPException(
+                status_code=403,
+                detail="Sin permiso de edición" if action == "edit" else "Sin permiso de lectura",
             )
-        )
-        perm = result.scalar_one_or_none()
-        if not perm:
-            raise HTTPException(status_code=403, detail="Sin permiso")
-        if action == "view" and not perm.can_view:
-            raise HTTPException(status_code=403, detail="Sin permiso de lectura")
-        if action == "edit" and not perm.can_edit:
-            raise HTTPException(status_code=403, detail="Sin permiso de edición")
+        return current_user
+    return _dep
+
+
+_READ_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def section_guard(section: str, also_view: tuple = ()):
+    """
+    Router-level permission check (Usuarios → Permisos), applied with
+    include_router(..., dependencies=[Depends(section_guard(...))]):
+      - GET/HEAD: can_view on `section` or on any of `also_view` (other screens
+        that read this data, e.g. the client form lists plans and routers).
+      - any other method: can_edit on `section`.
+    Admins always pass. Endpoint-level checks (e.g. require_admin) still apply.
+    """
+    async def _dep(request: Request, current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+        if _is_admin(current_user):
+            return current_user
+        perms = await effective_permissions(db, current_user)
+        if request.method in _READ_METHODS:
+            if not any(perms.get(s, (False, False))[0] for s in (section, *also_view)):
+                raise HTTPException(status_code=403, detail="No tenés permiso para ver esta sección")
+        elif not perms.get(section, (False, False))[1]:
+            raise HTTPException(status_code=403, detail="No tenés permiso para modificar esta sección")
         return current_user
     return _dep
 

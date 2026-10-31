@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import require_permission, get_db
 from app.models.client import Client
 from app.models.config import SystemConfig
 from app.models.invoice import Invoice, InvoiceStatus, Payment, PaymentMethod
@@ -37,7 +37,7 @@ class MpPreferenceResponse(BaseModel):
 async def create_mp_preference(
     invoice_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    _=Depends(require_permission("billing", "edit")),
 ):
     """Create a MercadoPago payment preference for an invoice (admin/staff use)."""
     return await _build_preference(invoice_id, db)
