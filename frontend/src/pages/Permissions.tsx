@@ -22,27 +22,76 @@ import type { User } from "@/types";
 
 const { Title, Text } = Typography;
 
-const SECTION_LABELS: Record<string, string> = {
-  clients:    "Clientes",
-  plans:      "Planes",
-  routers:    "Routers",
-  billing:    "Facturación",
-  firewall:   "Firewall & QoS",
-  monitoring: "Monitoreo",
-  ubiquiti:   "Ubiquiti",
-  users:      "Usuarios",
-  map:        "Mapa de Red",
-  ip_pool:    "Pool de IPs",
-  audit:      "Auditoría",
-  bandwidth:  "Ancho de Banda",
-  security_alerts:         "Seguridad · Central de monitoreo y alertas",
-  security_subscriptions:  "Seguridad · Abonados, planes, contratos y configuración",
-  security_properties:     "Seguridad · Propiedades",
-  security_members:        "Seguridad · Miembros",
-  security_entry_sessions: "Seguridad · Entrada segura",
-  security_events:         "Seguridad · Historial de eventos",
-  security_neighborhood:   "Seguridad · Grupos vecinales",
-};
+// Order and grouping of the sections shown in the tables. "users" is left out:
+// user management is always admin-only.
+const SECTION_GROUPS: { group: string; sections: [string, string][] }[] = [
+  { group: "Clientes y servicio", sections: [
+    ["clients", "Clientes"],
+    ["plans", "Planes de internet"],
+    ["zones", "Zonas"],
+  ] },
+  { group: "Facturación y finanzas", sections: [
+    ["billing", "Facturación, pagos y avisos de cobro"],
+    ["expenses", "Gastos"],
+    ["reports", "Reportes"],
+  ] },
+  { group: "Red", sections: [
+    ["routers", "Routers y Gestión WAN"],
+    ["firewall", "Firewall & QoS"],
+    ["ubiquiti", "Ubiquiti"],
+    ["monitoring", "Monitoreo"],
+    ["alarms", "Alarmas de red"],
+    ["map", "Mapa de Red"],
+    ["ip_pool", "Pool de IPs"],
+    ["bandwidth", "Ancho de Banda"],
+  ] },
+  { group: "Soporte y campo", sections: [
+    ["tickets", "Soporte (tickets)"],
+    ["work_orders", "Órdenes de trabajo"],
+    ["inventory", "Inventario"],
+  ] },
+  { group: "Seguridad", sections: [
+    ["security_alerts", "Central de monitoreo y alertas"],
+    ["security_subscriptions", "Abonados (PINs, vacaciones, reportes, horario)"],
+    ["security_properties", "Propiedades"],
+    ["security_members", "Miembros"],
+    ["security_plans", "Planes de seguridad"],
+    ["security_contracts", "Contratos"],
+    ["security_devices", "Dispositivos y zonas"],
+    ["security_entry_sessions", "Entrada segura"],
+    ["security_events", "Historial de eventos"],
+    ["security_neighborhood", "Grupos vecinales"],
+    ["security_settings", "Configuración de seguridad"],
+  ] },
+  { group: "Administración", sections: [
+    ["audit", "Auditoría"],
+  ] },
+];
+
+const SECTION_LABELS: Record<string, string> = Object.fromEntries(SECTION_GROUPS.flatMap((g) => g.sections));
+const SECTION_GROUP: Record<string, string> = Object.fromEntries(
+  SECTION_GROUPS.flatMap((g) => g.sections.map(([key]) => [key, g.group])),
+);
+const SECTION_ORDER: string[] = SECTION_GROUPS.flatMap((g) => g.sections.map(([key]) => key));
+
+/** "Módulo" column: the group name spans its rows (rows must be in SECTION_ORDER). */
+function groupColumn<T extends { section: string }>(rows: T[]) {
+  return (
+    <Table.Column<T>
+      title="Módulo"
+      key="group"
+      width={170}
+      render={(_: unknown, r: T) => <Text strong>{SECTION_GROUP[r.section]}</Text>}
+      onCell={(r: T, index?: number) => {
+        const i = index ?? 0;
+        if (i > 0 && SECTION_GROUP[rows[i - 1].section] === SECTION_GROUP[r.section]) return { rowSpan: 0 };
+        let span = 1;
+        while (i + span < rows.length && SECTION_GROUP[rows[i + span].section] === SECTION_GROUP[r.section]) span++;
+        return { rowSpan: span, style: { verticalAlign: "top" } };
+      }}
+    />
+  );
+}
 
 const ROLE_LABELS: Record<string, string> = {
   operator:   "Operador",
@@ -64,14 +113,15 @@ function RolePermissionsTable({ role }: { role: string }) {
 
   const rolePerms = data.filter((p: RolePermission) => p.role === role);
   const bySection = Object.fromEntries(rolePerms.map((p: RolePermission) => [p.section, p]));
-  const rows = Object.entries(SECTION_LABELS).map(([section, label]) => ({
-    key: section, section, label,
+  const rows = SECTION_ORDER.map((section) => ({
+    key: section, section, label: SECTION_LABELS[section],
     can_view: bySection[section]?.can_view ?? false,
     can_edit: bySection[section]?.can_edit ?? false,
   }));
 
   return (
-    <Table dataSource={rows} rowKey="section" pagination={false} size="small" loading={isLoading}>
+    <Table dataSource={rows} rowKey="section" pagination={false} size="small" loading={isLoading} bordered>
+      {groupColumn(rows)}
       <Table.Column title="Sección" dataIndex="label" />
       <Table.Column title="Ver" dataIndex="can_view" width={90}
         render={(val: boolean, row: typeof rows[0]) => (
@@ -121,11 +171,10 @@ function UserPermissionsPanel() {
     onError: () => message.error("Error al eliminar"),
   });
 
-  const rows = (perms as UserPermissionEntry[]).filter((p) => p.section in SECTION_LABELS).map((p) => ({
-    key: p.section,
-    label: SECTION_LABELS[p.section] ?? p.section,
-    ...p,
-  }));
+  const rows = (perms as UserPermissionEntry[])
+    .filter((p) => p.section in SECTION_LABELS)
+    .sort((a, b) => SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section))
+    .map((p) => ({ key: p.section, label: SECTION_LABELS[p.section], ...p }));
 
   const overrideCount = rows.filter((r) => r.is_override).length;
 
@@ -175,8 +224,9 @@ function UserPermissionsPanel() {
             }
           />
           <Table dataSource={rows} rowKey="section" pagination={false} size="small" loading={isLoading}
-            rowClassName={(r) => r.is_override ? "ant-table-row-selected" : ""}
+            rowClassName={(r) => r.is_override ? "ant-table-row-selected" : ""} bordered
           >
+            {groupColumn(rows)}
             <Table.Column title="Sección" dataIndex="label"
               render={(label: string, r: typeof rows[0]) => (
                 <Space>
@@ -229,11 +279,13 @@ export default function Permissions() {
   const [activeRole, setActiveRole] = useState("operator");
 
   return (
-    <div style={{ maxWidth: 800 }}>
+    <div style={{ maxWidth: 960 }}>
       <div style={{ marginBottom: 20 }}>
         <Title level={4} style={{ margin: 0 }}>Gestión de Permisos</Title>
         <Text type="secondary">
           El rol <Tag color="gold">Admin</Tag> siempre tiene acceso completo. Los overrides por usuario tienen prioridad sobre los permisos del rol.
+          {" "}«Ver» permite consultar; «Editar» permite crear, modificar, borrar y ejecutar acciones (cortar, sincronizar, etc.).
+          Usuarios, VPN, Automatizaciones y Configuración general son solo para administradores.
         </Text>
       </div>
 

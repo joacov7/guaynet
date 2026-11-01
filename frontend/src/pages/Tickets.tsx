@@ -94,8 +94,8 @@ export default function Tickets() {
   });
 
   const { data: users = [] } = useQuery({
-    queryKey: ["users"],
-    queryFn: usersApi.list,
+    queryKey: ["users", "assignable"],
+    queryFn: usersApi.assignable,
   });
 
   const createMutation = useMutation({

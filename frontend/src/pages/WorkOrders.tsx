@@ -56,8 +56,8 @@ export default function WorkOrders() {
     queryFn: () => clientsApi.list({ limit: 1000 }),
   });
   const { data: users = [] } = useQuery({
-    queryKey: ["users"],
-    queryFn: () => usersApi.list(),
+    queryKey: ["users", "assignable"],
+    queryFn: () => usersApi.assignable(),
   });
 
   const createMutation = useMutation({

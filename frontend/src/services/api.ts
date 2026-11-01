@@ -77,6 +77,8 @@ export const authApi = {
 // ── Users (admin) ─────────────────────────────────────────────────────────────
 export const usersApi = {
   list: () => http.get<User[]>("/admin/users").then((r) => r.data),
+  /** Active users to assign tickets / work orders (needs Soporte or Órdenes, not admin). */
+  assignable: () => http.get<Pick<User, "id" | "username" | "full_name" | "role">[]>("/admin/users/assignable").then((r) => r.data),
   create: (data: { username: string; email: string; full_name: string; password: string; role: string }) =>
     http.post<User>("/admin/users", data).then((r) => r.data),
   update: (id: number, data: { email?: string; full_name?: string; role?: string; password?: string; is_active?: boolean }) =>

@@ -7,7 +7,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy import asc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import require_permission, get_db, require_admin
+from app.core.deps import effective_permissions, get_current_user, get_db, require_admin, require_permission
 from app.core.security import get_password_hash
 from app.models.audit import AuditLog
 from app.models.bandwidth import BandwidthSample
@@ -52,6 +52,20 @@ async def list_users(
         }
         for u in rows
     ]
+
+
+@router.get("/users/assignable")
+async def list_assignable_users(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Active users to assign tickets / work orders (only name and role)."""
+    if current_user.role != "admin" and not current_user.is_superuser:
+        perms = await effective_permissions(db, current_user)
+        if not any(perms.get(s, (False, False))[0] for s in ("tickets", "work_orders")):
+            raise HTTPException(status_code=403, detail="No tenés permiso para ver esta sección")
+    rows = (await db.execute(select(User).where(User.is_active.is_(True)).order_by(User.full_name))).scalars().all()
+    return [{"id": u.id, "username": u.username, "full_name": u.full_name, "role": u.role} for u in rows]
 
 
 @router.post("/users", status_code=201)

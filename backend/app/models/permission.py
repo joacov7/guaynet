@@ -11,6 +11,10 @@ SECTIONS = [
     "security_properties", "security_subscriptions", "security_alerts",
     "security_entry_sessions", "security_events", "security_reports",
     "security_members", "security_neighborhood",
+    # Etapa 2: modules that were open to any logged-in user
+    "zones", "expenses", "alarms", "tickets", "work_orders", "inventory", "reports",
+    # Etapa 2: split out of security_subscriptions (migration 044 copies its grants)
+    "security_plans", "security_contracts", "security_settings", "security_devices",
 ]
 
 ROLES = ["operator", "technician"]
@@ -41,6 +45,11 @@ DEFAULTS: list[tuple[str, str, bool, bool]] = [
     ("technician", "ip_pool",    True,  False),
     ("technician", "audit",      False, False),
     ("technician", "bandwidth",  True,  False),
+    # Etapa 2: these modules had no permission check, so both roles start with
+    # full access (same as before); tighten them in Usuarios → Permisos.
+    *[(role, section, True, True)
+      for role in ("operator", "technician")
+      for section in ("zones", "expenses", "alarms", "tickets", "work_orders", "inventory", "reports")],
 ]
 
 
