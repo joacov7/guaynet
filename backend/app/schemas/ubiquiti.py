@@ -13,6 +13,7 @@ class UbiquitiDeviceCreate(BaseModel):
     password: Optional[str] = None
     mac_address: Optional[str] = None
     mikrotik_router_id: Optional[int] = None
+    controller_id: Optional[int] = None
     location: Optional[str] = None
     notes: Optional[str] = None
     latitude: Optional[float] = None
@@ -43,6 +44,7 @@ class UbiquitiDeviceResponse(BaseModel):
     username: Optional[str]
     mac_address: Optional[str]
     mikrotik_router_id: Optional[int]
+    controller_id: Optional[int] = None
     location: Optional[str]
     notes: Optional[str]
     latitude: Optional[float] = None
