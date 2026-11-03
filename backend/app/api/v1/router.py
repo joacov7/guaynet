@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.deps import require_admin, section_guard
 
-from app.api.v1.endpoints import admin, alarms, auth, automations, clients, dashboard, expenses, firewall, inventory, invoices, mobile, notifications, payments, permissions, plans, portal, push, reports, routers, tickets, ubiquiti, vpn, wan, work_orders, zones
+from app.api.v1.endpoints import admin, alarms, auth, automations, clients, dashboard, expenses, firewall, inventory, invoices, mobile, network_controllers, notifications, payments, permissions, plans, portal, push, reports, routers, tickets, ubiquiti, vpn, wan, work_orders, zones
 from app.api.v1.endpoints.security import (
     alerts as sec_alerts,
     beat as sec_beat,
@@ -41,6 +41,7 @@ api_router.include_router(routers.router, prefix="/routers", tags=["routers"], d
 api_router.include_router(invoices.router, prefix="/invoices", tags=["invoices"], dependencies=[Depends(section_guard("billing"))])
 api_router.include_router(firewall.router, prefix="/firewall", tags=["firewall"], dependencies=[Depends(section_guard("firewall"))])
 api_router.include_router(ubiquiti.router, prefix="/ubiquiti", tags=["ubiquiti"], dependencies=[Depends(section_guard("ubiquiti", also_view=("clients",)))])
+api_router.include_router(network_controllers.router, prefix="/network-controllers", tags=["network-controllers"], dependencies=[Depends(section_guard("ubiquiti"))])
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(permissions.router, prefix="/permissions", tags=["permissions"])
 api_router.include_router(vpn.router, prefix="/vpn", tags=["vpn"], dependencies=[Depends(require_admin)])
