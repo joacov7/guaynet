@@ -1,7 +1,6 @@
 from typing import List, Optional
 from datetime import datetime, timezone
 import ipaddress
-import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -14,6 +13,7 @@ from app.models.router import MikrotikRouter
 from app.models.client import Client, ClientStatus, ClientDeviceHistory
 from app.models.plan import Plan
 from app.services.mikrotik import build_service_from_router, MikrotikError
+from app.services.dhcp_identity import normalize_mac
 from app.schemas.firewall import (
     DHCPScanResponse,
     DHCPLease,
@@ -24,18 +24,6 @@ from app.schemas.firewall import (
 )
 
 router = APIRouter()
-
-
-def normalize_mac(value: Optional[str]) -> str:
-    """Return canonical AA:BB:CC:DD:EE:FF form; empty string for invalid input."""
-    raw = (value or "").strip()
-    if not raw or not re.fullmatch(r"[0-9a-fA-F:.-]+", raw):
-        return ""
-    compact = re.sub(r"[:.-]", "", raw)
-    if len(compact) != 12 or not re.fullmatch(r"[0-9a-fA-F]{12}", compact):
-        return ""
-    compact = compact.lower()
-    return ":".join(compact[i:i + 2] for i in range(0, 12, 2))
 
 
 async def _get_router_or_404(router_id: int, db: AsyncSession) -> MikrotikRouter:
