@@ -1,11 +1,14 @@
 import enum
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import Boolean, DateTime, Enum as SAEnum, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.router import UbiquitiDevice
 
 
 class NetworkControllerType(str, enum.Enum):
@@ -20,7 +23,7 @@ class NetworkControllerStatus(str, enum.Enum):
 
 
 class NetworkController(Base, TimestampMixin):
-    """Controller endpoint and encrypted credentials; never store device credentials here."""
+    """Controller endpoint and encrypted credentials; device credentials stay on devices."""
 
     __tablename__ = "network_controllers"
 
@@ -41,3 +44,5 @@ class NetworkController(Base, TimestampMixin):
     )
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    devices: Mapped[List["UbiquitiDevice"]] = relationship(back_populates="controller")
