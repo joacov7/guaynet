@@ -50,28 +50,72 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
         return DHCPScanResponse(total=0, registered=0, unregistered=0, leases=[], error=f"Error inesperado: {e}")
 
     rows = await db.execute(
-        select(Client.ip_address, Client.id, Client.first_name, Client.last_name)
+        select(Client.id, Client.ip_address, Client.mac_address, Client.first_name, Client.last_name)
         .where(Client.router_id == router_id)
     )
-    registered = {
-        row.ip_address: (row.id, f"{row.first_name} {row.last_name}")
-        for row in rows
-    }
+    clients = list(rows)
+    by_ip = {row.ip_address: row for row in clients}
+
+    def normalize_mac(value: Optional[str]) -> str:
+        return (value or "").strip().lower().replace("-", ":").replace(".", "")
+
+    by_mac = {}
+    for client in clients:
+        mac = normalize_mac(client.mac_address)
+        if mac:
+            by_mac.setdefault(mac, []).append(client)
+
+    def normalize_name(value: Optional[str]) -> str:
+        return " ".join((value or "").strip().lower().replace("_", " ").replace("-", " ").split())
 
     leases: List[DHCPLease] = []
     for raw in leases_raw:
         ip = raw.get("address", "")
-        is_reg = ip in registered
+        mac = normalize_mac(raw.get("mac-address", ""))
+        hostname = raw.get("host-name", "") or None
+        matched = None
+        match_reason = None
+        replacement_candidate = None
+
+        # Stable device identity: MAC within the selected MikroTik router.
+        mac_matches = by_mac.get(mac, []) if mac else []
+        if len(mac_matches) == 1:
+            matched = mac_matches[0]
+            match_reason = "mac"
+        elif len(mac_matches) > 1:
+            # Ambiguous duplicate MACs must never be auto-associated.
+            match_reason = "ambiguous_mac"
+        elif ip in by_ip:
+            matched = by_ip[ip]
+            match_reason = "ip"
+
+        # Hostname is only a hint for a possible antenna replacement, never proof.
+        if matched is None and hostname:
+            wanted = normalize_name(hostname)
+            candidates = [
+                c for c in clients
+                if normalize_name(f"{c.first_name} {c.last_name}") == wanted
+            ]
+            if len(candidates) == 1:
+                replacement_candidate = candidates[0]
+
         leases.append(
             DHCPLease(
                 address=ip,
                 mac_address=raw.get("mac-address", ""),
-                hostname=raw.get("host-name", "") or None,
+                hostname=hostname,
                 comment=raw.get("comment", "") or None,
                 status=raw.get("status", ""),
-                is_registered=is_reg,
-                client_id=registered[ip][0] if is_reg else None,
-                client_name=registered[ip][1] if is_reg else None,
+                is_registered=matched is not None,
+                client_id=matched.id if matched else None,
+                client_name=f"{matched.first_name} {matched.last_name}" if matched else None,
+                match_reason=match_reason,
+                ip_changed=bool(matched and matched.ip_address != ip),
+                replacement_client_id=replacement_candidate.id if replacement_candidate else None,
+                replacement_client_name=(
+                    f"{replacement_candidate.first_name} {replacement_candidate.last_name}"
+                    if replacement_candidate else None
+                ),
             )
         )
 
