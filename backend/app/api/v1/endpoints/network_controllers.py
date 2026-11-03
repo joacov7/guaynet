@@ -1,3 +1,5 @@
+import asyncio
+from datetime import datetime, timezone
 from typing import List
 from urllib.parse import urlparse
 
@@ -6,9 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db
-from app.core.security import encrypt_value
+from app.core.security import decrypt_value, encrypt_value
 from app.core.config import settings
 from app.models.network_controller import NetworkController
+from app.services.unifi_network import UniFiError, UniFiNetworkService
 from app.schemas.ubiquiti import (
     NetworkControllerCreate,
     NetworkControllerResponse,
@@ -120,3 +123,40 @@ async def delete_controller(
         raise HTTPException(status_code=404, detail="Controlador no encontrado")
     await db.delete(controller)
     await db.commit()
+
+
+@router.post("/{controller_id}/test-connection")
+async def test_controller_connection(
+    controller_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Authenticate to UniFi and read sites. This endpoint performs GET-only inventory reads after login."""
+    controller = await db.get(NetworkController, controller_id)
+    if controller is None:
+        raise HTTPException(status_code=404, detail="Controlador no encontrado")
+    if not controller.username or not controller.credentials_encrypted:
+        raise HTTPException(
+            status_code=400,
+            detail="Configurá usuario y contraseña del controlador antes de probar la conexión.",
+        )
+
+    password = decrypt_value(controller.credentials_encrypted)
+    service = UniFiNetworkService(
+        base_url=controller.base_url,
+        username=controller.username,
+        password=password,
+        verify_tls=controller.verify_tls,
+    )
+    try:
+        result = await asyncio.to_thread(service.test_connection)
+        controller.status = "online"
+        controller.last_seen = datetime.now(timezone.utc)
+        controller.last_error = None
+        await db.commit()
+        return result
+    except UniFiError as exc:
+        controller.status = "error"
+        controller.last_error = str(exc)[:500]
+        await db.commit()
+        raise HTTPException(status_code=502, detail=str(exc))
