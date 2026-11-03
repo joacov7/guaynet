@@ -550,6 +550,27 @@ export default function Firewall() {
             <Button size="small" onClick={() => navigate(`/clients/${r.replacement_client_id}`)}>
               Revisar cliente
             </Button>
+            <Button
+              size="small"
+              type="primary"
+              onClick={async () => {
+                if (!window.confirm(`Confirmás que la MAC ${r.mac_address} es la nueva antena de ${r.replacement_client_name}?`)) return;
+                try {
+                  await firewallApi.confirmDhcpDevice(routerId!, {
+                    client_id: r.replacement_client_id!,
+                    mac_address: r.mac_address,
+                    ip_address: r.address,
+                    hostname: r.hostname,
+                  });
+                  message.success("Antena reemplazada y equipo anterior guardado en el historial");
+                  refetchDhcp();
+                } catch (err: any) {
+                  message.error(err.response?.data?.detail ?? "No se pudo confirmar el reemplazo");
+                }
+              }}
+            >
+              Confirmar reemplazo
+            </Button>
           </Space>
         ) : (
           <Button
