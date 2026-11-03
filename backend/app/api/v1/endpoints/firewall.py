@@ -102,7 +102,7 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
         if len(candidate_ids) == 1:
             candidate_id = next(iter(candidate_ids))
             matched = next((c for c in clients if c.id == candidate_id), None)
-            match_reason = "mac" if matched else "historical_mac"
+            match_reason = "mac" if any(c.id == candidate_id for c in mac_matches) else "historical_mac"
         elif len(candidate_ids) > 1:
             match_reason = "ambiguous_mac"
         elif ip in by_ip:
@@ -187,14 +187,13 @@ async def confirm_dhcp_device_replacement(
     if normalized_ip != body.ip_address.strip():
         body.ip_address = normalized_ip
 
-    duplicate_mac = await db.execute(
-        select(Client.id).where(
+    router_clients = await db.execute(
+        select(Client.id, Client.mac_address).where(
             Client.router_id == router_id,
-            func.lower(Client.mac_address) == mac,
             Client.id != client.id,
         )
     )
-    if duplicate_mac.first():
+    if any(normalize_mac(existing_mac) == mac for _, existing_mac in router_clients):
         raise HTTPException(409, "Esa MAC ya está asignada a otro cliente")
 
     duplicate_ip = await db.execute(
