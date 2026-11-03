@@ -1,4 +1,3 @@
-import asyncio
 from datetime import datetime, timezone
 from typing import List
 from urllib.parse import urlparse
@@ -11,7 +10,7 @@ from app.core.deps import get_current_user, get_db
 from app.core.security import decrypt_value, encrypt_value
 from app.core.config import settings
 from app.models.network_controller import NetworkController, NetworkControllerStatus
-from app.services.unifi_network import UniFiError, UniFiNetworkService
+from app.services.unifi_readonly import UniFiControllerError, UniFiReadOnlyClient
 from app.schemas.ubiquiti import (
     NetworkControllerCreate,
     NetworkControllerResponse,
@@ -125,13 +124,14 @@ async def delete_controller(
     await db.commit()
 
 
+
 @router.post("/{controller_id}/test-connection")
 async def test_controller_connection(
     controller_id: int,
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    """Authenticate to UniFi and read sites. This endpoint performs GET-only inventory reads after login."""
+    """Authenticate to UniFi and read sites. No controller configuration is modified."""
     controller = await db.get(NetworkController, controller_id)
     if controller is None:
         raise HTTPException(status_code=404, detail="Controlador no encontrado")
@@ -141,21 +141,30 @@ async def test_controller_connection(
             detail="Configurá usuario y contraseña del controlador antes de probar la conexión.",
         )
 
-    password = decrypt_value(controller.credentials_encrypted)
-    service = UniFiNetworkService(
+    client = UniFiReadOnlyClient(
         base_url=controller.base_url,
         username=controller.username,
-        password=password,
+        password=decrypt_value(controller.credentials_encrypted),
         verify_tls=controller.verify_tls,
     )
     try:
-        result = await asyncio.to_thread(service.test_connection)
+        sites = await client.get_sites()
         controller.status = NetworkControllerStatus.online
         controller.last_seen = datetime.now(timezone.utc)
         controller.last_error = None
         await db.commit()
-        return result
-    except UniFiError as exc:
+        return {
+            "connected": True,
+            "sites_count": len(sites),
+            "sites": [
+                {
+                    "name": item.get("name") or item.get("desc") or "sin_nombre",
+                    "site_id": item.get("_id") or item.get("id"),
+                }
+                for item in sites if isinstance(item, dict)
+            ],
+        }
+    except UniFiControllerError as exc:
         controller.status = NetworkControllerStatus.error
         controller.last_error = str(exc)[:500]
         await db.commit()
