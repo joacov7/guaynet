@@ -1,8 +1,8 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import ACTION_DENIED, get_current_user, get_db, has_action
 from app.models.security.alert import SecurityAlertStatus
 from app.schemas.security.alert import AlertPanelItem, SecurityAlertResponse, SecurityAlertUpdate
 from app.services.security import alerts as svc
@@ -46,4 +46,7 @@ async def update_alert(
     current_user=Depends(get_current_user),
     db=Depends(get_db),
 ):
+    if body.status in (SecurityAlertStatus.resolved, SecurityAlertStatus.false_alarm) \
+            and not await has_action(db, current_user, "act_alert_close"):
+        raise HTTPException(status_code=403, detail=ACTION_DENIED)
     return await svc.update_alert(db, alert_id, body, operator_user_id=current_user.id)

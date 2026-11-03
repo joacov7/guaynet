@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user, get_db, require_action
 from app.models.client import Client, ClientStatus
 from app.models.config import SystemConfig
 from app.models.invoice import Invoice, InvoiceStatus
@@ -84,7 +84,7 @@ async def send_whatsapp_message(
     return result
 
 
-@router.post("/whatsapp/bulk-reminder", response_model=BulkResult)
+@router.post("/whatsapp/bulk-reminder", response_model=BulkResult, dependencies=[Depends(require_action("act_billing_bulk"))])
 async def send_bulk_reminder(
     body: BulkReminderRequest,
     db: AsyncSession = Depends(get_db),

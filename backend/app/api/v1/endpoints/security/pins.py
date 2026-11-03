@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user, get_db, require_action
 from app.models.security.pin import PinType
 from app.services.security import pins as svc
 
@@ -41,7 +41,7 @@ class TemporaryPinResponse(BaseModel):
         from_attributes = True
 
 
-@router.post("/set", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/set", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_action("act_security_pins"))])
 async def set_pin(
     body: SetPinRequest,
     _=Depends(get_current_user),
@@ -58,7 +58,7 @@ async def set_pin(
     )
 
 
-@router.post("/safe-word", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/safe-word", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_action("act_security_pins"))])
 async def set_safe_word(
     body: SetSafeWordRequest,
     _=Depends(get_current_user),
@@ -109,7 +109,7 @@ async def list_temporary_pins(
     ]
 
 
-@router.delete("/temporary/{pin_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/temporary/{pin_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_action("act_security_pins"))])
 async def delete_temporary_pin(
     pin_id: int,
     subscription_id: int = Query(..., description="Subscription that owns the PIN"),

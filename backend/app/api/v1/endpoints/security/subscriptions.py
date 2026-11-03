@@ -3,7 +3,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user, get_db, require_action
 from app.schemas.security.beat import BeatAccountStatusResponse
 from app.schemas.security.subscription import (
     SecurityFeatureToggle,
@@ -88,7 +88,7 @@ class RegenerateTokenResponse(BaseModel):
     portal_url: str
 
 
-@router.post("/{subscription_id}/regenerate-portal-token", response_model=RegenerateTokenResponse)
+@router.post("/{subscription_id}/regenerate-portal-token", response_model=RegenerateTokenResponse, dependencies=[Depends(require_action("act_access_links"))])
 async def regenerate_portal_token(
     subscription_id: int,
     _=Depends(get_current_user),
@@ -135,7 +135,7 @@ class TelegramLinkResponse(BaseModel):
     expires_at: str
 
 
-@router.post("/{subscription_id}/telegram-link", response_model=TelegramLinkResponse)
+@router.post("/{subscription_id}/telegram-link", response_model=TelegramLinkResponse, dependencies=[Depends(require_action("act_access_links"))])
 async def telegram_link_titular(
     subscription_id: int,
     _=Depends(get_current_user),

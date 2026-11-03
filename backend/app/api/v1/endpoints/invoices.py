@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import ACTION_DENIED, get_current_user, get_db, has_action, require_action
 from app.models.client import Client, ClientStatus
 from app.models.config import SystemConfig
 from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus, Payment
@@ -95,7 +95,8 @@ async def create_invoice(
     return result.scalar_one()
 
 
-@router.get("/{invoice_id}", response_model=InvoiceResponse)
+# ":int" so fixed paths declared further down (/overdue-report) are not taken as an id
+@router.get("/{invoice_id:int}", response_model=InvoiceResponse)
 async def get_invoice(invoice_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
     result = await db.execute(
         select(Invoice).options(selectinload(Invoice.payments), selectinload(Invoice.items)).where(Invoice.id == invoice_id)
@@ -106,13 +107,20 @@ async def get_invoice(invoice_id: int, db: AsyncSession = Depends(get_db), _=Dep
     return invoice
 
 
-@router.put("/{invoice_id}", response_model=InvoiceResponse)
+@router.put("/{invoice_id:int}", response_model=InvoiceResponse)
 async def update_invoice(
     invoice_id: int,
     body: InvoiceUpdate,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
+    # Changing status / payment date (e.g. marking as paid) or the CAE by hand
+    # needs the same sensitive actions as the dedicated endpoints.
+    fields = body.model_dump(exclude_unset=True)
+    for keys, action in ((("status", "paid_date"), "act_payments"), (("afip_cae", "afip_cae_expiry"), "act_invoice_afip")):
+        if any(k in fields for k in keys) and not await has_action(db, current_user, action):
+            raise HTTPException(status_code=403, detail=ACTION_DENIED)
+
     invoice = await db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
@@ -122,11 +130,15 @@ async def update_invoice(
 
     db.add(invoice)
     await db.commit()
-    await db.refresh(invoice)
-    return invoice
+    # Reload with relationships: the response includes payments and items, and
+    # lazy-loading them here fails under asyncio (it returned a 500 before).
+    result = await db.execute(
+        select(Invoice).options(selectinload(Invoice.payments), selectinload(Invoice.items)).where(Invoice.id == invoice_id)
+    )
+    return result.scalar_one()
 
 
-@router.post("/{invoice_id}/payments", response_model=PaymentResponse, status_code=201)
+@router.post("/{invoice_id}/payments", response_model=PaymentResponse, status_code=201, dependencies=[Depends(require_action("act_payments"))])
 async def add_payment(
     invoice_id: int,
     body: PaymentCreate,
@@ -244,7 +256,7 @@ async def create_mp_link(invoice_id: int, db: AsyncSession = Depends(get_db), _=
     return {"init_point": init_point, "preference_id": response["response"]["id"]}
 
 
-@router.post("/{invoice_id}/emit-cae")
+@router.post("/{invoice_id}/emit-cae", dependencies=[Depends(require_action("act_invoice_afip"))])
 async def emit_afip_cae(
     invoice_id: int,
     db: AsyncSession = Depends(get_db),
@@ -322,7 +334,7 @@ async def emit_afip_cae(
     return {"cae": result["cae"], "cae_fch_vto": result["cae_fch_vto"], "cbte_nro": result["cbte_nro"]}
 
 
-@router.post("/mark-overdue", status_code=200)
+@router.post("/mark-overdue", status_code=200, dependencies=[Depends(require_action("act_billing_bulk"))])
 async def mark_overdue_invoices(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
     """Mark all pending invoices past due_date as overdue."""
     today = date.today()
@@ -337,7 +349,7 @@ async def mark_overdue_invoices(db: AsyncSession = Depends(get_db), _=Depends(ge
     return {"updated": len(invoices)}
 
 
-@router.post("/trigger-suspend", status_code=200)
+@router.post("/trigger-suspend", status_code=200, dependencies=[Depends(require_action("act_billing_bulk"))])
 async def trigger_auto_suspend(_=Depends(get_current_user)):
     """Manually trigger the auto-suspend billing task."""
     from app.tasks.billing import mark_overdue_and_suspend
@@ -345,7 +357,7 @@ async def trigger_auto_suspend(_=Depends(get_current_user)):
     return {"task_id": task.id, "status": "queued"}
 
 
-@router.post("/trigger-generate", status_code=200)
+@router.post("/trigger-generate", status_code=200, dependencies=[Depends(require_action("act_billing_bulk"))])
 async def trigger_generate_invoices(_=Depends(get_current_user)):
     """Manually trigger monthly invoice generation."""
     from app.tasks.billing import generate_monthly_invoices
@@ -411,7 +423,7 @@ class GenerateMonthlyRequest(BaseModel):
     period: str
 
 
-@router.post("/generate-monthly")
+@router.post("/generate-monthly", dependencies=[Depends(require_action("act_billing_bulk"))])
 async def generate_monthly_invoices_direct(
     body: GenerateMonthlyRequest,
     db: AsyncSession = Depends(get_db),
@@ -458,9 +470,11 @@ async def overdue_report(
     format: str = Query(default="json", pattern="^(json|csv)$"),
     min_days_overdue: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     """Report of all overdue invoices with client info and days overdue."""
+    if format == "csv" and not await has_action(db, current_user, "act_export"):
+        raise HTTPException(status_code=403, detail=ACTION_DENIED)
     today = date.today()
 
     result = await db.execute(

@@ -17,6 +17,24 @@ SECTIONS = [
     "security_plans", "security_contracts", "security_settings", "security_devices",
 ]
 
+# Etapa 3: sensitive actions. Stored like sections (can_view = allowed) and
+# checked on top of "editar" of their section. Both roles start allowed, which
+# is what they could already do; switch them off in Usuarios → Permisos.
+ACTIONS = [
+    "act_client_service",   # cortar / reactivar / dar de baja el servicio
+    "act_client_delete",    # borrar clientes
+    "act_payments",         # registrar pagos
+    "act_invoice_afip",     # emitir factura electrónica (AFIP)
+    "act_billing_bulk",     # generar facturas del mes, marcar vencidas, corte masivo, recordatorios masivos
+    "act_export",           # exportar datos (CSV)
+    "act_device_ssh",       # SSH y firmware en equipos Ubiquiti
+    "act_alert_close",      # resolver alertas o marcarlas como falsa alarma
+    "act_security_pins",    # cambiar PINs y palabra segura de abonados
+    "act_access_links",     # generar enlaces del portal y de Telegram
+]
+SECTIONS += ACTIONS
+
+
 ROLES = ["operator", "technician"]
 
 DEFAULTS: list[tuple[str, str, bool, bool]] = [
@@ -50,6 +68,7 @@ DEFAULTS: list[tuple[str, str, bool, bool]] = [
     *[(role, section, True, True)
       for role in ("operator", "technician")
       for section in ("zones", "expenses", "alarms", "tickets", "work_orders", "inventory", "reports")],
+    *[(role, action, True, True) for role in ("operator", "technician") for action in ACTIONS],
 ]
 
 

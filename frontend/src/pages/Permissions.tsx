@@ -68,6 +68,29 @@ const SECTION_GROUPS: { group: string; sections: [string, string][] }[] = [
   ] },
 ];
 
+// Sensitive actions: one "allowed" switch each, checked on top of "Editar" of
+// their section (stored as can_view = can_edit = allowed).
+const ACTIONS: [string, string, string][] = [
+  ["act_client_service", "Cortar, reactivar o dar de baja el servicio", "Clientes"],
+  ["act_client_delete", "Borrar clientes", "Clientes"],
+  ["act_payments", "Registrar pagos o marcar facturas como pagadas", "Facturación"],
+  ["act_invoice_afip", "Emitir factura electrónica (AFIP)", "Facturación"],
+  ["act_billing_bulk", "Acciones masivas: generar facturas del mes, marcar vencidas, corte masivo, recordatorios", "Facturación"],
+  ["act_export", "Exportar datos (CSV)", "Facturación"],
+  ["act_device_ssh", "SSH y actualización de firmware en Ubiquiti", "Ubiquiti"],
+  ["act_alert_close", "Resolver alertas o marcarlas como falsa alarma", "Seguridad · Central"],
+  ["act_security_pins", "Cambiar PINs y palabra segura de abonados", "Seguridad · Abonados"],
+  ["act_access_links", "Generar enlaces del portal y de Telegram", "Seguridad · Abonados y Miembros"],
+];
+
+function ActionsHelp() {
+  return (
+    <Text type="secondary" style={{ display: "block", margin: "24px 0 8px", fontSize: 13 }}>
+      <b>Acciones sensibles.</b> Además de «Editar» en la sección indicada, el usuario necesita tener habilitada la acción.
+    </Text>
+  );
+}
+
 const SECTION_LABELS: Record<string, string> = Object.fromEntries(SECTION_GROUPS.flatMap((g) => g.sections));
 const SECTION_GROUP: Record<string, string> = Object.fromEntries(
   SECTION_GROUPS.flatMap((g) => g.sections.map(([key]) => [key, g.group])),
@@ -119,7 +142,12 @@ function RolePermissionsTable({ role }: { role: string }) {
     can_edit: bySection[section]?.can_edit ?? false,
   }));
 
+  const actionRows = ACTIONS.map(([section, label, where]) => ({
+    key: section, section, label, where, allowed: bySection[section]?.can_view ?? false,
+  }));
+
   return (
+    <>
     <Table dataSource={rows} rowKey="section" pagination={false} size="small" loading={isLoading} bordered>
       {groupColumn(rows)}
       <Table.Column title="Sección" dataIndex="label" />
@@ -138,6 +166,19 @@ function RolePermissionsTable({ role }: { role: string }) {
         )}
       />
     </Table>
+    <ActionsHelp />
+    <Table dataSource={actionRows} rowKey="section" pagination={false} size="small" loading={isLoading} bordered>
+      <Table.Column title="Acción" dataIndex="label" />
+      <Table.Column title="Requiere editar" dataIndex="where" width={210} render={(v: string) => <Text type="secondary">{v}</Text>} />
+      <Table.Column title="Permitida" dataIndex="allowed" width={100}
+        render={(val: boolean, row: typeof actionRows[0]) => (
+          <Switch checked={val} size="small"
+            onChange={(checked) => mutation.mutate({ section: row.section, can_view: checked, can_edit: checked })}
+            loading={mutation.isPending} />
+        )}
+      />
+    </Table>
+    </>
   );
 }
 
@@ -176,7 +217,11 @@ function UserPermissionsPanel() {
     .sort((a, b) => SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section))
     .map((p) => ({ key: p.section, label: SECTION_LABELS[p.section], ...p }));
 
-  const overrideCount = rows.filter((r) => r.is_override).length;
+  const byKey = Object.fromEntries((perms as UserPermissionEntry[]).map((p) => [p.section, p]));
+  const actionRows = ACTIONS.filter(([k]) => byKey[k]).map(([section, label, where]) => ({
+    key: section, section, label, where, allowed: byKey[section].can_view, is_override: byKey[section].is_override,
+  }));
+  const overrideCount = rows.filter((r) => r.is_override).length + actionRows.filter((r) => r.is_override).length;
 
   return (
     <div>
@@ -263,6 +308,42 @@ function UserPermissionsPanel() {
                       <Button size="small" icon={<UndoOutlined />} type="text" danger />
                     </Popconfirm>
                   </Tooltip>
+                ) : null
+              }
+            />
+          </Table>
+          <ActionsHelp />
+          <Table dataSource={actionRows} rowKey="section" pagination={false} size="small" loading={isLoading} bordered
+            rowClassName={(r) => r.is_override ? "ant-table-row-selected" : ""}
+          >
+            <Table.Column title="Acción" dataIndex="label"
+              render={(label: string, r: typeof actionRows[0]) => (
+                <Space>
+                  {label}
+                  {r.is_override && <Tag color="blue" style={{ fontSize: 11 }}>Override</Tag>}
+                </Space>
+              )}
+            />
+            <Table.Column title="Requiere editar" dataIndex="where" width={200} render={(v: string) => <Text type="secondary">{v}</Text>} />
+            <Table.Column title="Permitida" dataIndex="allowed" width={90}
+              render={(val: boolean, r: typeof actionRows[0]) => (
+                <Switch checked={val} size="small"
+                  onChange={(checked) => setMut.mutate({ section: r.section, can_view: checked, can_edit: checked })}
+                  loading={setMut.isPending} />
+              )}
+            />
+            <Table.Column title="" width={60}
+              render={(_: unknown, r: typeof actionRows[0]) =>
+                r.is_override ? (
+                  <Popconfirm
+                    title="¿Eliminar override?"
+                    description="Vuelve a usar lo que tenga su rol."
+                    onConfirm={() => delMut.mutate(r.section)}
+                    okText="Eliminar"
+                    cancelText="Cancelar"
+                  >
+                    <Button size="small" icon={<UndoOutlined />} type="text" danger />
+                  </Popconfirm>
                 ) : null
               }
             />

@@ -84,6 +84,24 @@ def require_permission(section: str, action: str = "view"):
     return _dep
 
 
+async def has_action(db: AsyncSession, user, action: str) -> bool:
+    """Sensitive action (models/permission.ACTIONS) allowed for this user."""
+    if _is_admin(user):
+        return True
+    return (await effective_permissions(db, user)).get(action, (False, False))[0]
+
+
+ACTION_DENIED = "Tu usuario no tiene habilitada esta acción (Usuarios → Permisos → Acciones sensibles)"
+
+
+def require_action(action: str):
+    async def _dep(current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+        if not await has_action(db, current_user, action):
+            raise HTTPException(status_code=403, detail=ACTION_DENIED)
+        return current_user
+    return _dep
+
+
 _READ_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 

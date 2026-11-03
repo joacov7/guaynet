@@ -1,3 +1,4 @@
+import { message } from "antd";
 import axios from "axios";
 import type {
   AuditLogEntry,
@@ -57,6 +58,9 @@ http.interceptors.response.use(
       localStorage.removeItem("access_token");
       const isTech = window.location.pathname.startsWith("/tech");
       window.location.href = isTech ? "/tech/login" : "/login";
+    } else if (err.response?.status === 403 && typeof err.response.data?.detail === "string") {
+      // Say why (missing permission / sensitive action) instead of a generic "Error al …"
+      message.warning({ content: err.response.data.detail, key: "forbidden", duration: 6 });
     }
     return Promise.reject(err);
   }
@@ -241,9 +245,18 @@ export const invoicesApi = {
     http
       .get<OverdueReport>("/invoices/overdue-report", { params: { min_days_overdue: minDays } })
       .then((r) => r.data),
-  overdueReportCsv: (minDays = 0) => {
-    const params = new URLSearchParams({ format: "csv", min_days_overdue: String(minDays) });
-    window.open(`/api/v1/invoices/overdue-report?${params}`, "_blank");
+  // Downloaded through axios so the login token goes along (a plain link does not send it)
+  overdueReportCsv: async (minDays = 0) => {
+    const r = await http.get<Blob>("/invoices/overdue-report", {
+      params: { format: "csv", min_days_overdue: minDays },
+      responseType: "blob",
+    });
+    const url = URL.createObjectURL(r.data);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `morosidad_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   },
   pdfUrl: (id: number) => `/api/v1/invoices/${id}/pdf`,
   mpLink: (id: number) =>

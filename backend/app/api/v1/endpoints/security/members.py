@@ -3,7 +3,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user, get_db, require_action
 from app.schemas.security.member import PropertyMemberCreate, PropertyMemberResponse, PropertyMemberUpdate
 from app.services.security import members as svc
 
@@ -57,7 +57,7 @@ async def revoke_member(
     return await svc.revoke_member(db, member_id)
 
 
-@router.post("/{member_id}/telegram-link")
+@router.post("/{member_id}/telegram-link", dependencies=[Depends(require_action("act_access_links"))])
 async def telegram_link_member(
     member_id: int,
     _=Depends(get_current_user),

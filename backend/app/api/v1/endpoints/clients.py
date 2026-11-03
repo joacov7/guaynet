@@ -9,7 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import add_audit_log, get_current_user, get_db
+from app.core.deps import ACTION_DENIED, add_audit_log, get_current_user, get_db, has_action, require_action
 from app.core.security import decrypt_value, encrypt_value
 from app.models.client import Client, ClientStatus
 from app.models.config import SystemConfig
@@ -195,7 +195,8 @@ async def create_client(
     )
 
 
-@router.get("/{client_id}", response_model=ClientResponse)
+# ":int" so fixed paths declared further down (/resolve-location) are not taken as an id
+@router.get("/{client_id:int}", response_model=ClientResponse)
 async def get_client(
     client_id: int,
     db: AsyncSession = Depends(get_db),
@@ -212,7 +213,7 @@ async def get_client(
     return client
 
 
-@router.put("/{client_id}", response_model=ClientResponse)
+@router.put("/{client_id:int}", response_model=ClientResponse)
 async def update_client(
     client_id: int,
     body: ClientUpdate,
@@ -227,6 +228,9 @@ async def update_client(
     client = result.scalar_one_or_none()
     if not client:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    if body.status is not None and body.status != client.status \
+            and not await has_action(db, current_user, "act_client_service"):
+        raise HTTPException(status_code=403, detail=ACTION_DENIED)
 
     updates = body.model_dump(exclude_unset=True)
     pppoe_pw = updates.pop("pppoe_password", None)
@@ -275,7 +279,7 @@ async def update_client(
     return resp
 
 
-@router.delete("/{client_id}", status_code=204)
+@router.delete("/{client_id:int}", status_code=204, dependencies=[Depends(require_action("act_client_delete"))])
 async def delete_client(
     client_id: int,
     db: AsyncSession = Depends(get_db),
@@ -303,7 +307,7 @@ async def delete_client(
     await db.commit()
 
 
-@router.post("/{client_id}/suspend", response_model=ClientResponse)
+@router.post("/{client_id}/suspend", response_model=ClientResponse, dependencies=[Depends(require_action("act_client_service"))])
 async def suspend_client(
     client_id: int,
     db: AsyncSession = Depends(get_db),
@@ -338,7 +342,7 @@ async def suspend_client(
     return resp
 
 
-@router.post("/{client_id}/activate", response_model=ClientResponse)
+@router.post("/{client_id}/activate", response_model=ClientResponse, dependencies=[Depends(require_action("act_client_service"))])
 async def activate_client(
     client_id: int,
     db: AsyncSession = Depends(get_db),
@@ -409,7 +413,7 @@ async def sync_client_pppoe(
     return {"status": status}
 
 
-@router.post("/{client_id}/cancel", response_model=ClientResponse)
+@router.post("/{client_id}/cancel", response_model=ClientResponse, dependencies=[Depends(require_action("act_client_service"))])
 async def cancel_client(
     client_id: int,
     db: AsyncSession = Depends(get_db),

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user, get_db, require_action
 from app.core.security import encrypt_value
 from app.models.client import Client
 from app.models.router import DeviceStatus, MikrotikRouter, UbiquitiDevice
@@ -459,7 +459,7 @@ async def get_recommendations(
         raise HTTPException(503, str(e))
 
 
-@router.post("/{device_id}/firmware")
+@router.post("/{device_id}/firmware", dependencies=[Depends(require_action("act_device_ssh"))])
 async def upload_firmware(
     device_id: int,
     firmware: UploadFile = File(...),
@@ -485,7 +485,7 @@ class SshExecRequest(_BaseModel):
     command: str
 
 
-@router.post("/{device_id}/ssh-exec")
+@router.post("/{device_id}/ssh-exec", dependencies=[Depends(require_action("act_device_ssh"))])
 async def ssh_exec_command(
     device_id: int,
     body: SshExecRequest,
