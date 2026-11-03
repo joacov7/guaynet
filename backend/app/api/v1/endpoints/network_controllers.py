@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db
 from app.core.security import encrypt_value
+from app.core.config import settings
 from app.models.network_controller import NetworkController
 from app.schemas.ubiquiti import (
     NetworkControllerCreate,
@@ -58,6 +59,8 @@ async def create_controller(
     data = body.model_dump()
     password = data.pop("password", None)
     data["base_url"] = _validate_base_url(data["base_url"])
+    if password and not settings.ENCRYPTION_KEY:
+        raise HTTPException(status_code=503, detail="La clave de cifrado no está configurada; no se guardaron credenciales")
     data["credentials_encrypted"] = encrypt_value(password) if password else None
     controller = NetworkController(**data)
     db.add(controller)
@@ -95,6 +98,8 @@ async def update_controller(
     if "password" in updates:
         password = updates.pop("password")
         if password:
+            if not settings.ENCRYPTION_KEY:
+                raise HTTPException(status_code=503, detail="La clave de cifrado no está configurada; no se guardaron credenciales")
             controller.credentials_encrypted = encrypt_value(password)
     for key, value in updates.items():
         setattr(controller, key, value)
