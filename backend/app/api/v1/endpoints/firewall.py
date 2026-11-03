@@ -1,17 +1,19 @@
 from typing import List, Optional
 from datetime import datetime, timezone
+import ipaddress
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select
 import asyncio
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import add_audit_log, get_current_user, get_db
 from app.models.router import MikrotikRouter
 from app.models.client import Client, ClientStatus, ClientDeviceHistory
 from app.models.plan import Plan
 from app.services.mikrotik import build_service_from_router, MikrotikError
+from app.services.dhcp_identity import normalize_mac
 from app.schemas.firewall import (
     DHCPScanResponse,
     DHCPLease,
@@ -56,14 +58,12 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
     )
     clients = list(rows)
     by_ip = {row.ip_address: row for row in clients if row.ip_address}
-    history_rows = await db.execute(select(ClientDeviceHistory.client_id, ClientDeviceHistory.mac_address).where(ClientDeviceHistory.router_id == router_id))
+    history_rows = await db.execute(select(ClientDeviceHistory.client_id, ClientDeviceHistory.mac_address, ClientDeviceHistory.ended_at).where(ClientDeviceHistory.router_id == router_id))
     historical_mac_clients = {}
-    for client_id, historical_mac in history_rows:
-        key = historical_mac.strip().lower().replace('-', ':').replace('.', '')
-        historical_mac_clients.setdefault(key, set()).add(client_id)
-
-    def normalize_mac(value: Optional[str]) -> str:
-        return (value or "").strip().lower().replace("-", ":").replace(".", "")
+    for client_id, historical_mac, ended_at in history_rows:
+        key = normalize_mac(historical_mac)
+        if key and ended_at is not None:
+            historical_mac_clients.setdefault(key, set()).add(client_id)
 
     by_mac = {}
     for client in clients:
@@ -90,15 +90,22 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
         if len(candidate_ids) == 1:
             candidate_id = next(iter(candidate_ids))
             matched = next((c for c in clients if c.id == candidate_id), None)
-            match_reason = "mac" if matched else "historical_mac"
+            match_reason = "mac" if any(c.id == candidate_id for c in mac_matches) else "historical_mac"
         elif len(candidate_ids) > 1:
             match_reason = "ambiguous_mac"
         elif ip in by_ip:
-            matched = by_ip[ip]
-            match_reason = "ip"
+            ip_client = by_ip[ip]
+            stored_mac = normalize_mac(ip_client.mac_address)
+            # An IP collision with a different known MAC is not proof of identity.
+            if not mac or not stored_mac:
+                matched = ip_client
+                match_reason = "ip"
+            else:
+                match_reason = "ip_conflict"
+                replacement_candidate = ip_client
 
         # Hostname is only a hint for a possible antenna replacement, never proof.
-        if matched is None and hostname:
+        if matched is None and hostname and replacement_candidate is None:
             wanted = normalize_name(hostname)
             candidates = [
                 c for c in clients
@@ -149,25 +156,32 @@ async def confirm_dhcp_device_replacement(
     router_id: int,
     body: DHCPDeviceReplacement,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     """Confirm an operator-approved CPE replacement and preserve the old MAC."""
     client = await db.get(Client, body.client_id)
     if not client or client.router_id != router_id:
         raise HTTPException(404, "Cliente no encontrado en este router")
 
-    mac = body.mac_address.strip().lower().replace("-", ":")
-    if not mac or len(mac) != 17:
-        raise HTTPException(400, "MAC inválida")
+    mac = normalize_mac(body.mac_address)
+    if not mac:
+        raise HTTPException(400, "MAC inválida. Usá formato AA:BB:CC:DD:EE:FF")
 
-    duplicate_mac = await db.execute(
-        select(Client.id).where(
+    try:
+        normalized_ip = str(ipaddress.ip_address(body.ip_address.strip()))
+    except ValueError:
+        raise HTTPException(400, "Dirección IP inválida")
+
+    if normalized_ip != body.ip_address.strip():
+        body.ip_address = normalized_ip
+
+    router_clients = await db.execute(
+        select(Client.id, Client.mac_address).where(
             Client.router_id == router_id,
-            func.lower(Client.mac_address) == mac,
             Client.id != client.id,
         )
     )
-    if duplicate_mac.first():
+    if any(normalize_mac(existing_mac) == mac for _, existing_mac in router_clients):
         raise HTTPException(409, "Esa MAC ya está asignada a otro cliente")
 
     duplicate_ip = await db.execute(
@@ -186,7 +200,8 @@ async def confirm_dhcp_device_replacement(
     for device in active_history.scalars().all():
         device.ended_at = now
 
-    old_mac = (client.mac_address or "").strip().lower().replace("-", ":")
+    old_mac = normalize_mac(client.mac_address)
+    old_ip = client.ip_address
     if old_mac and old_mac != mac:
         db.add(ClientDeviceHistory(
             client_id=client.id,
@@ -207,8 +222,19 @@ async def confirm_dhcp_device_replacement(
         hostname=body.hostname,
         change_reason="replacement",
     ))
+    add_audit_log(
+        db, current_user, "replace_device", "client", client.id, client.full_name,
+        details=f"Reemplazo CPE: MAC {old_mac or 'sin registro'} -> {mac}; IP {old_ip} -> {body.ip_address}",
+    )
     await db.commit()
-    return {"updated": True, "client_id": client.id, "mac_address": mac, "ip_address": body.ip_address}
+    return {
+        "updated": True,
+        "client_id": client.id,
+        "mac_address": mac,
+        "ip_address": body.ip_address,
+        "router_sync_required": True,
+        "message": "Ficha actualizada en Guaynet. Verificá/sincronizá el router por separado.",
+    }
 
 
 # ── DHCP Import ───────────────────────────────────────────────────────────────

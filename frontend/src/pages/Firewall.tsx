@@ -499,9 +499,9 @@ export default function Firewall() {
       render: (v: string, r: DHCPLease) => (
         <Space>
           <span>{v}</span>
-          {r.is_registered && (
-            <Tag color={r.match_reason === "mac" ? "green" : "blue"} style={{ fontSize: 11 }}>
-              {r.match_reason === "mac" ? "MAC reconocida" : "Registrado por IP"}
+          {(r.is_registered || r.match_reason === "ip_conflict") && (
+            <Tag color={r.match_reason === "mac" || r.match_reason === "historical_mac" ? "green" : r.match_reason === "ip_conflict" ? "red" : "blue"} style={{ fontSize: 11 }}>
+              {r.match_reason === "mac" ? "MAC reconocida" : r.match_reason === "historical_mac" ? "MAC histórica" : r.match_reason === "ip_conflict" ? "Conflicto IP/MAC" : "Registrado por IP"}
             </Tag>
           )}
           {r.ip_changed && <Tag color="orange">IP modificada</Tag>
@@ -562,7 +562,7 @@ export default function Firewall() {
                     ip_address: r.address,
                     hostname: r.hostname,
                   });
-                  message.success("Antena reemplazada y equipo anterior guardado en el historial");
+                  message.success("Ficha actualizada e historial guardado. La sincronización del MikroTik queda pendiente.");
                   refetchDhcp();
                 } catch (err: any) {
                   message.error(err.response?.data?.detail ?? "No se pudo confirmar el reemplazo");
