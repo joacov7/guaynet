@@ -28,7 +28,10 @@ router = APIRouter()
 
 def normalize_mac(value: Optional[str]) -> str:
     """Return canonical AA:BB:CC:DD:EE:FF form; empty string for invalid input."""
-    compact = re.sub(r"[^0-9a-fA-F]", "", value or "")
+    raw = (value or "").strip()
+    if not raw or not re.fullmatch(r"[0-9a-fA-F:.-]+", raw):
+        return ""
+    compact = re.sub(r"[:.-]", "", raw)
     if len(compact) != 12 or not re.fullmatch(r"[0-9a-fA-F]{12}", compact):
         return ""
     compact = compact.lower()
@@ -111,6 +114,7 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
                 match_reason = "ip"
             else:
                 match_reason = "ip_conflict"
+                replacement_candidate = ip_client
 
         # Hostname is only a hint for a possible antenna replacement, never proof.
         if matched is None and hostname:
