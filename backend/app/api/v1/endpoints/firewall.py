@@ -1,14 +1,15 @@
 from typing import List, Optional
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 import asyncio
 
 from app.core.deps import get_current_user, get_db
 from app.models.router import MikrotikRouter
-from app.models.client import Client, ClientStatus
+from app.models.client import Client, ClientStatus, ClientDeviceHistory
 from app.models.plan import Plan
 from app.services.mikrotik import build_service_from_router, MikrotikError
 from app.schemas.firewall import (
@@ -54,7 +55,12 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
         .where(Client.router_id == router_id)
     )
     clients = list(rows)
-    by_ip = {row.ip_address: row for row in clients}
+    by_ip = {row.ip_address: row for row in clients if row.ip_address}
+    history_rows = await db.execute(select(ClientDeviceHistory.client_id, ClientDeviceHistory.mac_address).where(ClientDeviceHistory.router_id == router_id, ClientDeviceHistory.ended_at.is_(None)))
+    historical_mac_clients = {}
+    for client_id, historical_mac in history_rows:
+        key = historical_mac.strip().lower().replace('-', ':').replace('.', '')
+        historical_mac_clients.setdefault(key, set()).add(client_id)
 
     def normalize_mac(value: Optional[str]) -> str:
         return (value or "").strip().lower().replace("-", ":").replace(".", "")
@@ -79,11 +85,13 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
 
         # Stable device identity: MAC within the selected MikroTik router.
         mac_matches = by_mac.get(mac, []) if mac else []
-        if len(mac_matches) == 1:
-            matched = mac_matches[0]
-            match_reason = "mac"
-        elif len(mac_matches) > 1:
-            # Ambiguous duplicate MACs must never be auto-associated.
+        historical_ids = historical_mac_clients.get(mac, set()) if mac else set()
+        candidate_ids = {c.id for c in mac_matches} | historical_ids
+        if len(candidate_ids) == 1:
+            candidate_id = next(iter(candidate_ids))
+            matched = next((c for c in clients if c.id == candidate_id), None)
+            match_reason = "mac" if matched else "historical_mac"
+        elif len(candidate_ids) > 1:
             match_reason = "ambiguous_mac"
         elif ip in by_ip:
             matched = by_ip[ip]
