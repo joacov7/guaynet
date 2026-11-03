@@ -500,10 +500,13 @@ export default function Firewall() {
         <Space>
           <span>{v}</span>
           {r.is_registered && (
-            <Tag color="green" style={{ fontSize: 11 }}>
-              Registrado
+            <Tag color={r.match_reason === "mac" ? "green" : "blue"} style={{ fontSize: 11 }}>
+              {r.match_reason === "mac" ? "MAC reconocida" : "Registrado por IP"}
             </Tag>
           )}
+          {r.ip_changed && <Tag color="orange">IP modificada</Tag>
+          }
+          {r.replacement_client_id && <Tag color="gold">Posible cambio de antena</Tag>}
         </Space>
       ),
     },
@@ -520,7 +523,55 @@ export default function Firewall() {
       key: "client",
       render: (_: unknown, r: DHCPLease) =>
         r.is_registered ? (
-          <a onClick={() => navigate(`/clients/${r.client_id}`)}>{r.client_name}</a>
+          <Space direction="vertical" size={2}>
+            <a onClick={() => navigate(`/clients/${r.client_id}`)}>{r.client_name}</a>
+            {r.ip_changed && (
+              <Button
+                size="small"
+                type="link"
+                onClick={async () => {
+                  if (!window.confirm(`Actualizar la IP de ${r.client_name} de ${r.address} detectada por DHCP? La cola QoS se actualizará también.`)) return;
+                  try {
+                    await routersApi.updateClientIp(routerId!, r.client_id!, r.address);
+                    message.success("IP del cliente actualizada");
+                    refetchDhcp();
+                  } catch (err: any) {
+                    message.error(err.response?.data?.detail ?? "No se pudo actualizar la IP");
+                  }
+                }}
+              >
+                Aplicar nueva IP
+              </Button>
+            )}
+          </Space>
+        ) : r.replacement_client_id ? (
+          <Space direction="vertical" size={2}>
+            <Text type="warning">¿Equipo nuevo de {r.replacement_client_name}?</Text>
+            <Button size="small" onClick={() => navigate(`/clients/${r.replacement_client_id}`)}>
+              Revisar cliente
+            </Button>
+            <Button
+              size="small"
+              type="primary"
+              onClick={async () => {
+                if (!window.confirm(`Confirmás que la MAC ${r.mac_address} es la nueva antena de ${r.replacement_client_name}?`)) return;
+                try {
+                  await firewallApi.confirmDhcpDevice(routerId!, {
+                    client_id: r.replacement_client_id!,
+                    mac_address: r.mac_address,
+                    ip_address: r.address,
+                    hostname: r.hostname,
+                  });
+                  message.success("Antena reemplazada y equipo anterior guardado en el historial");
+                  refetchDhcp();
+                } catch (err: any) {
+                  message.error(err.response?.data?.detail ?? "No se pudo confirmar el reemplazo");
+                }
+              }}
+            >
+              Confirmar reemplazo
+            </Button>
+          </Space>
         ) : (
           <Button
             size="small"

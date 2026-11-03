@@ -1,14 +1,15 @@
 from typing import List, Optional
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 import asyncio
 
 from app.core.deps import get_current_user, get_db
 from app.models.router import MikrotikRouter
-from app.models.client import Client, ClientStatus
+from app.models.client import Client, ClientStatus, ClientDeviceHistory
 from app.models.plan import Plan
 from app.services.mikrotik import build_service_from_router, MikrotikError
 from app.schemas.firewall import (
@@ -50,28 +51,79 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
         return DHCPScanResponse(total=0, registered=0, unregistered=0, leases=[], error=f"Error inesperado: {e}")
 
     rows = await db.execute(
-        select(Client.ip_address, Client.id, Client.first_name, Client.last_name)
+        select(Client.id, Client.ip_address, Client.mac_address, Client.first_name, Client.last_name)
         .where(Client.router_id == router_id)
     )
-    registered = {
-        row.ip_address: (row.id, f"{row.first_name} {row.last_name}")
-        for row in rows
-    }
+    clients = list(rows)
+    by_ip = {row.ip_address: row for row in clients if row.ip_address}
+    history_rows = await db.execute(select(ClientDeviceHistory.client_id, ClientDeviceHistory.mac_address).where(ClientDeviceHistory.router_id == router_id))
+    historical_mac_clients = {}
+    for client_id, historical_mac in history_rows:
+        key = historical_mac.strip().lower().replace('-', ':').replace('.', '')
+        historical_mac_clients.setdefault(key, set()).add(client_id)
+
+    def normalize_mac(value: Optional[str]) -> str:
+        return (value or "").strip().lower().replace("-", ":").replace(".", "")
+
+    by_mac = {}
+    for client in clients:
+        mac = normalize_mac(client.mac_address)
+        if mac:
+            by_mac.setdefault(mac, []).append(client)
+
+    def normalize_name(value: Optional[str]) -> str:
+        return " ".join((value or "").strip().lower().replace("_", " ").replace("-", " ").split())
 
     leases: List[DHCPLease] = []
     for raw in leases_raw:
         ip = raw.get("address", "")
-        is_reg = ip in registered
+        mac = normalize_mac(raw.get("mac-address", ""))
+        hostname = raw.get("host-name", "") or None
+        matched = None
+        match_reason = None
+        replacement_candidate = None
+
+        # Stable device identity: MAC within the selected MikroTik router.
+        mac_matches = by_mac.get(mac, []) if mac else []
+        historical_ids = historical_mac_clients.get(mac, set()) if mac else set()
+        candidate_ids = {c.id for c in mac_matches} | historical_ids
+        if len(candidate_ids) == 1:
+            candidate_id = next(iter(candidate_ids))
+            matched = next((c for c in clients if c.id == candidate_id), None)
+            match_reason = "mac" if matched else "historical_mac"
+        elif len(candidate_ids) > 1:
+            match_reason = "ambiguous_mac"
+        elif ip in by_ip:
+            matched = by_ip[ip]
+            match_reason = "ip"
+
+        # Hostname is only a hint for a possible antenna replacement, never proof.
+        if matched is None and hostname:
+            wanted = normalize_name(hostname)
+            candidates = [
+                c for c in clients
+                if normalize_name(f"{c.first_name} {c.last_name}") == wanted
+            ]
+            if len(candidates) == 1:
+                replacement_candidate = candidates[0]
+
         leases.append(
             DHCPLease(
                 address=ip,
                 mac_address=raw.get("mac-address", ""),
-                hostname=raw.get("host-name", "") or None,
+                hostname=hostname,
                 comment=raw.get("comment", "") or None,
                 status=raw.get("status", ""),
-                is_registered=is_reg,
-                client_id=registered[ip][0] if is_reg else None,
-                client_name=registered[ip][1] if is_reg else None,
+                is_registered=matched is not None,
+                client_id=matched.id if matched else None,
+                client_name=f"{matched.first_name} {matched.last_name}" if matched else None,
+                match_reason=match_reason,
+                ip_changed=bool(matched and matched.ip_address != ip),
+                replacement_client_id=replacement_candidate.id if replacement_candidate else None,
+                replacement_client_name=(
+                    f"{replacement_candidate.first_name} {replacement_candidate.last_name}"
+                    if replacement_candidate else None
+                ),
             )
         )
 
@@ -82,6 +134,81 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
         unregistered=len(leases) - registered_count,
         leases=leases,
     )
+
+
+
+class DHCPDeviceReplacement(BaseModel):
+    client_id: int
+    mac_address: str
+    ip_address: str
+    hostname: Optional[str] = None
+
+
+@router.post("/{router_id}/dhcp-confirm-device")
+async def confirm_dhcp_device_replacement(
+    router_id: int,
+    body: DHCPDeviceReplacement,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Confirm an operator-approved CPE replacement and preserve the old MAC."""
+    client = await db.get(Client, body.client_id)
+    if not client or client.router_id != router_id:
+        raise HTTPException(404, "Cliente no encontrado en este router")
+
+    mac = body.mac_address.strip().lower().replace("-", ":")
+    if not mac or len(mac) != 17:
+        raise HTTPException(400, "MAC inválida")
+
+    duplicate_mac = await db.execute(
+        select(Client.id).where(
+            Client.router_id == router_id,
+            func.lower(Client.mac_address) == mac,
+            Client.id != client.id,
+        )
+    )
+    if duplicate_mac.first():
+        raise HTTPException(409, "Esa MAC ya está asignada a otro cliente")
+
+    duplicate_ip = await db.execute(
+        select(Client.id).where(Client.ip_address == body.ip_address, Client.id != client.id)
+    )
+    if duplicate_ip.first():
+        raise HTTPException(409, "Esa IP ya está asignada a otro cliente")
+
+    now = datetime.now(timezone.utc)
+    active_history = await db.execute(
+        select(ClientDeviceHistory).where(
+            ClientDeviceHistory.client_id == client.id,
+            ClientDeviceHistory.ended_at.is_(None),
+        )
+    )
+    for device in active_history.scalars().all():
+        device.ended_at = now
+
+    old_mac = (client.mac_address or "").strip().lower().replace("-", ":")
+    if old_mac and old_mac != mac:
+        db.add(ClientDeviceHistory(
+            client_id=client.id,
+            router_id=router_id,
+            mac_address=old_mac,
+            ip_address=client.ip_address,
+            change_reason="replaced",
+            ended_at=now,
+        ))
+
+    client.mac_address = mac
+    client.ip_address = body.ip_address
+    db.add(ClientDeviceHistory(
+        client_id=client.id,
+        router_id=router_id,
+        mac_address=mac,
+        ip_address=body.ip_address,
+        hostname=body.hostname,
+        change_reason="replacement",
+    ))
+    await db.commit()
+    return {"updated": True, "client_id": client.id, "mac_address": mac, "ip_address": body.ip_address}
 
 
 # ── DHCP Import ───────────────────────────────────────────────────────────────
