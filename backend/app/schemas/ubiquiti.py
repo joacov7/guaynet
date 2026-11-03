@@ -142,3 +142,44 @@ class DiscoveredDevice(BaseModel):
     ssid: str = ""
     frequency_mhz: Optional[int] = None
     suggested_type: str = ""
+
+
+# ── Network controller inventory schemas ─────────────────────────────────────
+
+from app.models.network_controller import NetworkControllerStatus, NetworkControllerType
+
+
+class NetworkControllerCreate(BaseModel):
+    name: str
+    controller_type: NetworkControllerType = NetworkControllerType.unifi_network
+    base_url: str
+    site_name: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    verify_tls: bool = True
+
+
+class NetworkControllerUpdate(BaseModel):
+    name: Optional[str] = None
+    base_url: Optional[str] = None
+    site_name: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    verify_tls: Optional[bool] = None
+
+
+class NetworkControllerResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    controller_type: NetworkControllerType
+    base_url: str
+    site_name: Optional[str]
+    username: Optional[str]
+    verify_tls: bool
+    status: NetworkControllerStatus
+    last_seen: Optional[datetime]
+    last_error: Optional[str]
+    created_at: datetime
+    updated_at: datetime
