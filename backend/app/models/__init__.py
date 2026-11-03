@@ -2,6 +2,7 @@ from app.models.base import Base, TimestampMixin
 from app.models.user import User
 from app.models.plan import Plan
 from app.models.router import MikrotikRouter, UbiquitiDevice, DeviceStatus, UbiquitiDeviceType
+from app.models.network_controller import NetworkController, NetworkControllerType, NetworkControllerStatus
 from app.models.client import Client, ClientStatus, ClientDeviceHistory
 from app.models.invoice import Invoice, Payment, InvoiceStatus, PaymentMethod
 from app.models.audit import AuditLog
@@ -46,6 +47,9 @@ __all__ = [
     "UbiquitiDevice",
     "DeviceStatus",
     "UbiquitiDeviceType",
+    "NetworkController",
+    "NetworkControllerType",
+    "NetworkControllerStatus",
     "Client",
     "ClientStatus",
     "Invoice",

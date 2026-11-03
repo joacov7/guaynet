@@ -9,6 +9,7 @@ from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.client import Client
+    from app.models.network_controller import NetworkController
 
 
 class DeviceStatus(str, enum.Enum):
@@ -25,6 +26,7 @@ class UbiquitiDeviceType(str, enum.Enum):
     unifi_ap = "unifi_ap"
     unifi_switch = "unifi_switch"
     unifi_gateway = "unifi_gateway"
+    edgemax_switch = "edgemax_switch"
 
 
 class MikrotikRouter(Base, TimestampMixin):
@@ -35,7 +37,6 @@ class MikrotikRouter(Base, TimestampMixin):
     host: Mapped[str] = mapped_column(String(255))
     port: Mapped[int] = mapped_column(Integer, default=8728)
     username: Mapped[str] = mapped_column(String(100))
-    # Stored encrypted via Fernet
     password_encrypted: Mapped[str] = mapped_column(String(600))
     location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -66,6 +67,9 @@ class UbiquitiDevice(Base, TimestampMixin):
     mikrotik_router_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("mikrotik_routers.id", ondelete="SET NULL"), nullable=True
     )
+    controller_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("network_controllers.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[DeviceStatus] = mapped_column(SAEnum(DeviceStatus), default=DeviceStatus.unknown)
@@ -74,7 +78,6 @@ class UbiquitiDevice(Base, TimestampMixin):
     latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
-    # Cached live fields — updated on test/sync
     model_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     firmware_version: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     ssid: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -86,4 +89,5 @@ class UbiquitiDevice(Base, TimestampMixin):
     mikrotik_router: Mapped[Optional["MikrotikRouter"]] = relationship(
         back_populates="ubiquiti_devices", foreign_keys=[mikrotik_router_id]
     )
+    controller: Mapped[Optional["NetworkController"]] = relationship(back_populates="devices")
     clients: Mapped[List["Client"]] = relationship(back_populates="ubiquiti_device")
