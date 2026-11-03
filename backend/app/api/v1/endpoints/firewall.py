@@ -6,7 +6,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select
 import asyncio
 
 from app.core.deps import get_current_user, get_db
@@ -213,6 +213,7 @@ async def confirm_dhcp_device_replacement(
         device.ended_at = now
 
     old_mac = normalize_mac(client.mac_address)
+    old_ip = client.ip_address
     if old_mac and old_mac != mac:
         db.add(ClientDeviceHistory(
             client_id=client.id,
@@ -235,7 +236,7 @@ async def confirm_dhcp_device_replacement(
     ))
     add_audit_log(
         db, current_user, "replace_device", "client", client.id, client.full_name,
-        details=f"Reemplazo CPE: MAC {old_mac or 'sin registro'} -> {mac}; IP {client.ip_address} -> {body.ip_address}",
+        details=f"Reemplazo CPE: MAC {old_mac or 'sin registro'} -> {mac}; IP {old_ip} -> {body.ip_address}",
     )
     await db.commit()
     return {
