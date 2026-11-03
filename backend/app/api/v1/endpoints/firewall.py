@@ -136,6 +136,81 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
     )
 
 
+
+class DHCPDeviceReplacement(BaseModel):
+    client_id: int
+    mac_address: str
+    ip_address: str
+    hostname: Optional[str] = None
+
+
+@router.post("/{router_id}/dhcp-confirm-device")
+async def confirm_dhcp_device_replacement(
+    router_id: int,
+    body: DHCPDeviceReplacement,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Confirm an operator-approved CPE replacement and preserve the old MAC."""
+    client = await db.get(Client, body.client_id)
+    if not client or client.router_id != router_id:
+        raise HTTPException(404, "Cliente no encontrado en este router")
+
+    mac = body.mac_address.strip().lower().replace("-", ":")
+    if not mac or len(mac) != 17:
+        raise HTTPException(400, "MAC inválida")
+
+    duplicate_mac = await db.execute(
+        select(Client.id).where(
+            Client.router_id == router_id,
+            func.lower(Client.mac_address) == mac,
+            Client.id != client.id,
+        )
+    )
+    if duplicate_mac.first():
+        raise HTTPException(409, "Esa MAC ya está asignada a otro cliente")
+
+    duplicate_ip = await db.execute(
+        select(Client.id).where(Client.ip_address == body.ip_address, Client.id != client.id)
+    )
+    if duplicate_ip.first():
+        raise HTTPException(409, "Esa IP ya está asignada a otro cliente")
+
+    now = datetime.now(timezone.utc)
+    active_history = await db.execute(
+        select(ClientDeviceHistory).where(
+            ClientDeviceHistory.client_id == client.id,
+            ClientDeviceHistory.ended_at.is_(None),
+        )
+    )
+    for device in active_history.scalars().all():
+        device.ended_at = now
+
+    old_mac = (client.mac_address or "").strip().lower().replace("-", ":")
+    if old_mac and old_mac != mac:
+        db.add(ClientDeviceHistory(
+            client_id=client.id,
+            router_id=router_id,
+            mac_address=old_mac,
+            ip_address=client.ip_address,
+            change_reason="replaced",
+            ended_at=now,
+        ))
+
+    client.mac_address = mac
+    client.ip_address = body.ip_address
+    db.add(ClientDeviceHistory(
+        client_id=client.id,
+        router_id=router_id,
+        mac_address=mac,
+        ip_address=body.ip_address,
+        hostname=body.hostname,
+        change_reason="replacement",
+    ))
+    await db.commit()
+    return {"updated": True, "client_id": client.id, "mac_address": mac, "ip_address": body.ip_address}
+
+
 # ── DHCP Import ───────────────────────────────────────────────────────────────
 
 class DHCPImportItem(BaseModel):
