@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_current_user, get_db
 from app.core.security import decrypt_value, encrypt_value
 from app.core.config import settings
-from app.models.network_controller import NetworkController
+from app.models.network_controller import NetworkController, NetworkControllerStatus
 from app.services.unifi_network import UniFiError, UniFiNetworkService
 from app.schemas.ubiquiti import (
     NetworkControllerCreate,
@@ -150,13 +150,13 @@ async def test_controller_connection(
     )
     try:
         result = await asyncio.to_thread(service.test_connection)
-        controller.status = "online"
+        controller.status = NetworkControllerStatus.online
         controller.last_seen = datetime.now(timezone.utc)
         controller.last_error = None
         await db.commit()
         return result
     except UniFiError as exc:
-        controller.status = "error"
+        controller.status = NetworkControllerStatus.error
         controller.last_error = str(exc)[:500]
         await db.commit()
         raise HTTPException(status_code=502, detail=str(exc))
