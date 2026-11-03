@@ -141,13 +141,13 @@ async def test_controller_connection(
             detail="Configurá usuario y contraseña del controlador antes de probar la conexión.",
         )
 
-    client = UniFiReadOnlyClient(
-        base_url=controller.base_url,
-        username=controller.username,
-        password=decrypt_value(controller.credentials_encrypted),
-        verify_tls=controller.verify_tls,
-    )
     try:
+        client = UniFiReadOnlyClient(
+            base_url=controller.base_url,
+            username=controller.username,
+            password=decrypt_value(controller.credentials_encrypted),
+            verify_tls=controller.verify_tls,
+        )
         sites = await client.get_sites()
         controller.status = NetworkControllerStatus.online
         controller.last_seen = datetime.now(timezone.utc)
