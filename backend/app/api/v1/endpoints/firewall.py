@@ -1,5 +1,7 @@
 from typing import List, Optional
 from datetime import datetime, timezone
+import ipaddress
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -22,6 +24,15 @@ from app.schemas.firewall import (
 )
 
 router = APIRouter()
+
+
+def normalize_mac(value: Optional[str]) -> str:
+    """Return canonical AA:BB:CC:DD:EE:FF form; empty string for invalid input."""
+    compact = re.sub(r"[^0-9a-fA-F]", "", value or "")
+    if len(compact) != 12 or not re.fullmatch(r"[0-9a-fA-F]{12}", compact):
+        return ""
+    compact = compact.lower()
+    return ":".join(compact[i:i + 2] for i in range(0, 12, 2))
 
 
 async def _get_router_or_404(router_id: int, db: AsyncSession) -> MikrotikRouter:
@@ -56,14 +67,12 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
     )
     clients = list(rows)
     by_ip = {row.ip_address: row for row in clients if row.ip_address}
-    history_rows = await db.execute(select(ClientDeviceHistory.client_id, ClientDeviceHistory.mac_address).where(ClientDeviceHistory.router_id == router_id))
+    history_rows = await db.execute(select(ClientDeviceHistory.client_id, ClientDeviceHistory.mac_address, ClientDeviceHistory.ended_at).where(ClientDeviceHistory.router_id == router_id))
     historical_mac_clients = {}
-    for client_id, historical_mac in history_rows:
-        key = historical_mac.strip().lower().replace('-', ':').replace('.', '')
-        historical_mac_clients.setdefault(key, set()).add(client_id)
-
-    def normalize_mac(value: Optional[str]) -> str:
-        return (value or "").strip().lower().replace("-", ":").replace(".", "")
+    for client_id, historical_mac, ended_at in history_rows:
+        key = normalize_mac(historical_mac)
+        if key and ended_at is not None:
+            historical_mac_clients.setdefault(key, set()).add(client_id)
 
     by_mac = {}
     for client in clients:
@@ -94,8 +103,14 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
         elif len(candidate_ids) > 1:
             match_reason = "ambiguous_mac"
         elif ip in by_ip:
-            matched = by_ip[ip]
-            match_reason = "ip"
+            ip_client = by_ip[ip]
+            stored_mac = normalize_mac(ip_client.mac_address)
+            # An IP collision with a different known MAC is not proof of identity.
+            if not mac or not stored_mac:
+                matched = ip_client
+                match_reason = "ip"
+            else:
+                match_reason = "ip_conflict"
 
         # Hostname is only a hint for a possible antenna replacement, never proof.
         if matched is None and hostname:
@@ -149,16 +164,24 @@ async def confirm_dhcp_device_replacement(
     router_id: int,
     body: DHCPDeviceReplacement,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     """Confirm an operator-approved CPE replacement and preserve the old MAC."""
     client = await db.get(Client, body.client_id)
     if not client or client.router_id != router_id:
         raise HTTPException(404, "Cliente no encontrado en este router")
 
-    mac = body.mac_address.strip().lower().replace("-", ":")
-    if not mac or len(mac) != 17:
-        raise HTTPException(400, "MAC inválida")
+    mac = normalize_mac(body.mac_address)
+    if not mac:
+        raise HTTPException(400, "MAC inválida. Usá formato AA:BB:CC:DD:EE:FF")
+
+    try:
+        normalized_ip = str(ipaddress.ip_address(body.ip_address.strip()))
+    except ValueError:
+        raise HTTPException(400, "Dirección IP inválida")
+
+    if normalized_ip != body.ip_address.strip():
+        body.ip_address = normalized_ip
 
     duplicate_mac = await db.execute(
         select(Client.id).where(
@@ -186,7 +209,7 @@ async def confirm_dhcp_device_replacement(
     for device in active_history.scalars().all():
         device.ended_at = now
 
-    old_mac = (client.mac_address or "").strip().lower().replace("-", ":")
+    old_mac = normalize_mac(client.mac_address)
     if old_mac and old_mac != mac:
         db.add(ClientDeviceHistory(
             client_id=client.id,
@@ -207,8 +230,19 @@ async def confirm_dhcp_device_replacement(
         hostname=body.hostname,
         change_reason="replacement",
     ))
+    add_audit_log(
+        db, current_user, "replace_device", "client", client.id, client.full_name,
+        details=f"Reemplazo CPE: MAC {old_mac or 'sin registro'} -> {mac}; IP {client.ip_address} -> {body.ip_address}",
+    )
     await db.commit()
-    return {"updated": True, "client_id": client.id, "mac_address": mac, "ip_address": body.ip_address}
+    return {
+        "updated": True,
+        "client_id": client.id,
+        "mac_address": mac,
+        "ip_address": body.ip_address,
+        "router_sync_required": True,
+        "message": "Ficha actualizada en Guaynet. Verificá/sincronizá el router por separado.",
+    }
 
 
 # ── DHCP Import ───────────────────────────────────────────────────────────────
