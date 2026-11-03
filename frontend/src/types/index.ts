@@ -223,7 +223,7 @@ export interface DHCPLease {
   is_registered: boolean;
   client_id?: number;
   client_name?: string;
-  match_reason?: "mac" | "ip" | "ambiguous_mac" | null;
+  match_reason?: "mac" | "ip" | "historical_mac" | "ambiguous_mac" | null;
   ip_changed?: boolean;
   replacement_client_id?: number;
   replacement_client_name?: string;
