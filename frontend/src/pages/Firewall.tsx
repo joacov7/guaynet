@@ -506,8 +506,7 @@ export default function Firewall() {
           )}
           {r.ip_changed && <Tag color="orange">IP modificada</Tag>
           }
-          {r.replacement_client_id && <Tag color="gold">Posible cambio de antena</Tag>
-          )}
+          {r.replacement_client_id && <Tag color="gold">Posible cambio de antena</Tag>}
         </Space>
       ),
     },
