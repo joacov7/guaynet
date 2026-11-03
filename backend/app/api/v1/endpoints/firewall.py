@@ -56,7 +56,7 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
     )
     clients = list(rows)
     by_ip = {row.ip_address: row for row in clients if row.ip_address}
-    history_rows = await db.execute(select(ClientDeviceHistory.client_id, ClientDeviceHistory.mac_address).where(ClientDeviceHistory.router_id == router_id, ClientDeviceHistory.ended_at.is_(None)))
+    history_rows = await db.execute(select(ClientDeviceHistory.client_id, ClientDeviceHistory.mac_address).where(ClientDeviceHistory.router_id == router_id))
     historical_mac_clients = {}
     for client_id, historical_mac in history_rows:
         key = historical_mac.strip().lower().replace('-', ':').replace('.', '')
