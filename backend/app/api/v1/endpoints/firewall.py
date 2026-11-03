@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import asyncio
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import add_audit_log, get_current_user, get_db
 from app.models.router import MikrotikRouter
 from app.models.client import Client, ClientStatus, ClientDeviceHistory
 from app.models.plan import Plan
@@ -105,7 +105,7 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
                 replacement_candidate = ip_client
 
         # Hostname is only a hint for a possible antenna replacement, never proof.
-        if matched is None and hostname:
+        if matched is None and hostname and replacement_candidate is None:
             wanted = normalize_name(hostname)
             candidates = [
                 c for c in clients
