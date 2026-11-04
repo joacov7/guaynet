@@ -175,6 +175,7 @@ export const clientsApi = {
     limit?: number;
   }) => http.get<Client[]>("/clients/", { params }).then((r) => r.data),
   get: (id: number) => http.get<Client>(`/clients/${id}`).then((r) => r.data),
+  connectionStatus: () => http.get<Record<string, { status: "online" | "not_detected" | "unknown"; checked_at: string }>>("/clients/connection-status").then((r) => r.data),
   create: (data: Partial<Client>) => http.post<Client>("/clients/", data).then((r) => r.data),
   update: (id: number, data: Partial<Client>) =>
     http.put<Client>(`/clients/${id}`, data).then((r) => r.data),
@@ -334,7 +335,7 @@ export const ubiquitiApi = {
 // ── Firewall & QoS ────────────────────────────────────────────────────────────
 export const firewallApi = {
   dhcpScan: (routerId: number) =>
-    http.get<DHCPScanResponse>(`/firewall/${routerId}/dhcp-scan`).then((r) => r.data),
+    http.get<DHCPScanResponse>(`/dhcp/${routerId}/dhcp-scan`).then((r) => r.data),
   getFilterRules: (routerId: number) =>
     http.get<{ rules: FirewallRule[]; error: string | null }>(`/firewall/${routerId}/filter`).then((r) => r.data),
   deleteFilterRule: (routerId: number, ruleId: string) =>
@@ -350,9 +351,15 @@ export const firewallApi = {
   setupPCQ: (routerId: number) =>
     http.post<{ added: number }>(`/firewall/${routerId}/pcq/setup`).then((r) => r.data),
   confirmDhcpDevice: (routerId: number, payload: { client_id: number; mac_address: string; ip_address: string; hostname?: string }) =>
-    http.post(`/firewall/${routerId}/dhcp-confirm-device`, payload).then((r) => r.data),
+    http.post(`/dhcp/${routerId}/dhcp-confirm-device`, payload).then((r) => r.data),
   dhcpImport: (routerId: number, items: { address: string; mac_address: string; hostname?: string }[], plan_id: number) =>
-    http.post<{ created: number; skipped: number }>(`/firewall/${routerId}/dhcp-import`, { items, plan_id }).then((r) => r.data),
+    http.post<{
+      created: number;
+      skipped: number;
+      synced: number;
+      sync_failed: number;
+      sync_errors: { client_id: number; client_name: string; error: string }[];
+    }>(`/dhcp/${routerId}/dhcp-import`, { items, plan_id }).then((r) => r.data),
   getQueueTreeStats: (routerId: number) =>
     http.get<{ entries: QueueTreeEntry[]; error: string | null }>(`/firewall/${routerId}/queue-tree-stats`).then((r) => r.data),
   applyProfessionalTree: (routerId: number, download_mbps: number, upload_mbps: number) =>

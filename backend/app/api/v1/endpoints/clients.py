@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
@@ -9,7 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import ACTION_DENIED, add_audit_log, get_current_user, get_db, has_action, require_action
+from app.core.deps import ACTION_DENIED, add_audit_log, get_current_user, get_db, has_action, require_action, require_admin
 from app.core.security import decrypt_value, encrypt_value
 from app.models.client import Client, ClientStatus
 from app.models.config import SystemConfig
@@ -150,6 +151,56 @@ async def list_clients(
     return result.scalars().all()
 
 
+@router.get("/connection-status")
+async def get_clients_connection_status(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Read-only live status from MikroTik ARP tables; failures remain unknown, not offline."""
+    clients_result = await db.execute(
+        select(Client).where(Client.status != ClientStatus.cancelled)
+    )
+    clients = clients_result.scalars().all()
+    routers = {}
+    for client in clients:
+        if client.router_id and client.router_id not in routers:
+            routers[client.router_id] = await db.get(MikrotikRouter, client.router_id)
+
+    result = {}
+    checked_at = datetime.now(timezone.utc).isoformat()
+    for router_id, router_obj in routers.items():
+        if not router_obj:
+            continue
+        router_clients = [c for c in clients if c.router_id == router_id]
+        try:
+            def _read_arp():
+                svc = build_service_from_router(router_obj)
+                with svc:
+                    return svc.get_arp_table()
+
+            arp_rows = await asyncio.to_thread(_read_arp)
+            live_ips = set()
+            live_macs = set()
+            for row in arp_rows:
+                if row.get("address") and row.get("complete", "true") != "false":
+                    live_ips.add(row["address"])
+                    mac = (row.get("mac-address") or "").replace("-", ":").upper()
+                    if mac:
+                        live_macs.add(mac)
+            for client in router_clients:
+                mac = (client.mac_address or "").replace("-", ":").upper()
+                result[str(client.id)] = {
+                    "status": "online" if client.ip_address in live_ips or (mac and mac in live_macs) else "not_detected",
+                    "checked_at": checked_at,
+                }
+        except Exception as e:
+            logger.warning("Could not read ARP status for router %s: %s", router_id, e)
+            for client in router_clients:
+                result[str(client.id)] = {"status": "unknown", "checked_at": checked_at}
+
+    return result
+
+
 @router.post("/", response_model=ClientResponse, status_code=201)
 async def create_client(
     body: ClientCreate,
@@ -178,16 +229,7 @@ async def create_client(
     await db.commit()
     await db.refresh(client)
 
-    # Push to Mikrotik (best-effort, don't fail the creation)
-    try:
-        await _push_to_mikrotik(client, rt, db)
-    except MikrotikError:
-        pass
-    try:
-        await _sync_pppoe_to_mikrotik(client, db)
-    except Exception:
-        pass
-
+    # El alta registra al cliente en Guaynet. La provisión de red es manual/admin.
     return await db.get(
         Client,
         client.id,
@@ -253,29 +295,11 @@ async def update_client(
     db.add(client)
     await db.commit()
 
-    mt_error = None
-    mt_sync = None
-    rt = await db.get(MikrotikRouter, client.router_id)
-    if rt:
-        try:
-            mt_sync = await _push_to_mikrotik(client, rt, db)
-        except MikrotikError as e:
-            mt_error = str(e)
-        except Exception as e:
-            mt_error = f"Error inesperado: {e}"
-    else:
-        mt_error = "Router no encontrado"
-
-    try:
-        await _sync_pppoe_to_mikrotik(client, db)
-    except Exception:
-        pass
-
     await db.refresh(client)
     resp = ClientResponse.model_validate(client)
     resp.has_pppoe = bool(client.pppoe_password_encrypted)
-    resp.mikrotik_error = mt_error
-    resp.mikrotik_sync = mt_sync
+    resp.mikrotik_error = None
+    resp.mikrotik_sync = "Pendiente de sincronización manual"
     return resp
 
 
@@ -381,9 +405,9 @@ async def activate_client(
 async def sync_client_mikrotik(
     client_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    _=Depends(require_admin),
 ):
-    """Force-push this client's queue config to its router."""
+    """Force-push this client's queue config to its router (admin only)."""
     client = await db.get(Client, client_id)
     if not client:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
@@ -404,7 +428,7 @@ async def sync_client_mikrotik(
 async def sync_client_pppoe(
     client_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    _=Depends(require_admin),
 ):
     client = await db.get(Client, client_id)
     if not client:

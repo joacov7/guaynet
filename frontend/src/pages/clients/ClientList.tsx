@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { usePermissions } from "@/contexts/PermissionsContext";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -38,12 +39,20 @@ const statusConfig: Record<ClientStatus, { color: string; label: string }> = {
 export default function ClientList() {
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { isAdmin } = usePermissions();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ClientStatus | undefined>();
 
   const { data = [], isLoading, error } = useQuery({
     queryKey: ["clients", { search, status: statusFilter }],
     queryFn: () => clientsApi.list({ search: search || undefined, status: statusFilter }),
+  });
+
+  const { data: connectivity = {} } = useQuery({
+    queryKey: ["clients-connection-status"],
+    queryFn: clientsApi.connectionStatus,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
   });
 
   const suspendMutation = useMutation({
@@ -108,6 +117,16 @@ export default function ClientList() {
       render: (_: unknown, r: Client) => r.router?.name ?? "—",
     },
     {
+      title: "Conectividad",
+      key: "connectivity",
+      render: (_: unknown, r: Client) => {
+        const status = connectivity[String(r.id)]?.status ?? "unknown";
+        if (status === "online") return <Tag color="green">Detectado</Tag>;
+        if (status === "not_detected") return <Tag color="red">No detectado</Tag>;
+        return <Tag color="default">Sin datos</Tag>;
+      },
+    },
+    {
       title: "Estado",
       dataIndex: "status",
       key: "status",
@@ -124,9 +143,9 @@ export default function ClientList() {
           <Tooltip title="Editar">
             <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/clients/${r.id}`)} />
           </Tooltip>
-          <Tooltip title="Sync Mikrotik">
+          {isAdmin && (          <Tooltip title="Sync Mikrotik">
             <Button size="small" icon={<SyncOutlined />} onClick={() => syncMutation.mutate(r.id)} />
-          </Tooltip>
+          </Tooltip>) }
           {r.status === "active" ? (
             <Tooltip title="Suspender">
               <Popconfirm title="¿Suspender cliente?" onConfirm={() => suspendMutation.mutate(r.id)}>
