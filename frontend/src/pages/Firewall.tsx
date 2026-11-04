@@ -349,7 +349,18 @@ export default function Firewall() {
       importPlanId!,
     ),
     onSuccess: (res) => {
-      message.success(`Importados: ${res.created} clientes, omitidos: ${res.skipped}`);
+      if (res.sync_failed > 0) {
+        message.warning(
+          `Importados: ${res.created}. Omitidos: ${res.skipped}. ` +
+          `Sincronizados: ${res.synced}. Errores de sincronización: ${res.sync_failed}.`
+        );
+      } else {
+        message.success(
+          `Importados: ${res.created}. Omitidos: ${res.skipped}. ` +
+          `Sincronizados: ${res.synced}.`
+        );
+      }
+
       setImportModalOpen(false);
       setSelectedLeases([]);
       refetchDhcp();
