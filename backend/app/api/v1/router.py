@@ -40,6 +40,7 @@ api_router.include_router(plans.router, prefix="/plans", tags=["plans"], depende
 api_router.include_router(routers.router, prefix="/routers", tags=["routers"], dependencies=[Depends(section_guard("routers", also_view=("clients", "monitoring", "firewall", "ubiquiti", "bandwidth", "map", "zones")))])
 api_router.include_router(invoices.router, prefix="/invoices", tags=["invoices"], dependencies=[Depends(section_guard("billing"))])
 api_router.include_router(firewall.router, prefix="/firewall", tags=["firewall"], dependencies=[Depends(section_guard("firewall"))])
+api_router.include_router(firewall.dhcp_router, prefix="/dhcp", tags=["dhcp"], dependencies=[Depends(section_guard("clients"))])
 api_router.include_router(ubiquiti.router, prefix="/ubiquiti", tags=["ubiquiti"], dependencies=[Depends(section_guard("ubiquiti", also_view=("clients",)))])
 api_router.include_router(network_controllers.router, prefix="/network-controllers", tags=["network-controllers"], dependencies=[Depends(section_guard("ubiquiti"))])
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
