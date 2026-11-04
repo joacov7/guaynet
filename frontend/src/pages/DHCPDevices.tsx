@@ -35,7 +35,7 @@ export default function DHCPDevices() {
       planId!,
     ),
     onSuccess: (res) => {
-      message.success(`Altas: ${res.created}. Omitidos: ${res.skipped}. Sincronizados: ${res.synced}. Errores: ${res.sync_failed}.`);
+      message.success(`Altas: ${res.created}. Omitidos: ${res.skipped}. Pendientes de provisión MikroTik: ${res.provisioning_pending ?? res.created}.`);
       setSelected([]);
       qc.invalidateQueries({ queryKey: ["clients"] });
       refetch();
