@@ -257,70 +257,124 @@ async def dhcp_import(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    from app.services.mikrotik import build_service_from_router, MikrotikError
     from app.api.v1.endpoints.clients import _push_to_mikrotik
-    from app.core.deps import add_audit_log
 
     mt_router = await _get_router_or_404(router_id, db)
     plan = await db.get(Plan, body.plan_id)
     if not plan:
         raise HTTPException(404, "Plan no encontrado")
 
-    existing_ips = {
-        row[0] for row in (await db.execute(select(Client.ip_address))).all()
+    # Validar y normalizar todo el lote antes de crear registros.
+    normalized_items = []
+    for item in body.items:
+        try:
+            address = str(ipaddress.ip_address(item.address.strip()))
+        except ValueError:
+            raise HTTPException(400, f"IP inválida: {item.address}")
+
+        mac = normalize_mac(item.mac_address)
+        if not mac:
+            raise HTTPException(400, f"MAC inválida para la IP {address}")
+
+        normalized_items.append((item, address, mac))
+
+    all_clients = (
+        await db.execute(
+            select(Client.ip_address, Client.mac_address, Client.router_id)
+        )
+    ).all()
+
+    existing_ips = {row.ip_address for row in all_clients if row.ip_address}
+    existing_macs = {
+        normalize_mac(row.mac_address)
+        for row in all_clients
+        if row.router_id == router_id and normalize_mac(row.mac_address)
     }
 
-    created, skipped = 0, 0
-    for item in body.items:
-        if item.address in existing_ips:
+    created_clients = []
+    skipped = 0
+    seen_ips = set()
+    seen_macs = set()
+
+    for item, address, mac in normalized_items:
+        if (
+            address in existing_ips
+            or address in seen_ips
+            or mac in existing_macs
+            or mac in seen_macs
+        ):
             skipped += 1
             continue
 
-        # Derive name from hostname or IP last octet
         if item.hostname:
-            name_parts = item.hostname.replace("-", " ").replace("_", " ").split()
-            first = name_parts[0].capitalize() if name_parts else item.address
-            last = " ".join(name_parts[1:]).capitalize() if len(name_parts) > 1 else "DHCP"
+            name_parts = (
+                item.hostname.replace("-", " ")
+                .replace("_", " ")
+                .split()
+            )
+            first = name_parts[0].capitalize() if name_parts else address
+            last = (
+                " ".join(name_parts[1:]).capitalize()
+                if len(name_parts) > 1
+                else "DHCP"
+            )
         else:
-            first = f"Cliente-{item.address.split('.')[-1]}"
+            first = f"Cliente-{address.split('.')[-1]}"
             last = "DHCP"
 
         client = Client(
             first_name=first,
             last_name=last,
-            ip_address=item.address,
-            mac_address=item.mac_address or None,
+            ip_address=address,
+            mac_address=mac,
             plan_id=body.plan_id,
             router_id=router_id,
             status=ClientStatus.active,
             billing_day=1,
         )
+
         db.add(client)
-        await db.flush()  # get client.id before commit
+        await db.flush()
 
-        add_audit_log(db, current_user, "create", "client", client.id, client.full_name,
-                      details=f"Importado desde DHCP ({item.address})")
+        add_audit_log(
+            db,
+            current_user,
+            "create",
+            "client",
+            client.id,
+            client.full_name,
+            details=f"Importado desde DHCP ({address}, MAC {mac})",
+        )
 
-        existing_ips.add(item.address)
-        created += 1
+        created_clients.append(client)
+        seen_ips.add(address)
+        seen_macs.add(mac)
 
+    # Guardar primero las altas en Guaynet.
     await db.commit()
 
-    # Push all new clients to MikroTik (best-effort)
-    new_clients_r = await db.execute(
-        select(Client).where(
-            Client.router_id == router_id,
-            Client.last_name == "DHCP",
-        )
-    )
-    for client in new_clients_r.scalars().all():
+    # Sincronizar únicamente los clientes creados en esta operación.
+    synced = 0
+    sync_errors = []
+
+    for client in created_clients:
         try:
             await _push_to_mikrotik(client, mt_router, db)
-        except MikrotikError:
-            pass
+            synced += 1
+        except Exception as e:
+            sync_errors.append({
+                "client_id": client.id,
+                "client_name": client.full_name,
+                "error": str(e),
+            })
 
-    return {"created": created, "skipped": skipped}
-
+    return {
+        "created": len(created_clients),
+        "skipped": skipped,
+        "synced": synced,
+        "sync_failed": len(sync_errors),
+        "sync_errors": sync_errors,
+    }
 
 # ── Firewall Filter ───────────────────────────────────────────────────────────
 
