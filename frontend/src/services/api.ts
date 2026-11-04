@@ -352,7 +352,13 @@ export const firewallApi = {
   confirmDhcpDevice: (routerId: number, payload: { client_id: number; mac_address: string; ip_address: string; hostname?: string }) =>
     http.post(`/firewall/${routerId}/dhcp-confirm-device`, payload).then((r) => r.data),
   dhcpImport: (routerId: number, items: { address: string; mac_address: string; hostname?: string }[], plan_id: number) =>
-    http.post<{ created: number; skipped: number }>(`/firewall/${routerId}/dhcp-import`, { items, plan_id }).then((r) => r.data),
+    http.post<{
+      created: number;
+      skipped: number;
+      synced: number;
+      sync_failed: number;
+      sync_errors: { client_id: number; client_name: string; error: string }[];
+    }>(`/firewall/${routerId}/dhcp-import`, { items, plan_id }).then((r) => r.data),
   getQueueTreeStats: (routerId: number) =>
     http.get<{ entries: QueueTreeEntry[]; error: string | null }>(`/firewall/${routerId}/queue-tree-stats`).then((r) => r.data),
   applyProfessionalTree: (routerId: number, download_mbps: number, upload_mbps: number) =>
