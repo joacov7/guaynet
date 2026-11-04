@@ -12,6 +12,7 @@ import {
   GlobalOutlined,
   MonitorOutlined,
   SafetyOutlined,
+  ScanOutlined,
   TagsOutlined,
   TeamOutlined,
   ToolOutlined,
@@ -38,6 +39,7 @@ import { usePermissions } from "@/contexts/PermissionsContext";
 const ALL_ITEMS = [
   { key: "/",          icon: <DashboardOutlined />,  label: "Dashboard",       section: null },
   { key: "/clients",   icon: <TeamOutlined />,        label: "Clientes",        section: "clients" },
+  { key: "/dhcp",      icon: <ScanOutlined />,        label: "Dispositivos DHCP", section: "clients" },
   { key: "/plans",     icon: <TagsOutlined />,        label: "Planes",          section: "plans" },
   { key: "/zones",     icon: <EnvironmentOutlined />, label: "Zonas",           section: "zones" },
   { key: "/routers",   icon: <ApartmentOutlined />,   label: "Routers",         section: "routers" },
