@@ -10,7 +10,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import ACTION_DENIED, add_audit_log, get_current_user, get_db, has_action, require_action
+from app.core.deps import ACTION_DENIED, add_audit_log, get_current_user, get_db, has_action, require_action, require_admin
 from app.core.security import decrypt_value, encrypt_value
 from app.models.client import Client, ClientStatus
 from app.models.config import SystemConfig
@@ -432,9 +432,9 @@ async def activate_client(
 async def sync_client_mikrotik(
     client_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    _=Depends(require_admin),
 ):
-    """Force-push this client's queue config to its router."""
+    """Force-push this client's queue config to its router (admin only)."""
     client = await db.get(Client, client_id)
     if not client:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
@@ -455,7 +455,7 @@ async def sync_client_mikrotik(
 async def sync_client_pppoe(
     client_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    _=Depends(require_admin),
 ):
     client = await db.get(Client, client_id)
     if not client:
