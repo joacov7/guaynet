@@ -24,6 +24,7 @@ from app.schemas.firewall import (
 )
 
 router = APIRouter()
+dhcp_router = APIRouter()
 
 
 async def _get_router_or_404(router_id: int, db: AsyncSession) -> MikrotikRouter:
@@ -36,7 +37,7 @@ async def _get_router_or_404(router_id: int, db: AsyncSession) -> MikrotikRouter
 
 # ── DHCP Scan ─────────────────────────────────────────────────────────────────
 
-@router.get("/{router_id}/dhcp-scan")
+@dhcp_router.get("/{router_id}/dhcp-scan")
 async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
     mt_router = await _get_router_or_404(router_id, db)
     svc = build_service_from_router(mt_router)
@@ -151,7 +152,7 @@ class DHCPDeviceReplacement(BaseModel):
     hostname: Optional[str] = None
 
 
-@router.post("/{router_id}/dhcp-confirm-device")
+@dhcp_router.post("/{router_id}/dhcp-confirm-device")
 async def confirm_dhcp_device_replacement(
     router_id: int,
     body: DHCPDeviceReplacement,
@@ -250,7 +251,7 @@ class DHCPImportRequest(BaseModel):
     plan_id: int
 
 
-@router.post("/{router_id}/dhcp-import")
+@dhcp_router.post("/{router_id}/dhcp-import")
 async def dhcp_import(
     router_id: int,
     body: DHCPImportRequest,
