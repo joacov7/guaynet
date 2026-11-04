@@ -229,16 +229,7 @@ async def create_client(
     await db.commit()
     await db.refresh(client)
 
-    # Push to Mikrotik (best-effort, don't fail the creation)
-    try:
-        await _push_to_mikrotik(client, rt, db)
-    except MikrotikError:
-        pass
-    try:
-        await _sync_pppoe_to_mikrotik(client, db)
-    except Exception:
-        pass
-
+    # El alta registra al cliente en Guaynet. La provisión de red es manual/admin.
     return await db.get(
         Client,
         client.id,
@@ -304,29 +295,11 @@ async def update_client(
     db.add(client)
     await db.commit()
 
-    mt_error = None
-    mt_sync = None
-    rt = await db.get(MikrotikRouter, client.router_id)
-    if rt:
-        try:
-            mt_sync = await _push_to_mikrotik(client, rt, db)
-        except MikrotikError as e:
-            mt_error = str(e)
-        except Exception as e:
-            mt_error = f"Error inesperado: {e}"
-    else:
-        mt_error = "Router no encontrado"
-
-    try:
-        await _sync_pppoe_to_mikrotik(client, db)
-    except Exception:
-        pass
-
     await db.refresh(client)
     resp = ClientResponse.model_validate(client)
     resp.has_pppoe = bool(client.pppoe_password_encrypted)
-    resp.mikrotik_error = mt_error
-    resp.mikrotik_sync = mt_sync
+    resp.mikrotik_error = None
+    resp.mikrotik_sync = "Pendiente de sincronización manual"
     return resp
 
 
