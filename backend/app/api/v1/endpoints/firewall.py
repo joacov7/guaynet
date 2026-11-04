@@ -258,8 +258,6 @@ async def dhcp_import(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    from app.api.v1.endpoints.clients import _push_to_mikrotik
-
     mt_router = await _get_router_or_404(router_id, db)
     plan = await db.get(Plan, body.plan_id)
     if not plan:
@@ -354,27 +352,15 @@ async def dhcp_import(
     # Guardar primero las altas en Guaynet.
     await db.commit()
 
-    # Sincronizar únicamente los clientes creados en esta operación.
-    synced = 0
-    sync_errors = []
-
-    for client in created_clients:
-        try:
-            await _push_to_mikrotik(client, mt_router, db)
-            synced += 1
-        except Exception as e:
-            sync_errors.append({
-                "client_id": client.id,
-                "client_name": client.full_name,
-                "error": str(e),
-            })
-
+    # La importación solo crea fichas en Guaynet; no escribe en el MikroTik.
+    # Conservamos los campos previos para compatibilidad con clientes API existentes.
     return {
         "created": len(created_clients),
         "skipped": skipped,
-        "synced": synced,
-        "sync_failed": len(sync_errors),
-        "sync_errors": sync_errors,
+        "synced": 0,
+        "sync_failed": 0,
+        "sync_errors": [],
+        "provisioning_pending": len(created_clients),
     }
 
 # ── Firewall Filter ───────────────────────────────────────────────────────────
