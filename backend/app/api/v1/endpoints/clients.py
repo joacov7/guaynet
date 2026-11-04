@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
@@ -148,6 +149,56 @@ async def list_clients(
     q = q.offset(skip).limit(limit)
     result = await db.execute(q)
     return result.scalars().all()
+
+
+@router.get("/connection-status")
+async def get_clients_connection_status(
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    """Read-only live status from MikroTik ARP tables; failures remain unknown, not offline."""
+    clients_result = await db.execute(
+        select(Client).where(Client.status != ClientStatus.cancelled)
+    )
+    clients = clients_result.scalars().all()
+    routers = {}
+    for client in clients:
+        if client.router_id and client.router_id not in routers:
+            routers[client.router_id] = await db.get(MikrotikRouter, client.router_id)
+
+    result = {}
+    checked_at = datetime.now(timezone.utc).isoformat()
+    for router_id, router_obj in routers.items():
+        if not router_obj:
+            continue
+        router_clients = [c for c in clients if c.router_id == router_id]
+        try:
+            def _read_arp():
+                svc = build_service_from_router(router_obj)
+                with svc:
+                    return svc.get_arp_table()
+
+            arp_rows = await asyncio.to_thread(_read_arp)
+            live_ips = set()
+            live_macs = set()
+            for row in arp_rows:
+                if row.get("address") and row.get("complete", "true") != "false":
+                    live_ips.add(row["address"])
+                    mac = (row.get("mac-address") or "").replace("-", ":").upper()
+                    if mac:
+                        live_macs.add(mac)
+            for client in router_clients:
+                mac = (client.mac_address or "").replace("-", ":").upper()
+                result[str(client.id)] = {
+                    "status": "online" if client.ip_address in live_ips or (mac and mac in live_macs) else "not_detected",
+                    "checked_at": checked_at,
+                }
+        except Exception as e:
+            logger.warning("Could not read ARP status for router %s: %s", router_id, e)
+            for client in router_clients:
+                result[str(client.id)] = {"status": "unknown", "checked_at": checked_at}
+
+    return result
 
 
 @router.post("/", response_model=ClientResponse, status_code=201)
