@@ -22,6 +22,17 @@ from app.models.smart_foundation import (
 )
 
 
+def _permission_is_allowed(role_granted: bool, override_effect: str | None, risk_level: str) -> bool:
+    """Pure policy decision; critical operations are handled by a separate flow."""
+    if risk_level == "critical":
+        return False
+    if override_effect == "deny":
+        return False
+    if override_effect == "grant":
+        return True
+    return role_granted
+
+
 def require_smart_permission(permission_code: str):
     """Require an active, direct membership in the installation in the URL.
 
@@ -81,10 +92,6 @@ def require_smart_permission(permission_code: str):
         if permission is None:
             raise HTTPException(status_code=403, detail="Permiso no configurado")
 
-        # Critical operations require a dedicated, step-up authorization flow.
-        if permission.risk_level == "critical":
-            raise HTTPException(status_code=403, detail="Esta operación requiere autorización reforzada")
-
         role_grant_result = await db.execute(
             select(SmartRolePermission.id)
             .join(SmartPermission, SmartPermission.id == SmartRolePermission.permission_id)
@@ -103,11 +110,18 @@ def require_smart_permission(permission_code: str):
             )
         )
         override = override_result.scalar_one_or_none()
-        allowed = False if override and override.effect == "deny" else (
-            True if override and override.effect == "grant" else role_granted
+        allowed = _permission_is_allowed(
+            role_granted=role_granted,
+            override_effect=override.effect if override else None,
+            risk_level=permission.risk_level,
         )
         if not allowed:
-            raise HTTPException(status_code=403, detail="No tenés permiso para esta operación")
+            detail = (
+                "Esta operación requiere autorización reforzada"
+                if permission.risk_level == "critical"
+                else "No tenés permiso para esta operación"
+            )
+            raise HTTPException(status_code=403, detail=detail)
 
         request.state.smart_installation_id = installation_id
         request.state.smart_membership_id = member.id
