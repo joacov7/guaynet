@@ -33,6 +33,19 @@ def _permission_is_allowed(role_granted: bool, override_effect: str | None, risk
     return role_granted
 
 
+
+def _role_is_valid_for_installation(
+    role_scope: str,
+    role_organization_id: UUID | None,
+    installation_organization_id: UUID,
+) -> bool:
+    """A role must be installation-scoped and global or owned by this organization."""
+    return role_scope == "installation" and (
+        role_organization_id is None
+        or role_organization_id == installation_organization_id
+    )
+
+
 def require_smart_permission(permission_code: str):
     """Require an active, direct membership in the installation in the URL.
 
@@ -73,6 +86,10 @@ def require_smart_permission(permission_code: str):
                 SmartInstallationMember.user_id == current_user.id,
                 SmartInstallationMember.status == "active",
                 SmartRole.scope == "installation",
+                or_(
+                    SmartRole.organization_id.is_(None),
+                    SmartRole.organization_id == SmartInstallation.organization_id,
+                ),
                 or_(SmartInstallationMember.starts_at.is_(None), SmartInstallationMember.starts_at <= now),
                 or_(SmartInstallationMember.ends_at.is_(None), SmartInstallationMember.ends_at > now),
             )
