@@ -18,8 +18,6 @@ def _id(value: str) -> UUID:
     return uuid5(NAMESPACE_URL, "guaynet-smart:" + value)
 
 def upgrade() -> None:
-    op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
-
     op.create_table(
         "smart_organizations",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
