@@ -38,6 +38,13 @@ from app.models.security import (  # noqa: F401
     SecurityMonthlyReport, SecurityMonthlyReportStatus,
 )
 
+# ── Smart platform foundation ─────────────────────────────────────────────────
+from app.models.smart_foundation import (  # noqa: F401
+    SmartOrganization, SmartInstallation, SmartRole, SmartPermission,
+    SmartRolePermission, SmartOrganizationMember, SmartInstallationMember,
+    SmartMemberPermission, SmartInvitation,
+)
+
 __all__ = [
     "Base",
     "TimestampMixin",
