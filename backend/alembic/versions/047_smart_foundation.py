@@ -153,6 +153,27 @@ def upgrade() -> None:
     )
     op.create_index("ix_smart_invitations_email_status", "smart_invitations", ["email", "status"])
 
+    op.create_table(
+        "smart_audit_events",
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")),
+        sa.Column("organization_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("smart_organizations.id", ondelete="SET NULL")),
+        sa.Column("installation_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("smart_installations.id", ondelete="SET NULL")),
+        sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="SET NULL")),
+        sa.Column("actor_type", sa.String(20), nullable=False, server_default="user"),
+        sa.Column("action", sa.String(100), nullable=False),
+        sa.Column("resource_type", sa.String(80), nullable=False),
+        sa.Column("resource_id", sa.String(100)),
+        sa.Column("result", sa.String(20), nullable=False, server_default="success"),
+        sa.Column("source", sa.String(30), nullable=False, server_default="api"),
+        sa.Column("request_id", sa.String(100)),
+        sa.Column("details", postgresql.JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.CheckConstraint("actor_type IN ('user','gateway','system','ai')", name="ck_smart_audit_actor_type"),
+        sa.CheckConstraint("result IN ('success','denied','failed')", name="ck_smart_audit_result"),
+    )
+    op.create_index("ix_smart_audit_installation_created", "smart_audit_events", ["installation_id", "created_at"])
+    op.create_index("ix_smart_audit_user_created", "smart_audit_events", ["user_id", "created_at"])
+
     roles = [
         ("organization", "org_owner", "Propietario", "Administra la organización"),
         ("organization", "org_admin", "Administrador", "Administra miembros e instalaciones"),
@@ -215,9 +236,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     for table in (
-        "smart_invitations", "smart_member_permissions", "smart_installation_members",
+        "smart_audit_events", "smart_invitations", "smart_member_permissions", "smart_installation_members",
         "smart_organization_members", "smart_role_permissions", "smart_permissions",
         "smart_roles", "smart_installations", "smart_organizations",
     ):
         op.drop_table(table)
-    op.execute("DROP EXTENSION IF EXISTS pgcrypto")
