@@ -58,6 +58,7 @@ class SmartInstallation(Base, TimestampMixin):
     __table_args__ = (
         CheckConstraint("installation_type IN ('home','commercial','industrial','other')", name="ck_smart_installation_type"),
         CheckConstraint("status IN ('active','suspended','maintenance','archived')", name="ck_smart_installation_status"),
+        UniqueConstraint("id", "organization_id", name="uq_smart_installation_id_org"),
         Index("ix_smart_installations_org_status", "organization_id", "status"),
     )
 
@@ -167,4 +168,27 @@ class SmartInvitation(Base):
         CheckConstraint("(organization_id IS NOT NULL AND installation_id IS NULL) OR (organization_id IS NULL AND installation_id IS NOT NULL)", name="ck_smart_invitation_single_scope"),
         CheckConstraint("status IN ('pending','accepted','expired','revoked')", name="ck_smart_invitation_status"),
         Index("ix_smart_invitations_email_status", "email", "status"),
+    )
+
+
+class SmartAuditEvent(Base):
+    __tablename__ = "smart_audit_events"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("smart_organizations.id", ondelete="SET NULL"))
+    installation_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("smart_installations.id", ondelete="SET NULL"))
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    actor_type: Mapped[str] = mapped_column(String(20), nullable=False, server_default="user")
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    resource_id: Mapped[str | None] = mapped_column(String(100))
+    result: Mapped[str] = mapped_column(String(20), nullable=False, server_default="success")
+    source: Mapped[str] = mapped_column(String(30), nullable=False, server_default="api")
+    request_id: Mapped[str | None] = mapped_column(String(100))
+    details: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    __table_args__ = (
+        CheckConstraint("actor_type IN ('user','gateway','system','ai')", name="ck_smart_audit_actor_type"),
+        CheckConstraint("result IN ('success','denied','failed')", name="ck_smart_audit_result"),
+        Index("ix_smart_audit_installation_created", "installation_id", "created_at"),
+        Index("ix_smart_audit_user_created", "user_id", "created_at"),
     )
