@@ -76,7 +76,8 @@ class SmartRole(Base, TimestampMixin):
     __table_args__ = (
         CheckConstraint("scope IN ('organization','installation')", name="ck_smart_role_scope"),
         CheckConstraint("(is_system = true AND organization_id IS NULL) OR (is_system = false AND organization_id IS NOT NULL)", name="ck_smart_role_owner"),
-        UniqueConstraint("scope", "key", "organization_id", name="uq_smart_role_scope_key_org"),
+        Index("uq_smart_system_role_scope_key", "scope", "key", unique=True, postgresql_where=text("organization_id IS NULL")),
+        Index("uq_smart_custom_role_scope_key_org", "scope", "key", "organization_id", unique=True, postgresql_where=text("organization_id IS NOT NULL")),
     )
 
 
