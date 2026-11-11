@@ -86,10 +86,6 @@ def require_smart_permission(permission_code: str):
                 SmartInstallationMember.user_id == current_user.id,
                 SmartInstallationMember.status == "active",
                 SmartRole.scope == "installation",
-                or_(
-                    SmartRole.organization_id.is_(None),
-                    SmartRole.organization_id == SmartInstallation.organization_id,
-                ),
                 or_(SmartInstallationMember.starts_at.is_(None), SmartInstallationMember.starts_at <= now),
                 or_(SmartInstallationMember.ends_at.is_(None), SmartInstallationMember.ends_at > now),
             )
@@ -99,6 +95,10 @@ def require_smart_permission(permission_code: str):
             raise HTTPException(status_code=403, detail="No tenés acceso a esta instalación")
 
         member, role = membership_row
+        if not _role_is_valid_for_installation(
+            role.scope, role.organization_id, installation_row[0].organization_id
+        ):
+            raise HTTPException(status_code=403, detail="El rol no pertenece a esta organización")
         if member.schedule:
             raise HTTPException(status_code=403, detail="El acceso horario todavía no está habilitado para esta instalación")
 
