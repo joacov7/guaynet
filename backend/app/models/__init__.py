@@ -42,7 +42,7 @@ from app.models.security import (  # noqa: F401
 from app.models.smart_foundation import (  # noqa: F401
     SmartOrganization, SmartInstallation, SmartRole, SmartPermission,
     SmartRolePermission, SmartOrganizationMember, SmartInstallationMember,
-    SmartMemberPermission, SmartInvitation,
+    SmartMemberPermission, SmartInvitation, SmartAuditEvent,
 )
 
 __all__ = [
