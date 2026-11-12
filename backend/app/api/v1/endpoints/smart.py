@@ -4,6 +4,8 @@ This first vertical slice deliberately excludes invitations, custom roles and
 Home Assistant connectivity. Every write is transactional and audited.
 """
 from datetime import datetime, timezone
+import hashlib
+import secrets
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -77,6 +79,30 @@ class InstallationRead(BaseModel):
 
 
 
+
+class GatewayCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=120)
+    gateway_type: str = Field(default="home_assistant", pattern="^home_assistant$")
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 2:
+            raise ValueError("El nombre debe tener al menos 2 caracteres")
+        return value
+
+
+class GatewayCredentialCreated(BaseModel):
+    id: UUID
+    installation_id: UUID
+    name: str
+    gateway_type: str
+    status: str
+    credential: str
+    credential_rotated_at: datetime
+
+
 class DeviceRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -117,6 +143,59 @@ async def _system_role(db: AsyncSession, key: str, scope: str) -> SmartRole:
         raise HTTPException(status_code=503, detail="Roles Smart no inicializados")
     return role
 
+
+
+
+@router.post(
+    "/installations/{installation_id}/gateways",
+    response_model=GatewayCredentialCreated,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_smart_permission("installation.settings.manage"))],
+)
+async def create_installation_gateway(
+    installation_id: UUID,
+    body: GatewayCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    existing = await db.execute(
+        select(SmartGateway.id).where(SmartGateway.installation_id == installation_id)
+    )
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="Esta instalación ya tiene un gateway")
+    credential = secrets.token_urlsafe(48)
+    now = datetime.now(timezone.utc)
+    gateway = SmartGateway(
+        installation_id=installation_id,
+        gateway_type=body.gateway_type,
+        name=body.name,
+        status="pending",
+        credential_hash=hashlib.sha256(credential.encode("utf-8")).hexdigest(),
+        credential_rotated_at=now,
+    )
+    db.add(gateway)
+    await db.flush()
+    db.add(SmartAuditEvent(
+        installation_id=installation_id,
+        actor_type="user",
+        user_id=current_user.id,
+        action="gateway.credential.created",
+        resource_type="gateway",
+        resource_id=str(gateway.id),
+        result="success",
+        source="api",
+    ))
+    await db.commit()
+    await db.refresh(gateway)
+    return GatewayCredentialCreated(
+        id=gateway.id,
+        installation_id=gateway.installation_id,
+        name=gateway.name,
+        gateway_type=gateway.gateway_type,
+        status=gateway.status,
+        credential=credential,
+        credential_rotated_at=gateway.credential_rotated_at,
+    )
 
 
 @router.get(
