@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 from app.core.deps import require_admin, section_guard
 
 from app.api.v1.endpoints import admin, alarms, auth, automations, clients, dashboard, expenses, firewall, inventory, invoices, mobile, network_controllers, notifications, payments, permissions, plans, portal, push, reports, routers, tickets, ubiquiti, vpn, wan, work_orders, zones
+from app.api.v1.endpoints import smart
 from app.api.v1.endpoints.security import (
     alerts as sec_alerts,
     beat as sec_beat,
@@ -26,6 +27,9 @@ from app.api.v1.endpoints.security import (
 )
 
 api_router = APIRouter()
+
+# Guaynet Smart bootstrap (organizations and installations).
+api_router.include_router(smart.router, prefix="/smart", tags=["smart"])
 
 # Permissions (Usuarios → Permisos) are enforced here per router with
 # section_guard: GET needs "ver", any change needs "editar". Routers without a
