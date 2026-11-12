@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db
 from app.core.smart_permissions import require_smart_permission
+from app.core.smart_gateway_auth import get_authenticated_smart_gateway
 from app.models.smart_foundation import (
     SmartAuditEvent,
     SmartInstallation,
@@ -78,6 +79,19 @@ class InstallationRead(BaseModel):
     status: str
 
 
+
+
+class GatewayHeartbeat(BaseModel):
+    external_gateway_id: str = Field(min_length=8, max_length=160)
+    software_version: str | None = Field(default=None, max_length=80)
+    capabilities: dict = Field(default_factory=dict)
+
+
+class GatewayHeartbeatRead(BaseModel):
+    gateway_id: UUID
+    installation_id: UUID
+    status: str
+    accepted_at: datetime
 
 
 class GatewayCreate(BaseModel):
@@ -144,6 +158,35 @@ async def _system_role(db: AsyncSession, key: str, scope: str) -> SmartRole:
     return role
 
 
+
+
+@router.post(
+    "/gateway/heartbeat",
+    response_model=GatewayHeartbeatRead,
+)
+async def smart_gateway_heartbeat(
+    body: GatewayHeartbeat,
+    gateway: SmartGateway = Depends(get_authenticated_smart_gateway),
+    db: AsyncSession = Depends(get_db),
+):
+    if gateway.external_gateway_id and gateway.external_gateway_id != body.external_gateway_id:
+        raise HTTPException(status_code=409, detail="El identificador del gateway no coincide")
+    if gateway.status == "revoked":
+        raise HTTPException(status_code=401, detail="Gateway revocado")
+
+    now = datetime.now(timezone.utc)
+    gateway.external_gateway_id = body.external_gateway_id
+    gateway.software_version = body.software_version
+    gateway.capabilities = body.capabilities
+    gateway.status = "online"
+    gateway.last_seen_at = now
+    await db.commit()
+    return GatewayHeartbeatRead(
+        gateway_id=gateway.id,
+        installation_id=gateway.installation_id,
+        status=gateway.status,
+        accepted_at=now,
+    )
 
 
 @router.post(
