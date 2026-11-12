@@ -2,7 +2,9 @@ import unittest
 
 from pydantic import ValidationError
 
-from app.api.v1.endpoints.smart import (\n    GatewayInventorySync, InstallationCreate, OrganizationCreate,\n)
+from app.api.v1.endpoints.smart import (
+    GatewayInventorySync, InstallationCreate, OrganizationCreate,
+)
 
 
 class SmartBootstrapSchemaTests(unittest.TestCase):
