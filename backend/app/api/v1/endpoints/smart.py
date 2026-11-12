@@ -239,6 +239,30 @@ async def sync_smart_gateway_inventory(
         device_id, external_id = result.one()
         device_ids[external_id] = device_id
 
+    referenced_device_ids = {
+        item.external_device_id
+        for item in body.entities
+        if item.external_device_id
+    }
+    missing_device_ids = referenced_device_ids - set(device_ids)
+    if missing_device_ids:
+        existing_devices_result = await db.execute(
+            select(SmartDevice.external_device_id, SmartDevice.id).where(
+                SmartDevice.gateway_id == gateway.id,
+                SmartDevice.external_device_id.in_(missing_device_ids),
+            )
+        )
+        device_ids.update({
+            external_id: device_id
+            for external_id, device_id in existing_devices_result.all()
+        })
+    unresolved_device_ids = referenced_device_ids - set(device_ids)
+    if unresolved_device_ids:
+        raise HTTPException(
+            status_code=422,
+            detail="Una o más entidades hacen referencia a dispositivos desconocidos del gateway",
+        )
+
     for item in body.entities:
         values = item.model_dump()
         external_device_id = values.pop("external_device_id")
