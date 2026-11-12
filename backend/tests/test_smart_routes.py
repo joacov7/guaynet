@@ -18,6 +18,8 @@ class SmartRouteRegistrationTests(unittest.TestCase):
             ("/organizations", "GET"),
             ("/installations", "GET"),
             ("/installations/{installation_id}", "GET"),
+            ("/installations/{installation_id}/devices", "GET"),
+            ("/installations/{installation_id}/entities", "GET"),
             ("/organizations/{organization_id}/installations", "POST"),
         }
         self.assertTrue(expected.issubset(routes))
