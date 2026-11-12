@@ -6,7 +6,7 @@ Home Assistant connectivity. Every write is transactional and audited.
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +29,14 @@ class OrganizationCreate(BaseModel):
     legal_name: str | None = Field(default=None, max_length=200)
     tax_id: str | None = Field(default=None, max_length=30)
 
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 2:
+            raise ValueError("El nombre debe tener al menos 2 caracteres")
+        return value
+
 
 class OrganizationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -44,6 +52,14 @@ class InstallationCreate(BaseModel):
     address: str | None = Field(default=None, max_length=300)
     city: str | None = Field(default=None, max_length=100)
     province: str | None = Field(default=None, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) < 2:
+            raise ValueError("El nombre debe tener al menos 2 caracteres")
+        return value
 
 
 class InstallationRead(BaseModel):
@@ -78,7 +94,7 @@ async def create_organization(
 ):
     owner_role = await _system_role(db, "org_owner", "organization")
     organization = SmartOrganization(
-        name=body.name.strip(),
+        name=body.name,
         organization_type=body.organization_type,
         legal_name=body.legal_name,
         tax_id=body.tax_id,
