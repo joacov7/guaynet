@@ -2,7 +2,7 @@ import unittest
 
 from pydantic import ValidationError
 
-from app.api.v1.endpoints.smart import InstallationCreate, OrganizationCreate
+from app.api.v1.endpoints.smart import (\n    GatewayInventorySync, InstallationCreate, OrganizationCreate,\n)
 
 
 class SmartBootstrapSchemaTests(unittest.TestCase):
@@ -37,6 +37,37 @@ class SmartBootstrapSchemaTests(unittest.TestCase):
     def test_invalid_installation_type_is_rejected(self):
         with self.assertRaises(ValidationError):
             InstallationCreate(name="Casa", installation_type="vehicle")
+
+
+    def test_gateway_inventory_accepts_devices_and_entities(self):
+        payload = GatewayInventorySync(
+            devices=[{
+                "external_device_id": "light.kitchen",
+                "name": "Luz cocina",
+                "availability": "available",
+            }],
+            entities=[{
+                "external_entity_id": "light.kitchen",
+                "external_device_id": "light.kitchen",
+                "domain": "light",
+                "name": "Luz cocina",
+                "state": "on",
+            }],
+        )
+        self.assertEqual(len(payload.devices), 1)
+        self.assertEqual(len(payload.entities), 1)
+
+    def test_gateway_inventory_rejects_invalid_availability(self):
+        with self.assertRaises(ValidationError):
+            GatewayInventorySync(devices=[{
+                "external_device_id": "switch.test",
+                "name": "Interruptor",
+                "availability": "sleeping",
+            }])
+
+    def test_gateway_inventory_enforces_batch_limits(self):
+        with self.assertRaises(ValidationError):
+            GatewayInventorySync(entities=[{}] * 2001)
 
     def test_short_names_are_rejected(self):
         with self.assertRaises(ValidationError):
