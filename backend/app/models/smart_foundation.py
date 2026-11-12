@@ -208,7 +208,7 @@ class SmartGateway(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
     external_gateway_id: Mapped[str | None] = mapped_column(String(160), unique=True)
-    credential_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    credential_hash: Mapped[str | None] = mapped_column(String(64))
     credential_rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     software_version: Mapped[str | None] = mapped_column(String(80))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -217,6 +217,7 @@ class SmartGateway(Base, TimestampMixin):
     __table_args__ = (
         CheckConstraint("gateway_type IN ('home_assistant')", name="ck_smart_gateway_type"),
         CheckConstraint("status IN ('pending','online','offline','maintenance','revoked')", name="ck_smart_gateway_status"),
+        Index("uq_smart_gateway_credential_hash", "credential_hash", unique=True, postgresql_where=text("credential_hash IS NOT NULL")),
     )
 
 
