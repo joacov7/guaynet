@@ -139,10 +139,13 @@ def require_smart_permission(permission_code: str):
             )
         )
         override = override_result.scalar_one_or_none()
+        effective_risk_level = (
+            "critical" if permission_code == "security.disarm" else permission.risk_level
+        )
         allowed = _permission_is_allowed(
             role_granted=role_granted,
             override_effect=override.effect if override else None,
-            risk_level=permission.risk_level,
+            risk_level=effective_risk_level,
         )
         if not allowed:
             detail = (
