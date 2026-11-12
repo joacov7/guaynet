@@ -12,6 +12,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db
+from app.core.smart_permissions import require_smart_permission
 from app.models.smart_foundation import (
     SmartAuditEvent,
     SmartInstallation,
@@ -19,6 +20,9 @@ from app.models.smart_foundation import (
     SmartOrganization,
     SmartOrganizationMember,
     SmartRole,
+    SmartGateway,
+    SmartDevice,
+    SmartEntity,
 )
 
 router = APIRouter()
@@ -72,6 +76,33 @@ class InstallationRead(BaseModel):
     status: str
 
 
+
+class DeviceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    external_device_id: str
+    name: str
+    manufacturer: str | None
+    model: str | None
+    area_name: str | None
+    device_class: str | None
+    availability: str
+    attributes: dict
+
+
+class EntityRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    device_id: UUID | None
+    external_entity_id: str
+    domain: str
+    entity_type: str | None
+    name: str
+    state: str | None
+    availability: str
+    attributes: dict
+
+
 async def _system_role(db: AsyncSession, key: str, scope: str) -> SmartRole:
     result = await db.execute(
         select(SmartRole).where(
@@ -85,6 +116,49 @@ async def _system_role(db: AsyncSession, key: str, scope: str) -> SmartRole:
     if role is None:
         raise HTTPException(status_code=503, detail="Roles Smart no inicializados")
     return role
+
+
+
+@router.get(
+    "/installations/{installation_id}/devices",
+    response_model=list[DeviceRead],
+    dependencies=[Depends(require_smart_permission("devices.read"))],
+)
+async def list_installation_devices(
+    installation_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(SmartDevice)
+        .join(SmartGateway, SmartGateway.id == SmartDevice.gateway_id)
+        .where(
+            SmartGateway.installation_id == installation_id,
+            SmartGateway.status != "revoked",
+        )
+        .order_by(SmartDevice.name)
+    )
+    return result.scalars().all()
+
+
+@router.get(
+    "/installations/{installation_id}/entities",
+    response_model=list[EntityRead],
+    dependencies=[Depends(require_smart_permission("devices.read"))],
+)
+async def list_installation_entities(
+    installation_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(SmartEntity)
+        .join(SmartGateway, SmartGateway.id == SmartEntity.gateway_id)
+        .where(
+            SmartGateway.installation_id == installation_id,
+            SmartGateway.status != "revoked",
+        )
+        .order_by(SmartEntity.name)
+    )
+    return result.scalars().all()
 
 
 @router.post("/organizations", response_model=OrganizationRead, status_code=status.HTTP_201_CREATED)
