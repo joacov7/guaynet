@@ -166,6 +166,33 @@ async def list_installations(
     return result.scalars().all()
 
 
+@router.get("/installations/{installation_id}", response_model=InstallationRead)
+async def get_installation(
+    installation_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Return an installation only to users with active direct membership."""
+    result = await db.execute(
+        select(SmartInstallation)
+        .join(
+            SmartInstallationMember,
+            SmartInstallationMember.installation_id == SmartInstallation.id,
+        )
+        .where(
+            SmartInstallation.id == installation_id,
+            SmartInstallationMember.user_id == current_user.id,
+            SmartInstallationMember.status == "active",
+            SmartInstallation.status == "active",
+        )
+    )
+    installation = result.scalar_one_or_none()
+    if installation is None:
+        # Same response for missing and unauthorized resources to avoid enumeration.
+        raise HTTPException(status_code=404, detail="Instalación no encontrada")
+    return installation
+
+
 @router.post(
     "/organizations/{organization_id}/installations",
     response_model=InstallationRead,
