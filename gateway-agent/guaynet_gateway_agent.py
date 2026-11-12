@@ -94,11 +94,13 @@ class HomeAssistantClient:
                 raise RuntimeError("Autenticación WebSocket de Home Assistant fallida")
             devices = await self.websocket_command(ws, 1, "config/device_registry/list")
             entities = await self.websocket_command(ws, 2, "config/entity_registry/list")
-            return devices or [], entities or []
+            areas = await self.websocket_command(ws, 3, "config/area_registry/list")
+            return devices or [], entities or [], areas or []
 
     async def inventory(self) -> tuple[list[dict], list[dict]]:
         states = await self.rest("states")
-        devices, entity_registry = await self.registries()
+        devices, entity_registry, areas = await self.registries()
+        area_names = {item.get("area_id"): item.get("name") for item in areas or []}
         device_map: dict[str, dict] = {}
         for item in devices:
             external_id = str(item.get("id", "")).strip()
@@ -110,7 +112,7 @@ class HomeAssistantClient:
                 "manufacturer": item.get("manufacturer"),
                 "model": item.get("model"),
                 "software_version": item.get("sw_version"),
-                "area_name": item.get("area_id"),
+                "area_name": area_names.get(item.get("area_id")),
                 "device_class": item.get("entry_type"),
                 "availability": "unknown",
                 "attributes": {
@@ -253,6 +255,9 @@ async def run() -> None:
                     LOG.warning("Sincronización fallida (%s)", type(exc).__name__)
                 try:
                     await asyncio.wait_for(wake.wait(), timeout=interval)
+                    wake.clear()
+                    # Coalesce bursts of state_changed events into one inventory snapshot.
+                    await asyncio.sleep(3)
                     wake.clear()
                 except asyncio.TimeoutError:
                     pass
