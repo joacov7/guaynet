@@ -46,6 +46,18 @@ def _role_is_valid_for_installation(
     )
 
 
+def _role_is_valid_for_organization(
+    role_scope: str,
+    role_organization_id: UUID | None,
+    target_organization_id: UUID,
+) -> bool:
+    """An organization role must be global or owned by the target organization."""
+    return role_scope == "organization" and (
+        role_organization_id is None
+        or role_organization_id == target_organization_id
+    )
+
+
 def require_smart_permission(permission_code: str):
     """Require an active, direct membership in the installation in the URL.
 
