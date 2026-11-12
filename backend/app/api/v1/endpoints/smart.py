@@ -11,6 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db
@@ -79,6 +80,43 @@ class InstallationRead(BaseModel):
     status: str
 
 
+
+
+class GatewayDeviceSync(BaseModel):
+    external_device_id: str = Field(min_length=1, max_length=200)
+    name: str = Field(min_length=1, max_length=160)
+    manufacturer: str | None = Field(default=None, max_length=120)
+    model: str | None = Field(default=None, max_length=120)
+    software_version: str | None = Field(default=None, max_length=80)
+    area_name: str | None = Field(default=None, max_length=120)
+    device_class: str | None = Field(default=None, max_length=80)
+    availability: str = Field(default="unknown", pattern="^(available|unavailable|unknown)$")
+    attributes: dict = Field(default_factory=dict)
+
+
+class GatewayEntitySync(BaseModel):
+    external_entity_id: str = Field(min_length=1, max_length=200)
+    external_device_id: str | None = Field(default=None, max_length=200)
+    domain: str = Field(min_length=1, max_length=60)
+    entity_type: str | None = Field(default=None, max_length=80)
+    name: str = Field(min_length=1, max_length=160)
+    state: str | None = Field(default=None, max_length=500)
+    availability: str = Field(default="unknown", pattern="^(available|unavailable|unknown)$")
+    attributes: dict = Field(default_factory=dict)
+    last_changed_at: datetime | None = None
+    last_reported_at: datetime | None = None
+
+
+class GatewayInventorySync(BaseModel):
+    devices: list[GatewayDeviceSync] = Field(default_factory=list, max_length=500)
+    entities: list[GatewayEntitySync] = Field(default_factory=list, max_length=2000)
+
+
+class GatewayInventorySyncRead(BaseModel):
+    gateway_id: UUID
+    devices_received: int
+    entities_received: int
+    synced_at: datetime
 
 
 class GatewayHeartbeat(BaseModel):
@@ -158,6 +196,95 @@ async def _system_role(db: AsyncSession, key: str, scope: str) -> SmartRole:
     return role
 
 
+
+
+@router.put(
+    "/gateway/inventory",
+    response_model=GatewayInventorySyncRead,
+)
+async def sync_smart_gateway_inventory(
+    body: GatewayInventorySync,
+    gateway: SmartGateway = Depends(get_authenticated_smart_gateway),
+    db: AsyncSession = Depends(get_db),
+):
+    if gateway.status == "revoked":
+        raise HTTPException(status_code=401, detail="Gateway revocado")
+
+    now = datetime.now(timezone.utc)
+    device_ids: dict[str, UUID] = {}
+    for item in body.devices:
+        values = item.model_dump()
+        values.update(gateway_id=gateway.id, last_seen_at=now)
+        statement = (
+            pg_insert(SmartDevice)
+            .values(**values)
+            .on_conflict_do_update(
+                index_elements=[SmartDevice.gateway_id, SmartDevice.external_device_id],
+                set_={
+                    "name": values["name"],
+                    "manufacturer": values["manufacturer"],
+                    "model": values["model"],
+                    "software_version": values["software_version"],
+                    "area_name": values["area_name"],
+                    "device_class": values["device_class"],
+                    "availability": values["availability"],
+                    "attributes": values["attributes"],
+                    "last_seen_at": now,
+                    "updated_at": now,
+                },
+            )
+            .returning(SmartDevice.id, SmartDevice.external_device_id)
+        )
+        result = await db.execute(statement)
+        device_id, external_id = result.one()
+        device_ids[external_id] = device_id
+
+    for item in body.entities:
+        values = item.model_dump()
+        external_device_id = values.pop("external_device_id")
+        values["gateway_id"] = gateway.id
+        values["device_id"] = device_ids.get(external_device_id) if external_device_id else None
+        values["last_reported_at"] = values["last_reported_at"] or now
+        statement = (
+            pg_insert(SmartEntity)
+            .values(**values)
+            .on_conflict_do_update(
+                index_elements=[SmartEntity.gateway_id, SmartEntity.external_entity_id],
+                set_={
+                    "device_id": values["device_id"],
+                    "domain": values["domain"],
+                    "entity_type": values["entity_type"],
+                    "name": values["name"],
+                    "state": values["state"],
+                    "availability": values["availability"],
+                    "attributes": values["attributes"],
+                    "last_changed_at": values["last_changed_at"],
+                    "last_reported_at": values["last_reported_at"],
+                    "updated_at": now,
+                },
+            )
+        )
+        await db.execute(statement)
+
+    gateway.status = "online"
+    gateway.last_seen_at = now
+    db.add(SmartAuditEvent(
+        installation_id=gateway.installation_id,
+        actor_type="gateway",
+        action="gateway.inventory.synced",
+        resource_type="gateway",
+        resource_id=str(gateway.id),
+        result="success",
+        source="gateway",
+        details={"devices_received": len(body.devices), "entities_received": len(body.entities)},
+    ))
+    await db.commit()
+    return GatewayInventorySyncRead(
+        gateway_id=gateway.id,
+        devices_received=len(body.devices),
+        entities_received=len(body.entities),
+        synced_at=now,
+    )
 
 
 @router.post(
