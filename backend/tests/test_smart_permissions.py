@@ -5,6 +5,7 @@ from uuid import uuid4
 from app.core.smart_permissions import (
     _permission_is_allowed,
     _role_is_valid_for_installation,
+    _role_is_valid_for_organization,
 )
 
 
@@ -57,6 +58,30 @@ class SmartRoleScopeTests(unittest.TestCase):
     def test_organization_scope_role_is_rejected(self):
         self.assertFalse(
             _role_is_valid_for_installation("organization", None, self.organization_id)
+        )
+
+    def test_global_organization_role_is_valid(self):
+        self.assertTrue(
+            _role_is_valid_for_organization("organization", None, self.organization_id)
+        )
+
+    def test_same_organization_custom_role_is_valid(self):
+        self.assertTrue(
+            _role_is_valid_for_organization(
+                "organization", self.organization_id, self.organization_id
+            )
+        )
+
+    def test_foreign_organization_role_is_rejected_for_organization(self):
+        self.assertFalse(
+            _role_is_valid_for_organization(
+                "organization", self.other_organization_id, self.organization_id
+            )
+        )
+
+    def test_installation_role_is_rejected_for_organization(self):
+        self.assertFalse(
+            _role_is_valid_for_organization("installation", None, self.organization_id)
         )
 
 
