@@ -41,7 +41,7 @@ Configurar las variables en el entorno del proceso. No guardar tokens en Git:
 | `HA_TOKEN` | — | Long-Lived Access Token de Home Assistant |
 | `GUAYNET_API_BASE_URL` | `https://api.ejemplo.com/api/v1` | Base API, sin `/smart` |
 | `GUAYNET_GATEWAY_TOKEN` | — | Credencial de gateway emitida por Guaynet |
-| `GATEWAY_EXTERNAL_ID` | UUID estable | Identificador externo opcional; si se omite se genera uno al iniciar |
+| `GATEWAY_EXTERNAL_ID` | UUID estable | Identificador externo obligatorio y persistente para esta instalación |
 | `SYNC_INTERVAL_SECONDS` | `300` | Intervalo de sincronización (mínimo 30 s) |
 | `LOG_LEVEL` | `INFO` | Nivel de log |
 
