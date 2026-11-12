@@ -10,8 +10,6 @@ import json
 import logging
 import os
 import signal
-import socket
-import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -80,7 +78,7 @@ class HomeAssistantClient:
                 raise RuntimeError(f"Home Assistant rechazó {command_type}")
             return message.get("result")
 
-    async def registries(self) -> tuple[list[dict], list[dict]]:
+    async def registries(self) -> tuple[list[dict], list[dict], list[dict]]:
         ws_url = self.base.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
         async with self.session.ws_connect(
             f"{ws_url}/api/websocket", heartbeat=30, timeout=HA_TIMEOUT
@@ -216,7 +214,7 @@ async def run() -> None:
     ha_token = required_env("HA_TOKEN")
     api_url = required_env("GUAYNET_API_BASE_URL")
     api_token = required_env("GUAYNET_GATEWAY_TOKEN")
-    external_id = os.getenv("GATEWAY_EXTERNAL_ID", "").strip() or str(uuid.uuid4())
+    external_id = required_env("GATEWAY_EXTERNAL_ID")
     interval = max(30, int(os.getenv("SYNC_INTERVAL_SECONDS", "300")))
     version = "0.1.0"
 
