@@ -10,9 +10,13 @@ class SmartBootstrapSchemaTests(unittest.TestCase):
         payload = OrganizationCreate(name="Casa", organization_type="family")
         self.assertEqual(payload.name, "Casa")
 
-    def test_organization_name_is_trimmed_by_endpoint_not_schema(self):
+    def test_organization_name_is_trimmed(self):
         payload = OrganizationCreate(name=" Casa ")
-        self.assertEqual(payload.name, " Casa ")
+        self.assertEqual(payload.name, "Casa")
+
+    def test_whitespace_only_organization_name_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            OrganizationCreate(name="   ")
 
     def test_invalid_organization_type_is_rejected(self):
         with self.assertRaises(ValidationError):
@@ -21,6 +25,14 @@ class SmartBootstrapSchemaTests(unittest.TestCase):
     def test_valid_home_installation(self):
         payload = InstallationCreate(name="Casa principal", installation_type="home")
         self.assertEqual(payload.installation_type, "home")
+
+    def test_installation_name_is_trimmed(self):
+        payload = InstallationCreate(name=" Casa ", installation_type="home")
+        self.assertEqual(payload.name, "Casa")
+
+    def test_whitespace_only_installation_name_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            InstallationCreate(name="   ", installation_type="home")
 
     def test_invalid_installation_type_is_rejected(self):
         with self.assertRaises(ValidationError):
