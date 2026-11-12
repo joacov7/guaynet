@@ -19,6 +19,7 @@ class SmartRouteRegistrationTests(unittest.TestCase):
             ("/installations", "GET"),
             ("/installations/{installation_id}", "GET"),
             ("/gateway/heartbeat", "POST"),
+            ("/gateway/inventory", "PUT"),
             ("/installations/{installation_id}/gateways", "POST"),
             ("/installations/{installation_id}/devices", "GET"),
             ("/installations/{installation_id}/entities", "GET"),
