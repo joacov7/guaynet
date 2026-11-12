@@ -208,6 +208,8 @@ class SmartGateway(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
     external_gateway_id: Mapped[str | None] = mapped_column(String(160), unique=True)
+    credential_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    credential_rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     software_version: Mapped[str | None] = mapped_column(String(80))
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     capabilities: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
