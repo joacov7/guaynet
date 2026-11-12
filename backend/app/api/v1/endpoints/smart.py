@@ -3,11 +3,12 @@
 This first vertical slice deliberately excludes invitations, custom roles and
 Home Assistant connectivity. Every write is transactional and audited.
 """
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db
@@ -148,15 +149,25 @@ async def list_installations(
     current_user=Depends(get_current_user),
 ):
     """List only installations where the caller has an active direct membership."""
+    now = datetime.now(timezone.utc)
     query = (
         select(SmartInstallation)
         .join(
             SmartInstallationMember,
             SmartInstallationMember.installation_id == SmartInstallation.id,
         )
+        .join(SmartRole, SmartRole.id == SmartInstallationMember.role_id)
         .where(
             SmartInstallationMember.user_id == current_user.id,
             SmartInstallationMember.status == "active",
+            or_(SmartInstallationMember.starts_at.is_(None), SmartInstallationMember.starts_at <= now),
+            or_(SmartInstallationMember.ends_at.is_(None), SmartInstallationMember.ends_at > now),
+            SmartInstallationMember.schedule == {},
+            SmartRole.scope == "installation",
+            or_(
+                SmartRole.organization_id.is_(None),
+                SmartRole.organization_id == SmartInstallation.organization_id,
+            ),
             SmartInstallation.status == "active",
         )
     )
@@ -173,16 +184,26 @@ async def get_installation(
     current_user=Depends(get_current_user),
 ):
     """Return an installation only to users with active direct membership."""
+    now = datetime.now(timezone.utc)
     result = await db.execute(
         select(SmartInstallation)
         .join(
             SmartInstallationMember,
             SmartInstallationMember.installation_id == SmartInstallation.id,
         )
+        .join(SmartRole, SmartRole.id == SmartInstallationMember.role_id)
         .where(
             SmartInstallation.id == installation_id,
             SmartInstallationMember.user_id == current_user.id,
             SmartInstallationMember.status == "active",
+            or_(SmartInstallationMember.starts_at.is_(None), SmartInstallationMember.starts_at <= now),
+            or_(SmartInstallationMember.ends_at.is_(None), SmartInstallationMember.ends_at > now),
+            SmartInstallationMember.schedule == {},
+            SmartRole.scope == "installation",
+            or_(
+                SmartRole.organization_id.is_(None),
+                SmartRole.organization_id == SmartInstallation.organization_id,
+            ),
             SmartInstallation.status == "active",
         )
     )
