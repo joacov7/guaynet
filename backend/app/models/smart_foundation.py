@@ -192,3 +192,83 @@ class SmartAuditEvent(Base):
         Index("ix_smart_audit_installation_created", "installation_id", "created_at"),
         Index("ix_smart_audit_user_created", "user_id", "created_at"),
     )
+
+
+class SmartGateway(Base, TimestampMixin):
+    """One outbound-connected automation gateway per Smart installation."""
+    __tablename__ = "smart_gateways"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    installation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("smart_installations.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    gateway_type: Mapped[str] = mapped_column(String(40), nullable=False, server_default="home_assistant")
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
+    external_gateway_id: Mapped[str | None] = mapped_column(String(160), unique=True)
+    software_version: Mapped[str | None] = mapped_column(String(80))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    capabilities: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    __table_args__ = (
+        CheckConstraint("gateway_type IN ('home_assistant')", name="ck_smart_gateway_type"),
+        CheckConstraint("status IN ('pending','online','offline','maintenance','revoked')", name="ck_smart_gateway_status"),
+    )
+
+
+class SmartDevice(Base, TimestampMixin):
+    """A physical/logical device discovered through a gateway."""
+    __tablename__ = "smart_devices"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    gateway_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("smart_gateways.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    external_device_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    manufacturer: Mapped[str | None] = mapped_column(String(120))
+    model: Mapped[str | None] = mapped_column(String(120))
+    software_version: Mapped[str | None] = mapped_column(String(80))
+    area_name: Mapped[str | None] = mapped_column(String(120))
+    device_class: Mapped[str | None] = mapped_column(String(80))
+    availability: Mapped[str] = mapped_column(String(20), nullable=False, server_default="unknown")
+    attributes: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        UniqueConstraint("gateway_id", "external_device_id", name="uq_smart_device_gateway_external"),
+        CheckConstraint("availability IN ('available','unavailable','unknown')", name="ck_smart_device_availability"),
+        Index("ix_smart_devices_gateway_availability", "gateway_id", "availability"),
+    )
+
+
+class SmartEntity(Base, TimestampMixin):
+    """A controllable or observable entity exposed by a gateway."""
+    __tablename__ = "smart_entities"
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    gateway_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("smart_gateways.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    device_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("smart_devices.id", ondelete="SET NULL"),
+    )
+    external_entity_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    domain: Mapped[str] = mapped_column(String(60), nullable=False)
+    entity_type: Mapped[str | None] = mapped_column(String(80))
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    state: Mapped[str | None] = mapped_column(String(500))
+    availability: Mapped[str] = mapped_column(String(20), nullable=False, server_default="unknown")
+    attributes: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    last_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_reported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        UniqueConstraint("gateway_id", "external_entity_id", name="uq_smart_entity_gateway_external"),
+        CheckConstraint("availability IN ('available','unavailable','unknown')", name="ck_smart_entity_availability"),
+        Index("ix_smart_entities_gateway_domain", "gateway_id", "domain"),
+        Index("ix_smart_entities_device", "device_id"),
+    )
