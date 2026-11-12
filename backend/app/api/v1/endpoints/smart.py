@@ -141,6 +141,31 @@ async def list_organizations(
     return result.scalars().all()
 
 
+@router.get("/installations", response_model=list[InstallationRead])
+async def list_installations(
+    organization_id: UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """List only installations where the caller has an active direct membership."""
+    query = (
+        select(SmartInstallation)
+        .join(
+            SmartInstallationMember,
+            SmartInstallationMember.installation_id == SmartInstallation.id,
+        )
+        .where(
+            SmartInstallationMember.user_id == current_user.id,
+            SmartInstallationMember.status == "active",
+            SmartInstallation.status == "active",
+        )
+    )
+    if organization_id is not None:
+        query = query.where(SmartInstallation.organization_id == organization_id)
+    result = await db.execute(query.order_by(SmartInstallation.name))
+    return result.scalars().all()
+
+
 @router.post(
     "/organizations/{organization_id}/installations",
     response_model=InstallationRead,
