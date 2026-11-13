@@ -392,6 +392,60 @@ async def create_installation_gateway(
     )
 
 
+@router.post(
+    "/installations/{installation_id}/gateways/{gateway_id}/rotate-credential",
+    response_model=GatewayCredentialCreated,
+    dependencies=[Depends(require_smart_permission("installation.settings.manage"))],
+)
+async def rotate_installation_gateway_credential(
+    installation_id: UUID,
+    gateway_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Replace a gateway secret; the new plaintext credential is returned once."""
+    result = await db.execute(
+        select(SmartGateway).where(
+            SmartGateway.id == gateway_id,
+            SmartGateway.installation_id == installation_id,
+        )
+    )
+    gateway = result.scalar_one_or_none()
+    if gateway is None:
+        raise HTTPException(status_code=404, detail="Gateway no encontrado")
+    if gateway.status == "revoked":
+        raise HTTPException(status_code=409, detail="No se puede rotar un gateway revocado")
+
+    credential = secrets.token_urlsafe(48)
+    now = datetime.now(timezone.utc)
+    gateway.credential_hash = hashlib.sha256(credential.encode("utf-8")).hexdigest()
+    gateway.credential_rotated_at = now
+    if gateway.status == "offline":
+        gateway.status = "pending"
+
+    db.add(SmartAuditEvent(
+        installation_id=installation_id,
+        actor_type="user",
+        user_id=current_user.id,
+        action="gateway.credential.rotated",
+        resource_type="gateway",
+        resource_id=str(gateway.id),
+        result="success",
+        source="api",
+    ))
+    await db.commit()
+    await db.refresh(gateway)
+    return GatewayCredentialCreated(
+        id=gateway.id,
+        installation_id=gateway.installation_id,
+        name=gateway.name,
+        gateway_type=gateway.gateway_type,
+        status=gateway.status,
+        credential=credential,
+        credential_rotated_at=gateway.credential_rotated_at,
+    )
+
+
 @router.get(
     "/installations/{installation_id}/devices",
     response_model=list[DeviceRead],
