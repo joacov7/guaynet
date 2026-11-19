@@ -6,10 +6,12 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+# Import all models so Alembic can detect them
 from app.models import Base  # noqa: F401
 
 config = context.config
 
+# Override sqlalchemy.url from environment if DATABASE_URL is set
 db_url = os.getenv("DATABASE_URL")
 if db_url:
     config.set_main_option("sqlalchemy.url", db_url)

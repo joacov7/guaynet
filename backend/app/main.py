@@ -1,21 +1,22 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.core.database import AsyncSessionLocal, engine
+from app.core.database import AsyncSessionLocal
 from app.core.security import get_password_hash
-from app.models import Base
+from app.models import Base  # noqa: F401 — imported so Alembic detects all models
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
+    # Tables are managed exclusively by Alembic (`alembic upgrade head` in the entrypoint).
+    # Seed initial superuser if not present
     async with AsyncSessionLocal() as db:
         from app.models.user import User
 
@@ -32,7 +33,23 @@ async def lifespan(app: FastAPI):
             db.add(admin)
             await db.commit()
 
+    # Seed default role permissions if missing
+    async with AsyncSessionLocal() as db:
+        from app.models.permission import DEFAULTS, RolePermission
+        for role, section, can_view, can_edit in DEFAULTS:
+            exists = (await db.execute(
+                select(RolePermission).where(RolePermission.role == role, RolePermission.section == section)
+            )).scalar_one_or_none()
+            if not exists:
+                db.add(RolePermission(role=role, section=section, can_view=can_view, can_edit=can_edit))
+        await db.commit()
+
+    from app import scheduler as sched
+    sched.start()
+
     yield
+
+    sched.stop()
 
 
 app = FastAPI(
@@ -49,9 +66,14 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Device-Revoked"],
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+_uploads_dir = os.path.join(os.path.dirname(__file__), "../../uploads")
+os.makedirs(_uploads_dir, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=_uploads_dir), name="uploads")
 
 
 @app.get("/health")

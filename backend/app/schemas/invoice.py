@@ -26,13 +26,34 @@ class PaymentResponse(BaseModel):
     created_at: datetime
 
 
+class InvoiceItemCreate(BaseModel):
+    description: str
+    quantity: float = 1.0
+    unit_price: float
+
+    @property
+    def subtotal(self) -> float:
+        return round(self.quantity * self.unit_price, 2)
+
+
+class InvoiceItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    description: str
+    quantity: float
+    unit_price: float
+    subtotal: float
+
+
 class InvoiceCreate(BaseModel):
     client_id: int
     period: str
-    amount: float
+    amount: Optional[float] = None   # auto-calculated from items if provided
     issue_date: date
     due_date: date
     notes: Optional[str] = None
+    items: List["InvoiceItemCreate"] = []
 
 
 class InvoiceUpdate(BaseModel):
@@ -48,6 +69,7 @@ class InvoiceResponse(BaseModel):
 
     id: int
     client_id: int
+    client_name: Optional[str] = None
     period: str
     amount: float
     issue_date: date
@@ -58,4 +80,12 @@ class InvoiceResponse(BaseModel):
     afip_cae: Optional[str]
     invoice_number: Optional[int]
     payments: List[PaymentResponse] = []
+    items: List[InvoiceItemResponse] = []
     created_at: datetime
+
+    @classmethod
+    def from_orm_with_client(cls, invoice: "Invoice") -> "InvoiceResponse":
+        obj = cls.model_validate(invoice)
+        if invoice.client:
+            obj.client_name = invoice.client.full_name
+        return obj

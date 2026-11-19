@@ -14,3 +14,5 @@ class User(Base, TimestampMixin):
     hashed_password: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
+    # admin | operator | viewer
+    role: Mapped[str] = mapped_column(String(20), default="operator")

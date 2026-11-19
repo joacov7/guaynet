@@ -22,6 +22,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   SyncOutlined,
+  StopOutlined,
 } from "@ant-design/icons";
 import { clientsApi } from "@/services/api";
 import type { Client, ClientStatus } from "@/types";
@@ -47,13 +48,21 @@ export default function ClientList() {
 
   const suspendMutation = useMutation({
     mutationFn: (id: number) => clientsApi.suspend(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["clients"] }); message.success("Cliente suspendido"); },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      if (data.mikrotik_error) message.warning(`Suspendido. Error MikroTik: ${data.mikrotik_error}`, 8);
+      else message.success("Cliente suspendido");
+    },
     onError: () => message.error("Error al suspender"),
   });
 
   const activateMutation = useMutation({
     mutationFn: (id: number) => clientsApi.activate(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["clients"] }); message.success("Cliente activado"); },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["clients"] });
+      if (data.mikrotik_error) message.warning(`Activado. Error MikroTik: ${data.mikrotik_error}`, 8);
+      else message.success("Cliente activado");
+    },
     onError: () => message.error("Error al activar"),
   });
 
@@ -63,10 +72,18 @@ export default function ClientList() {
     onError: () => message.error("Error al eliminar"),
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: (id: number) => clientsApi.cancel(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["clients"] }); message.success("Cliente dado de baja"); },
+    onError: () => message.error("Error al dar de baja"),
+  });
+
   const syncMutation = useMutation({
     mutationFn: (id: number) => clientsApi.syncMikrotik(id),
     onSuccess: () => message.success("Queue sincronizada"),
-    onError: () => message.warning("No se pudo sincronizar con Mikrotik"),
+    onError: (err: any) => message.error(
+      err.response?.data?.detail || `HTTP ${err.response?.status ?? "?"}: no se pudo sincronizar con Mikrotik`, 10
+    ),
   });
 
   const columns = [
@@ -85,12 +102,18 @@ export default function ClientList() {
       render: (_: unknown, r: Client) =>
         r.plan ? `${r.plan.name} (${r.plan.download_mbps}/${r.plan.upload_mbps} Mbps)` : "—",
     },
-    { title: "Router", key: "router", render: (_: unknown, r: Client) => r.router?.name ?? "—" },
+    {
+      title: "Router",
+      key: "router",
+      render: (_: unknown, r: Client) => r.router?.name ?? "—",
+    },
     {
       title: "Estado",
       dataIndex: "status",
       key: "status",
-      render: (s: ClientStatus) => <Tag color={statusConfig[s].color}>{statusConfig[s].label}</Tag>,
+      render: (s: ClientStatus) => (
+        <Tag color={statusConfig[s].color}>{statusConfig[s].label}</Tag>
+      ),
     },
     {
       title: "Acciones",
@@ -117,6 +140,19 @@ export default function ClientList() {
               </Popconfirm>
             </Tooltip>
           ) : null}
+          {r.status !== "cancelled" && (
+            <Tooltip title="Dar de baja">
+              <Popconfirm
+                title="¿Dar de baja al cliente?"
+                description="Se eliminará la queue de Mikrotik y se liberará la antena."
+                onConfirm={() => cancelMutation.mutate(r.id)}
+                okText="Dar de baja"
+                okButtonProps={{ danger: true }}
+              >
+                <Button size="small" icon={<StopOutlined />} danger />
+              </Popconfirm>
+            </Tooltip>
+          )}
           <Tooltip title="Eliminar">
             <Popconfirm title="¿Eliminar cliente?" onConfirm={() => deleteMutation.mutate(r.id)}>
               <Button size="small" danger icon={<DeleteOutlined />} />
