@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import AsyncSessionLocal
-from app.core.deps import get_db
+from app.core.deps import get_db, require_admin
 from app.core.security import create_access_token, get_password_hash, verify_password, decode_token
 from app.models.client import Client, ClientStatus
 from app.models.invoice import Invoice, InvoiceStatus
@@ -258,8 +258,10 @@ async def set_portal_password(
     client_id: int,
     body: SetPortalPassword,
     db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
 ):
-    from app.core.deps import require_admin
+    """Staff sets a client's portal password. Admin only: this router has no
+    login of its own, and without this anyone could take over any portal account."""
     client = await db.get(Client, client_id)
     if not client:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")

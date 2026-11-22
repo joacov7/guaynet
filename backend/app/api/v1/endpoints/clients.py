@@ -456,14 +456,48 @@ async def resolve_location_url(
     url: str,
     _=Depends(get_current_user),
 ):
-    """Follow redirects on a shortened Maps URL and return the final URL so the frontend can parse coordinates."""
+    """Follow redirects on a shortened Maps URL and return the final URL so the frontend can parse coordinates.
+
+    Only Google Maps hosts over HTTPS, checked on every hop: an open fetch here
+    would let any user make the server probe the internal network (SSRF).
+    """
     import httpx
+
+    current = url.strip()
     try:
-        async with httpx.AsyncClient(follow_redirects=True, timeout=6.0) as client:
-            r = await client.head(url)
-            return {"resolved_url": str(r.url)}
-    except Exception as e:
-        raise HTTPException(400, f"No se pudo resolver la URL: {e}")
+        async with httpx.AsyncClient(follow_redirects=False, timeout=6.0) as client:
+            for _ in range(_MAPS_MAX_HOPS + 1):
+                if not _is_maps_url(current):
+                    raise HTTPException(400, "Solo se aceptan enlaces de Google Maps")
+                r = await client.head(current)
+                location = r.headers.get("location")
+                if not r.is_redirect or not location:
+                    return {"resolved_url": current}
+                current = str(httpx.URL(current).join(location))
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "No se pudo resolver el enlace")
+    raise HTTPException(400, "El enlace redirige demasiadas veces")
+
+
+_MAPS_MAX_HOPS = 5
+_MAPS_DOMAINS = ("goo.gl", "google.com", "google.com.ar", "g.page")
+
+
+def _is_maps_url(value: str) -> bool:
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return False
+    host = (parts.hostname or "").lower()
+    return (
+        parts.scheme == "https"
+        and parts.port in (None, 443)
+        and any(host == d or host.endswith("." + d) for d in _MAPS_DOMAINS)
+    )
 
 
 @router.get("/{client_id}/invoices", response_model=List[InvoiceResponse])

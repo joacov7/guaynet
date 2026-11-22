@@ -516,7 +516,15 @@ export default function WanManagement() {
         confirmLoading={createMut.isPending}
       >
         <Form form={addForm} layout="vertical" onFinish={(vals) => createMut.mutate(vals)} initialValues={{ weight: 1 }}>
-          <Form.Item name="interface_name" label="Nombre en MikroTik" rules={[{ required: true }]} extra="Ej: ether1, ether2-wan">
+          <Form.Item
+            name="interface_name"
+            label="Nombre en MikroTik"
+            rules={[
+              { required: true },
+              { pattern: /^[A-Za-z0-9._-]{1,64}$/, message: "Solo letras, números, punto, guion y guion bajo" },
+            ]}
+            extra="Ej: ether1, ether2-wan"
+          >
             <Input placeholder="ether1" />
           </Form.Item>
           <Form.Item name="display_name" label="Nombre visible">

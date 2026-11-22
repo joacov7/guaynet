@@ -1,14 +1,14 @@
 import asyncio
 import logging
+import re
 import traceback
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -20,6 +20,20 @@ from app.services.mikrotik import MikrotikError, build_service_from_router
 
 router = APIRouter()
 
+# RouterOS interface names as Guaynet accepts them. The name ends up inside
+# scheduler scripts that the router executes, so anything else (spaces, ";",
+# quotes, brackets, "$", line breaks) could inject RouterOS commands.
+_IFACE_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+_IFACE_ERROR = "Nombre de interfaz inválido: solo letras, números, punto, guion y guion bajo (máx. 64)"
+
+
+def _iface_script(action: str, name: str) -> str:
+    """RouterOS script line enabling/disabling one interface, with the name checked again
+    (rows saved before this validation existed may hold anything)."""
+    if action not in ("enable", "disable") or not _IFACE_RE.match(name or ""):
+        raise HTTPException(status_code=422, detail=_IFACE_ERROR)
+    return f'/interface {action} [find name="{name}"]'
+
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -29,6 +43,14 @@ class WanInterfaceCreate(BaseModel):
     weight: int = 1
     cap_gb: Optional[int] = None
     enabled: bool = True
+
+    @field_validator("interface_name")
+    @classmethod
+    def _valid_name(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not _IFACE_RE.match(v):
+            raise ValueError(_IFACE_ERROR)
+        return v
 
 
 class WanInterfaceUpdate(BaseModel):
@@ -285,6 +307,10 @@ async def create_wan_schedule(
     if not rt:
         raise HTTPException(status_code=404)
 
+    # Built (and checked) before saving anything
+    action_script = _iface_script("enable" if body.action == "enable" else "disable", w.interface_name)
+    inverse_script = _iface_script("disable" if body.action == "enable" else "enable", w.interface_name)
+
     s = WanSchedule(
         wan_interface_id=wan_id,
         action=body.action,
@@ -295,12 +321,6 @@ async def create_wan_schedule(
     db.add(s)
     await db.commit()
     await db.refresh(s)
-
-    # Write to MikroTik scheduler
-    iface = w.interface_name
-    action_script = f"/interface {'enable' if body.action == 'enable' else 'disable'} {iface}"
-    inverse_action = "disable" if body.action == "enable" else "enable"
-    inverse_script = f"/interface {inverse_action} {iface}"
 
     def _write_schedules():
         svc = build_service_from_router(rt)
@@ -379,12 +399,11 @@ async def update_wan_schedule(
 
     for field, value in body.model_dump(exclude_none=True).items():
         setattr(s, field, value)
+    # Built (and checked) before saving anything
+    action_script = _iface_script("enable" if s.action == "enable" else "disable", w.interface_name)
+    inverse_script = _iface_script("disable" if s.action == "enable" else "enable", w.interface_name)
     await db.commit()
     await db.refresh(s)
-
-    iface = w.interface_name
-    action_script = f"/interface {'enable' if s.action == 'enable' else 'disable'} {iface}"
-    inverse_script = f"/interface {'disable' if s.action == 'enable' else 'enable'} {iface}"
 
     def _update_schedules():
         svc = build_service_from_router(rt)

@@ -11,6 +11,9 @@ from typing import Any, Dict, List, Optional
 import librouteros
 
 logger = logging.getLogger(__name__)
+# librouteros logs every API word at DEBUG, including "=password=" on login and
+# PPPoE secrets: keep it quiet even if DEBUG is turned on elsewhere.
+logging.getLogger("librouteros").setLevel(logging.WARNING)
 from librouteros.exceptions import ConnectionClosed, FatalError
 
 
