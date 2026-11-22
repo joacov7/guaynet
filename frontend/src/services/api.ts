@@ -509,6 +509,27 @@ export const inventoryApi = {
   delete: (id: number) => http.delete(`/inventory/${id}`),
 };
 
+// ── Top bar: global search and "Pendientes" ──────────────────────────────────
+export interface SearchResult {
+  type: "client" | "ticket" | "router";
+  id: number;
+  title: string;
+  subtitle: string;
+  url: string;
+}
+export interface AttentionItem {
+  key: string;
+  severity: "critical" | "warning" | "info";
+  title: string;
+  count: number;
+  url: string;
+  detail?: string | null;
+}
+export const workspaceApi = {
+  search: (q: string) => http.get<SearchResult[]>("/workspace/search", { params: { q } }).then((r) => r.data),
+  attention: () => http.get<{ items: AttentionItem[]; checked_at: string }>("/workspace/attention").then((r) => r.data),
+};
+
 // ── Notifications ─────────────────────────────────────────────────────────────
 export const notificationsApi = {
   sendOne: (client_id: number, message: string, phone?: string) =>

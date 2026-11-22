@@ -1,0 +1,30 @@
+/* Panel-wide responsive rules (MainLayout marks the page area with .guaynet-content) */
+
+/* Wide tables scroll sideways inside their card instead of widening the page */
+.guaynet-content .ant-table-content,
+.guaynet-content .ant-table-body {
+  overflow-x: auto;
+}
+
+@media (max-width: 767px) {
+  .guaynet-content .ant-card-body {
+    padding: 12px;
+  }
+  .guaynet-content .ant-card-head {
+    padding: 0 12px;
+  }
+  .guaynet-content h2.ant-typography,
+  .guaynet-content h3.ant-typography {
+    font-size: 20px;
+  }
+  /* Toolbars made with Space wrap instead of overflowing */
+  .guaynet-content .ant-space:not(.ant-space-vertical) {
+    flex-wrap: wrap;
+  }
+  .ant-modal {
+    max-width: calc(100vw - 16px);
+  }
+  .ant-picker-dropdown .ant-picker-panels {
+    flex-direction: column;
+  }
+}

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.deps import require_admin, section_guard
 
-from app.api.v1.endpoints import admin, alarms, auth, automations, clients, dashboard, expenses, firewall, inventory, invoices, mobile, network_controllers, notifications, payments, permissions, plans, portal, push, reports, routers, tickets, ubiquiti, vpn, wan, work_orders, zones
+from app.api.v1.endpoints import admin, alarms, auth, automations, clients, dashboard, expenses, firewall, inventory, invoices, mobile, network_controllers, notifications, payments, permissions, plans, portal, push, reports, routers, tickets, ubiquiti, vpn, wan, work_orders, workspace, zones
 from app.api.v1.endpoints import smart
 from app.api.v1.endpoints.security import (
     alerts as sec_alerts,
@@ -40,6 +40,8 @@ api_router.include_router(smart.router, prefix="/smart", tags=["smart"], depende
 
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
+# Top bar: search and the "Pendientes" bell — open to any user, filtered by section inside
+api_router.include_router(workspace.router, prefix="/workspace", tags=["workspace"])
 api_router.include_router(clients.router, prefix="/clients", tags=["clients"], dependencies=[Depends(section_guard("clients", also_view=("billing", "monitoring", "tickets", "work_orders", "inventory", "security_properties", "security_subscriptions")))])
 api_router.include_router(plans.router, prefix="/plans", tags=["plans"], dependencies=[Depends(section_guard("plans", also_view=("clients", "firewall")))])
 api_router.include_router(routers.router, prefix="/routers", tags=["routers"], dependencies=[Depends(section_guard("routers", also_view=("clients", "monitoring", "firewall", "ubiquiti", "bandwidth", "map", "zones")))])

@@ -6,6 +6,7 @@ import esES from "antd/locale/es_ES";
 import dayjs from "dayjs";
 import "dayjs/locale/es";
 import App from "./App";
+import "./index.css";
 
 dayjs.locale("es");
 
