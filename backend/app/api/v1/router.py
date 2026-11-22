@@ -29,7 +29,8 @@ from app.api.v1.endpoints.security import (
 api_router = APIRouter()
 
 # Guaynet Smart bootstrap (organizations and installations).
-api_router.include_router(smart.router, prefix="/smart", tags=["smart"])
+api_router.include_router(smart.gateway_router, prefix="/smart", tags=["smart"])
+api_router.include_router(smart.router, prefix="/smart", tags=["smart"], dependencies=[Depends(section_guard("smart"))])
 
 # Permissions (Usuarios → Permisos) are enforced here per router with
 # section_guard: GET needs "ver", any change needs "editar". Routers without a

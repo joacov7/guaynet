@@ -30,6 +30,9 @@ from app.models.smart_foundation import (
 )
 
 router = APIRouter()
+# Endpoints called by the local gateway agents: they authenticate with the
+# gateway credential, not a staff login, so they are mounted without the panel guard.
+gateway_router = APIRouter()
 
 
 class OrganizationCreate(BaseModel):
@@ -198,7 +201,7 @@ async def _system_role(db: AsyncSession, key: str, scope: str) -> SmartRole:
 
 
 
-@router.put(
+@gateway_router.put(
     "/gateway/inventory",
     response_model=GatewayInventorySyncRead,
 )
@@ -311,7 +314,7 @@ async def sync_smart_gateway_inventory(
     )
 
 
-@router.post(
+@gateway_router.post(
     "/gateway/heartbeat",
     response_model=GatewayHeartbeatRead,
 )

@@ -15,6 +15,9 @@ SECTIONS = [
     "zones", "expenses", "alarms", "tickets", "work_orders", "inventory", "reports",
     # Etapa 2: split out of security_subscriptions (migration 044 copies its grants)
     "security_plans", "security_contracts", "security_settings", "security_devices",
+    # Smart (home automation): organizations, installations, gateways. No role
+    # gets it by default: admins only until granted.
+    "smart",
 ]
 
 # Etapa 3: sensitive actions. Stored like sections (can_view = allowed) and

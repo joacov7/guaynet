@@ -1,28 +1,25 @@
 name: CI
 
 on:
-  pull_request:
-    branches:
-      - claude/wisp-management-system-TTAsI
-      - fix/dhcp-client-identification
   push:
-    branches:
-      - fix/dhcp-client-identification-hardening
+    paths:
+      - "frontend/**"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  backend-unit-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Run backend unit tests
-        working-directory: backend
-        env:
-          PYTHONPATH: .
-        run: python -m unittest discover -s tests -v
-
+  # Backend tests run in backend-tests.yml
   frontend-build:
     runs-on: ubuntu-latest
     steps:

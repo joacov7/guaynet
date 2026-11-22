@@ -63,6 +63,9 @@ const SECTION_GROUPS: { group: string; sections: [string, string][] }[] = [
     ["security_neighborhood", "Grupos vecinales"],
     ["security_settings", "Configuración de seguridad"],
   ] },
+  { group: "Smart (domótica)", sections: [
+    ["smart", "Organizaciones, instalaciones y gateways"],
+  ] },
   { group: "Administración", sections: [
     ["audit", "Auditoría"],
   ] },

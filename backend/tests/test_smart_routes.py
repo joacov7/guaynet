@@ -2,14 +2,14 @@ import unittest
 
 from fastapi.routing import APIRoute
 
-from app.api.v1.endpoints.smart import router as smart_router
+from app.api.v1.endpoints.smart import gateway_router, router as smart_router
 
 
 class SmartRouteRegistrationTests(unittest.TestCase):
     def test_expected_routes_and_methods_are_registered(self):
         routes = {
             (route.path, method)
-            for route in smart_router.routes
+            for route in [*smart_router.routes, *gateway_router.routes]
             if isinstance(route, APIRoute)
             for method in route.methods
         }
