@@ -4,7 +4,7 @@ import {
   Button, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography, message,
 } from "antd";
 import { PlusOutlined, EditOutlined } from "@ant-design/icons";
-import { usersApi } from "@/services/api";
+import { permissionsApi, usersApi } from "@/services/api";
 import type { User } from "@/types";
 
 const { Title } = Typography;
@@ -13,12 +13,8 @@ const ROLE_COLOR: Record<string, string> = {
   admin: "red",
   operator: "blue",
   technician: "green",
-};
-
-const ROLE_LABEL: Record<string, string> = {
-  admin: "Admin",
-  operator: "Operador",
-  technician: "Técnico",
+  cobranza: "gold",
+  atencion: "purple",
 };
 
 interface FormValues {
@@ -40,6 +36,9 @@ export default function Users() {
     queryKey: ["users"],
     queryFn: usersApi.list,
   });
+  // Roles are defined in Usuarios → Permisos
+  const { data: roles = [] } = useQuery({ queryKey: ["staff-roles"], queryFn: permissionsApi.roles });
+  const roleLabel = (key: string) => (key === "admin" ? "Admin" : roles.find((r) => r.key === key)?.name ?? key);
 
   const createMutation = useMutation({
     mutationFn: (v: FormValues) =>
@@ -126,7 +125,7 @@ export default function Users() {
           title="Rol"
           dataIndex="role"
           render={(role: string) => (
-            <Tag color={ROLE_COLOR[role] ?? "default"}>{ROLE_LABEL[role] ?? role}</Tag>
+            <Tag color={ROLE_COLOR[role] ?? "default"}>{roleLabel(role)}</Tag>
           )}
         />
         <Table.Column
@@ -168,9 +167,8 @@ export default function Users() {
           <Form.Item name="role" label="Rol" rules={[{ required: true }]}>
             <Select
               options={[
-                { value: "admin", label: "Admin" },
-                { value: "operator", label: "Operador" },
-                { value: "technician", label: "Técnico" },
+                { value: "admin", label: "Admin (acceso total)" },
+                ...roles.map((r) => ({ value: r.key, label: r.name })),
               ]}
             />
           </Form.Item>

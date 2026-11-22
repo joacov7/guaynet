@@ -1,4 +1,7 @@
-from sqlalchemy import Boolean, String, UniqueConstraint
+from datetime import datetime
+from typing import Optional
+
+from sqlalchemy import Boolean, DateTime, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -38,6 +41,8 @@ ACTIONS = [
 SECTIONS += ACTIONS
 
 
+# Roles whose default permissions are seeded at startup (DEFAULTS below). Other
+# roles are created in Usuarios → Permisos (table "roles") or by migrations.
 ROLES = ["operator", "technician"]
 
 DEFAULTS: list[tuple[str, str, bool, bool]] = [
@@ -84,3 +89,14 @@ class RolePermission(Base):
     section: Mapped[str] = mapped_column(String(50))
     can_view: Mapped[bool] = mapped_column(Boolean, default=False)
     can_edit: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class Role(Base):
+    """A staff role that admins define in Usuarios → Permisos. users.role holds the key.
+    "admin" is not a row: it always has full access."""
+    __tablename__ = "roles"
+
+    key: Mapped[str] = mapped_column(String(20), primary_key=True)
+    name: Mapped[str] = mapped_column(String(60))
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

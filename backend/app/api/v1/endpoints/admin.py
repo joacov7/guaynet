@@ -17,7 +17,11 @@ from app.models.user import User
 
 router = APIRouter()
 
-VALID_ROLES = {"admin", "operator", "technician"}
+async def _check_role(db: AsyncSession, role: str) -> None:
+    """"admin" or a role defined in Usuarios → Permisos."""
+    from app.models.permission import Role
+    if role != "admin" and not await db.get(Role, role):
+        raise HTTPException(400, "Rol inválido: elegí uno de los definidos en Permisos")
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
@@ -74,8 +78,7 @@ async def create_user(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ):
-    if body.role not in VALID_ROLES:
-        raise HTTPException(400, f"Rol inválido. Válidos: {sorted(VALID_ROLES)}")
+    await _check_role(db, body.role)
     existing = (await db.execute(select(User).where(User.username == body.username))).scalar_one_or_none()
     if existing:
         raise HTTPException(400, "El nombre de usuario ya existe")
@@ -105,8 +108,7 @@ async def update_user(
     if not user:
         raise HTTPException(404, "Usuario no encontrado")
     if body.role is not None:
-        if body.role not in VALID_ROLES:
-            raise HTTPException(400, f"Rol inválido. Válidos: {sorted(VALID_ROLES)}")
+        await _check_role(db, body.role)
         user.role = body.role
         user.is_superuser = (body.role == "admin")
     if body.email is not None:

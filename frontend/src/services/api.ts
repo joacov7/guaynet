@@ -596,7 +596,21 @@ export const permissionsApi = {
     http.put<UserPermissionEntry>(`/permissions/users/${userId}/${section}`, { can_view, can_edit }).then((r) => r.data),
   deleteUserPerm: (userId: number, section: string) =>
     http.delete(`/permissions/users/${userId}/${section}`),
+  roles: () => http.get<StaffRole[]>("/permissions/roles").then((r) => r.data),
+  createRole: (data: { name: string; description?: string; copy_from?: string }) =>
+    http.post<StaffRole>("/permissions/roles", data).then((r) => r.data),
+  updateRole: (key: string, data: { name?: string; description?: string }) =>
+    http.put<StaffRole>(`/permissions/roles/${key}`, data).then((r) => r.data),
+  deleteRole: (key: string) => http.delete(`/permissions/roles/${key}`),
 };
+
+/** A staff role defined in Usuarios → Permisos ("admin" is not one: it has full access). */
+export interface StaffRole {
+  key: string;
+  name: string;
+  description?: string | null;
+  users: number;
+}
 
 export const alarmsApi = {
   list: (status?: string) =>

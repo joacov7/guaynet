@@ -5,6 +5,9 @@ import {
   Avatar,
   Button,
   Card,
+  Form,
+  Input,
+  Modal,
   Popconfirm,
   Select,
   Space,
@@ -16,8 +19,8 @@ import {
   Typography,
   message,
 } from "antd";
-import { UndoOutlined, UserOutlined } from "@ant-design/icons";
-import { permissionsApi, RolePermission, UserPermissionEntry, usersApi } from "@/services/api";
+import { DeleteOutlined, EditOutlined, PlusOutlined, UndoOutlined, UserOutlined } from "@ant-design/icons";
+import { permissionsApi, RolePermission, StaffRole, UserPermissionEntry, usersApi } from "@/services/api";
 import type { User } from "@/types";
 
 const { Title, Text } = Typography;
@@ -119,10 +122,11 @@ function groupColumn<T extends { section: string }>(rows: T[]) {
   );
 }
 
-const ROLE_LABELS: Record<string, string> = {
-  operator:   "Operador",
-  technician: "Técnico",
-};
+/** Display name of a role key ("admin" is not a stored role). */
+function useRoleNames() {
+  const { data: roles = [] } = useQuery({ queryKey: ["staff-roles"], queryFn: permissionsApi.roles });
+  return (key: string) => (key === "admin" ? "Admin" : roles.find((r) => r.key === key)?.name ?? key);
+}
 
 // ── Permisos por rol ────────────────────────────────────────────────────────
 
@@ -189,6 +193,7 @@ function RolePermissionsTable({ role }: { role: string }) {
 
 function UserPermissionsPanel() {
   const qc = useQueryClient();
+  const roleName = useRoleNames();
   const [userId, setUserId] = useState<number | null>(null);
 
   const { data: users = [] } = useQuery({ queryKey: ["users"], queryFn: usersApi.list });
@@ -240,7 +245,7 @@ function UserPermissionsPanel() {
               <Space>
                 <Avatar size="small" icon={<UserOutlined />} />
                 <span>{u.username}</span>
-                <Tag>{ROLE_LABELS[u.role] ?? u.role}</Tag>
+                <Tag>{roleName(u.role)}</Tag>
               </Space>
             ),
           }))}
@@ -248,7 +253,7 @@ function UserPermissionsPanel() {
         />
         {selectedUser && (
           <Text type="secondary" style={{ fontSize: 13 }}>
-            Rol base: <Tag>{ROLE_LABELS[selectedUser.role] ?? selectedUser.role}</Tag>
+            Rol base: <Tag>{roleName(selectedUser.role)}</Tag>
             {overrideCount > 0 && (
               <Tag color="blue" style={{ marginLeft: 4 }}>{overrideCount} override{overrideCount > 1 ? "s" : ""}</Tag>
             )}
@@ -359,15 +364,131 @@ function UserPermissionsPanel() {
 
 // ── Page ───────────────────────────────────────────────────────────────────
 
-export default function Permissions() {
-  const [activeRole, setActiveRole] = useState("operator");
+function RoleManager() {
+  const qc = useQueryClient();
+  const { data: roles = [], isLoading } = useQuery({ queryKey: ["staff-roles"], queryFn: permissionsApi.roles });
+  const [activeRole, setActiveRole] = useState<string>();
+  const [modal, setModal] = useState<{ mode: "create" | "edit"; role?: StaffRole } | null>(null);
+  const [roleForm] = Form.useForm();
 
+  const current = roles.find((r) => r.key === activeRole) ?? roles[0];
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["staff-roles"] });
+    qc.invalidateQueries({ queryKey: ["permissions"] });
+  };
+  const save = useMutation({
+    mutationFn: (v: { name: string; description?: string; copy_from?: string }) =>
+      modal?.mode === "edit" && modal.role
+        ? permissionsApi.updateRole(modal.role.key, { name: v.name, description: v.description ?? "" })
+        : permissionsApi.createRole(v),
+    onSuccess: (role) => {
+      refresh();
+      setActiveRole(role.key);
+      setModal(null);
+      message.success(modal?.mode === "edit" ? "Rol actualizado" : "Rol creado: ahora definí sus permisos");
+    },
+    onError: (e: any) => {
+      message.error(e.response?.data?.detail ?? "No se pudo guardar el rol");
+    },
+  });
+  const remove = useMutation({
+    mutationFn: (key: string) => permissionsApi.deleteRole(key),
+    onSuccess: () => {
+      refresh();
+      setActiveRole(undefined);
+      message.success("Rol eliminado");
+    },
+    onError: (e: any) => {
+      message.error(e.response?.data?.detail ?? "No se pudo eliminar el rol");
+    },
+  });
+
+  const openModal = (mode: "create" | "edit", role?: StaffRole) => {
+    roleForm.setFieldsValue(mode === "edit" && role ? { name: role.name, description: role.description ?? "" } : { name: "", description: "", copy_from: undefined });
+    setModal({ mode, role });
+  };
+
+  return (
+    <Card loading={isLoading}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          Permisos base de cada rol. Un usuario puede tener además permisos propios (pestaña «Por usuario»).
+        </Text>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal("create")}>Nuevo rol</Button>
+      </div>
+      <Tabs
+        activeKey={current?.key}
+        onChange={setActiveRole}
+        items={roles.map((r) => ({
+          key: r.key,
+          label: (
+            <span>
+              {r.name} <Text type="secondary" style={{ fontSize: 12 }}>({r.users})</Text>
+            </span>
+          ),
+          children: (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                <Text type="secondary">{r.description || "Sin descripción"} · {r.users} usuario{r.users === 1 ? "" : "s"}</Text>
+                <Space>
+                  <Button size="small" icon={<EditOutlined />} onClick={() => openModal("edit", r)}>Renombrar</Button>
+                  <Tooltip title={r.users ? "Asigná otro rol a sus usuarios antes de borrarlo" : ""}>
+                    <Popconfirm
+                      title={`¿Borrar el rol «${r.name}»?`}
+                      description="Se borran también sus permisos."
+                      okText="Borrar"
+                      okButtonProps={{ danger: true }}
+                      cancelText="Cancelar"
+                      onConfirm={() => remove.mutate(r.key)}
+                      disabled={r.users > 0}
+                    >
+                      <Button size="small" danger icon={<DeleteOutlined />} disabled={r.users > 0}>Borrar</Button>
+                    </Popconfirm>
+                  </Tooltip>
+                </Space>
+              </div>
+              <RolePermissionsTable role={r.key} />
+            </>
+          ),
+        }))}
+      />
+      <Modal
+        open={!!modal}
+        title={modal?.mode === "edit" ? `Editar rol «${modal.role?.name}»` : "Nuevo rol"}
+        okText={modal?.mode === "edit" ? "Guardar" : "Crear"}
+        cancelText="Cancelar"
+        confirmLoading={save.isPending}
+        onOk={() => roleForm.submit()}
+        onCancel={() => setModal(null)}
+        destroyOnClose
+      >
+        <Form form={roleForm} layout="vertical" onFinish={(v) => save.mutate(v)}>
+          <Form.Item name="name" label="Nombre" rules={[{ required: true, min: 2, max: 60, message: "Entre 2 y 60 caracteres" }]}>
+            <Input placeholder="Ej: Cobranza, Técnico de campo, Atención" />
+          </Form.Item>
+          <Form.Item name="description" label="Descripción (opcional)">
+            <Input.TextArea rows={2} placeholder="Qué hace este rol" />
+          </Form.Item>
+          {modal?.mode === "create" && (
+            <Form.Item name="copy_from" label="Empezar con los permisos de" extra="Vacío = sin ningún permiso; los activás después.">
+              <Select allowClear placeholder="Ningún rol" options={roles.map((r) => ({ value: r.key, label: r.name }))} />
+            </Form.Item>
+          )}
+        </Form>
+      </Modal>
+    </Card>
+  );
+}
+
+// ── Page ───────────────────────────────────────────────────────────────────
+
+export default function Permissions() {
   return (
     <div style={{ maxWidth: 960 }}>
       <div style={{ marginBottom: 20 }}>
         <Title level={4} style={{ margin: 0 }}>Gestión de Permisos</Title>
         <Text type="secondary">
-          El rol <Tag color="gold">Admin</Tag> siempre tiene acceso completo. Los overrides por usuario tienen prioridad sobre los permisos del rol.
+          El rol <Tag color="gold">Admin</Tag> siempre tiene acceso completo. Los permisos por usuario tienen prioridad sobre los del rol.
           {" "}«Ver» permite consultar; «Editar» permite crear, modificar, borrar y ejecutar acciones (cortar, sincronizar, etc.).
           Usuarios, VPN, Automatizaciones y Configuración general son solo para administradores.
         </Text>
@@ -379,22 +500,7 @@ export default function Permissions() {
           {
             key: "roles",
             label: "Por rol",
-            children: (
-              <Card>
-                <Text type="secondary" style={{ display: "block", marginBottom: 16, fontSize: 13 }}>
-                  Permisos base para todos los usuarios de cada rol, salvo que tengan un override individual.
-                </Text>
-                <Tabs
-                  activeKey={activeRole}
-                  onChange={setActiveRole}
-                  items={Object.entries(ROLE_LABELS).map(([role, label]) => ({
-                    key: role,
-                    label,
-                    children: <RolePermissionsTable role={role} />,
-                  }))}
-                />
-              </Card>
-            ),
+            children: <RoleManager />,
           },
           {
             key: "users",
