@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePermissions } from "@/contexts/PermissionsContext";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -40,13 +40,34 @@ export default function ClientList() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { canEdit } = usePermissions();
+  const [typed, setTyped] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ClientStatus | undefined>();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
 
-  const { data = [], isLoading, error } = useQuery({
-    queryKey: ["clients", { search, status: statusFilter }],
-    queryFn: () => clientsApi.list({ search: search || undefined, status: statusFilter }),
+  // One query when the user stops typing, not one per key
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(typed.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [typed]);
+
+  const { data: pageData, isFetching, error } = useQuery({
+    queryKey: ["clients", { search, status: statusFilter, page, pageSize }],
+    queryFn: () =>
+      clientsApi.listPage({
+        search: search || undefined,
+        status: statusFilter,
+        skip: (page - 1) * pageSize,
+        limit: pageSize,
+      }),
+    placeholderData: (prev) => prev,
   });
+  const data = pageData?.items ?? [];
+  const total = pageData?.total ?? 0;
 
   const { data: connectivity = {} } = useQuery({
     queryKey: ["clients-connection-status"],
@@ -189,7 +210,7 @@ export default function ClientList() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>
           Clientes
-          <Badge count={data.length} style={{ marginLeft: 8, backgroundColor: "#1677ff" }} />
+          <Badge count={total} overflowCount={99999} style={{ marginLeft: 8, backgroundColor: "#1677ff" }} />
         </Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate("/clients/new")}>
           Nuevo cliente
@@ -198,9 +219,9 @@ export default function ClientList() {
 
       <Space style={{ marginBottom: 16 }}>
         <Input.Search
-          placeholder="Buscar por nombre, IP o teléfono…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por nombre, IP, DNI, teléfono o MAC…"
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
           style={{ width: 280 }}
           allowClear
         />
@@ -209,7 +230,10 @@ export default function ClientList() {
           style={{ width: 140 }}
           allowClear
           value={statusFilter}
-          onChange={(v) => setStatusFilter(v)}
+          onChange={(v) => {
+            setStatusFilter(v);
+            setPage(1);
+          }}
           options={[
             { value: "active", label: "Activos" },
             { value: "suspended", label: "Suspendidos" },
@@ -221,12 +245,24 @@ export default function ClientList() {
       {error && <Alert type="error" message="Error cargando clientes" style={{ marginBottom: 16 }} />}
 
       <Table
-        loading={isLoading}
+        loading={isFetching}
         dataSource={data}
         rowKey="id"
         columns={columns}
         size="small"
-        pagination={{ pageSize: 50, showTotal: (t) => `${t} clientes` }}
+        scroll={{ x: 900 }}
+        pagination={{
+          current: page,
+          pageSize,
+          total,
+          showSizeChanger: true,
+          pageSizeOptions: [25, 50, 100, 200],
+          showTotal: (t) => `${t} clientes`,
+          onChange: (p, size) => {
+            setPage(size !== pageSize ? 1 : p);
+            setPageSize(size);
+          },
+        }}
       />
     </div>
   );

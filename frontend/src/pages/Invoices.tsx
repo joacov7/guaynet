@@ -34,7 +34,8 @@ import {
   LinkOutlined,
 } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { clientsApi, invoicesApi, notificationsApi } from "@/services/api";
+import { invoicesApi, notificationsApi } from "@/services/api";
+import ClientSelect from "@/components/common/ClientSelect";
 import type { InvoicePreviewItem, InvoicePreviewResult } from "@/services/api";
 import type { Invoice, InvoiceItem, InvoiceStatus, OverdueEntry } from "@/types";
 
@@ -68,10 +69,25 @@ export default function Invoices() {
   const [preview, setPreview] = useState<InvoicePreviewResult | null>(null);
   const [previewing, setPreviewing] = useState(false);
 
-  const { data = [], isLoading } = useQuery({
-    queryKey: ["invoices", { status: statusFilter }],
-    queryFn: () => invoicesApi.list({ status: statusFilter }),
+  const [clientFilter, setClientFilter] = useState<number | undefined>();
+  const [periodFilter, setPeriodFilter] = useState<string | undefined>();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
+  const { data: pageData, isFetching: isLoading } = useQuery({
+    queryKey: ["invoices", { status: statusFilter, client: clientFilter, period: periodFilter, page, pageSize }],
+    queryFn: () =>
+      invoicesApi.listPage({
+        status: statusFilter,
+        client_id: clientFilter,
+        period: periodFilter,
+        skip: (page - 1) * pageSize,
+        limit: pageSize,
+      }),
+    placeholderData: (prev) => prev,
   });
+  const data = pageData?.items ?? [];
+  const total = pageData?.total ?? 0;
 
   const markOverdueMutation = useMutation({
     mutationFn: invoicesApi.markOverdue,
@@ -121,11 +137,6 @@ export default function Invoices() {
     queryKey: ["overdue-report"],
     queryFn: () => invoicesApi.overdueReport(0),
     enabled: overdueDrawer,
-  });
-
-  const { data: clients = [] } = useQuery({
-    queryKey: ["clients-list"],
-    queryFn: () => clientsApi.list({ limit: 500 }),
   });
 
   const createChargeMutation = useMutation({
@@ -295,14 +306,36 @@ export default function Invoices() {
         </Space>
       </div>
 
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
         <Select
           placeholder="Filtrar por estado"
           style={{ width: 160 }}
           allowClear
           value={statusFilter}
-          onChange={setStatusFilter}
+          onChange={(v) => {
+            setStatusFilter(v);
+            setPage(1);
+          }}
           options={Object.entries(statusConfig).map(([k, v]) => ({ value: k, label: v.label }))}
+        />
+        <ClientSelect
+          style={{ width: 300 }}
+          placeholder="Filtrar por cliente"
+          value={clientFilter}
+          onChange={(v) => {
+            setClientFilter(v);
+            setPage(1);
+          }}
+        />
+        <DatePicker
+          picker="month"
+          format="MM/YYYY"
+          placeholder="Período"
+          value={periodFilter ? dayjs(periodFilter + "-01") : null}
+          onChange={(d) => {
+            setPeriodFilter(d ? d.format("YYYY-MM") : undefined);
+            setPage(1);
+          }}
         />
       </Space>
 
@@ -312,7 +345,19 @@ export default function Invoices() {
         rowKey="id"
         columns={columns}
         size="small"
-        pagination={{ pageSize: 50, showTotal: (t) => `${t} facturas` }}
+        scroll={{ x: 900 }}
+        pagination={{
+          current: page,
+          pageSize,
+          total,
+          showSizeChanger: true,
+          pageSizeOptions: [25, 50, 100, 200],
+          showTotal: (t) => `${t} facturas`,
+          onChange: (p, size) => {
+            setPage(size !== pageSize ? 1 : p);
+            setPageSize(size);
+          },
+        }}
         expandable={{
           expandedRowRender: (r: Invoice) => (
             <div style={{ paddingLeft: 24 }}>
@@ -441,12 +486,7 @@ export default function Invoices() {
           initialValues={{ items: [{ description: "", quantity: 1, unit_price: 0 }] }}
         >
           <Form.Item name="client_id" label="Cliente" rules={[{ required: true }]}>
-            <Select
-              showSearch
-              filterOption={(input, opt) => (opt?.label as string ?? "").toLowerCase().includes(input.toLowerCase())}
-              options={clients.map((c: any) => ({ value: c.id, label: c.full_name }))}
-              placeholder="Seleccioná un cliente"
-            />
+            <ClientSelect />
           </Form.Item>
 
           <Form.List name="items">

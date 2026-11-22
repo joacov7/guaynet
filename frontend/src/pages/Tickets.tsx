@@ -27,7 +27,7 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import "dayjs/locale/es";
 import { ticketsApi } from "@/services/api";
-import { clientsApi } from "@/services/api";
+import ClientSelect from "@/components/common/ClientSelect";
 import { usersApi } from "@/services/api";
 import type { Ticket, TicketStatus, TicketPriority, TicketCategory } from "@/types";
 
@@ -88,10 +88,6 @@ export default function Tickets() {
     queryFn: () => ticketsApi.list({ status: statusFilter, priority: priorityFilter }),
   });
 
-  const { data: clients = [] } = useQuery({
-    queryKey: ["clients-list"],
-    queryFn: () => clientsApi.list({ limit: 500 }),
-  });
 
   const { data: users = [] } = useQuery({
     queryKey: ["users", "assignable"],
@@ -248,13 +244,7 @@ export default function Tickets() {
             <Input placeholder="Describe brevemente el problema" />
           </Form.Item>
           <Form.Item name="client_id" label="Cliente">
-            <Select
-              showSearch
-              allowClear
-              placeholder="Opcional"
-              filterOption={(input, opt) => (opt?.label as string ?? "").toLowerCase().includes(input.toLowerCase())}
-              options={clients.map((c: any) => ({ value: c.id, label: c.full_name }))}
-            />
+            <ClientSelect placeholder="Opcional: buscá por nombre, IP o DNI" />
           </Form.Item>
           <Row gutter={12}>
             <Col span={12}>

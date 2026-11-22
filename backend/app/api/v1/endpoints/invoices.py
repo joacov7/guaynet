@@ -9,7 +9,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -26,14 +26,25 @@ router = APIRouter()
 
 @router.get("/", response_model=List[InvoiceResponse])
 async def list_invoices(
+    response: Response,
     status: Optional[InvoiceStatus] = None,
     period: Optional[str] = None,
     client_id: Optional[int] = None,
-    skip: int = 0,
-    limit: int = Query(default=100, le=500),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
+    """One page of invoices; the total that match goes in the X-Total-Count header."""
+    filters = []
+    if status:
+        filters.append(Invoice.status == status)
+    if period:
+        filters.append(Invoice.period == period)
+    if client_id:
+        filters.append(Invoice.client_id == client_id)
+    total = (await db.execute(select(func.count()).select_from(Invoice).where(*filters))).scalar() or 0
+    response.headers["X-Total-Count"] = str(total)
     q = (
         select(Invoice)
         .options(
@@ -41,16 +52,11 @@ async def list_invoices(
             selectinload(Invoice.items),
             selectinload(Invoice.client),
         )
-        .order_by(Invoice.due_date.desc())
+        .where(*filters)
+        .order_by(Invoice.due_date.desc(), Invoice.id.desc())
+        .offset(skip).limit(limit)
     )
-    if status:
-        q = q.where(Invoice.status == status)
-    if period:
-        q = q.where(Invoice.period == period)
-    if client_id:
-        q = q.where(Invoice.client_id == client_id)
-    result = await db.execute(q.offset(skip).limit(limit))
-    invoices = result.scalars().all()
+    invoices = (await db.execute(q)).scalars().all()
     return [InvoiceResponse.from_orm_with_client(inv) for inv in invoices]
 
 

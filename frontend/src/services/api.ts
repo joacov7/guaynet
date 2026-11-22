@@ -164,6 +164,17 @@ export const routersApi = {
     http.post<{ synced: number; errors: string[] }>(`/routers/${id}/sync-pppoe`).then((r) => r.data),
 };
 
+/** A page of rows with the total the server reports in X-Total-Count. */
+export interface Page<T> {
+  items: T[];
+  total: number;
+}
+
+function withTotal<T>(r: { data: T[]; headers: Record<string, any> }): Page<T> {
+  const total = Number(r.headers["x-total-count"]);
+  return { items: r.data, total: Number.isFinite(total) ? total : r.data.length };
+}
+
 // ── Clients ───────────────────────────────────────────────────────────────────
 export const clientsApi = {
   list: (params?: {
@@ -174,6 +185,15 @@ export const clientsApi = {
     skip?: number;
     limit?: number;
   }) => http.get<Client[]>("/clients/", { params }).then((r) => r.data),
+  /** One page plus the real total (X-Total-Count), for paginated tables. */
+  listPage: (params: {
+    status?: string;
+    router_id?: number;
+    plan_id?: number;
+    search?: string;
+    skip: number;
+    limit: number;
+  }) => http.get<Client[]>("/clients/", { params }).then((r) => withTotal(r)),
   get: (id: number) => http.get<Client>(`/clients/${id}`).then((r) => r.data),
   connectionStatus: () => http.get<Record<string, { status: "online" | "not_detected" | "unknown"; checked_at: string }>>("/clients/connection-status").then((r) => r.data),
   create: (data: Partial<Client>) => http.post<Client>("/clients/", data).then((r) => r.data),
@@ -219,6 +239,8 @@ export interface InvoicePreviewResult {
 export const invoicesApi = {
   list: (params?: { status?: string; period?: string; client_id?: number }) =>
     http.get<Invoice[]>("/invoices/", { params }).then((r) => r.data),
+  listPage: (params: { status?: string; period?: string; client_id?: number; skip: number; limit: number }) =>
+    http.get<Invoice[]>("/invoices/", { params }).then((r) => withTotal(r)),
   get: (id: number) => http.get<Invoice>(`/invoices/${id}`).then((r) => r.data),
   create: (data: { client_id: number; period: string; amount?: number; issue_date: string; due_date: string; notes?: string; items?: InvoiceItemCreate[] }) =>
     http.post<Invoice>("/invoices/", data).then((r) => r.data),

@@ -27,6 +27,29 @@ services:
       timeout: 5s
       retries: 5
 
+  # Daily database backup into ./backups (keeps the last 14 days).
+  # Restore: sh scripts/restore-backup.sh backups/<file>.dump
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks:
+      - guaynet_net
+    environment:
+      PGHOST: db
+      PGUSER: guaynet
+      PGPASSWORD: guaynet
+      PGDATABASE: guaynet
+      TZ: America/Argentina/Buenos_Aires
+      BACKUP_HOUR: "3"
+      BACKUP_KEEP_DAYS: "14"
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup-loop.sh:/backup-loop.sh:ro
+    entrypoint: ["sh", "/backup-loop.sh"]
+    depends_on:
+      db:
+        condition: service_healthy
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped

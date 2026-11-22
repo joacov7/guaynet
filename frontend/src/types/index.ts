@@ -498,6 +498,7 @@ export interface InventoryItem {
   condition: EquipmentCondition;
   status: EquipmentStatus;
   client_id?: number;
+  client_name?: string;
   notes?: string;
   created_at: string;
 }

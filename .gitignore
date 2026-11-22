@@ -55,3 +55,6 @@ redis_data/
 htmlcov/
 .coverage
 coverage.xml
+
+# Database backups (docker-compose service "backup")
+backups/

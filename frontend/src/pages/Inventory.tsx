@@ -19,7 +19,8 @@ import {
   message,
 } from "antd";
 import { DeleteOutlined, EditOutlined, PlusOutlined, ToolOutlined } from "@ant-design/icons";
-import { inventoryApi, clientsApi } from "@/services/api";
+import { inventoryApi } from "@/services/api";
+import ClientSelect from "@/components/common/ClientSelect";
 import type { InventoryItem } from "@/types";
 
 const { Title } = Typography;
@@ -86,10 +87,6 @@ export default function Inventory() {
     queryFn: inventoryApi.summary,
   });
 
-  const { data: clients = [] } = useQuery({
-    queryKey: ["clients-list"],
-    queryFn: () => clientsApi.list({ limit: 500 }),
-  });
 
   const createMutation = useMutation({
     mutationFn: inventoryApi.create,
@@ -186,11 +183,7 @@ export default function Inventory() {
       title: "Cliente asignado",
       dataIndex: "client_id",
       key: "client_id",
-      render: (id: number) => {
-        if (!id) return "—";
-        const c = clients.find((x: any) => x.id === id);
-        return c ? (c as any).full_name : `#${id}`;
-      },
+      render: (id: number, r: InventoryItem) => (id ? r.client_name ?? `#${id}` : "—"),
     },
     {
       title: "",
@@ -325,13 +318,7 @@ export default function Inventory() {
             </Col>
           </Row>
           <Form.Item name="client_id" label="Asignado a cliente">
-            <Select
-              showSearch
-              allowClear
-              placeholder="Opcional"
-              filterOption={(input, opt) => (opt?.label as string ?? "").toLowerCase().includes(input.toLowerCase())}
-              options={clients.map((c: any) => ({ value: c.id, label: c.full_name }))}
-            />
+            <ClientSelect placeholder="Opcional: buscá por nombre, IP o DNI" />
           </Form.Item>
           <Form.Item name="notes" label="Notas">
             <Input.TextArea rows={2} />

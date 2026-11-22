@@ -5,7 +5,7 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -61,39 +61,45 @@ async def _sync_pppoe_to_mikrotik(client: Client, db: AsyncSession) -> str:
 
 @router.get("/", response_model=List[ClientListResponse])
 async def list_clients(
+    response: Response,
     status: Optional[ClientStatus] = None,
     router_id: Optional[int] = None,
     plan_id: Optional[int] = None,
-    search: Optional[str] = Query(None, description="Busca por nombre, IP o teléfono"),
-    skip: int = 0,
-    limit: int = Query(default=100, le=500),
+    search: Optional[str] = Query(None, description="Busca por nombre, IP, teléfono, DNI, MAC o email"),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
+    """One page of clients. The total that match goes in the X-Total-Count header
+    (the panel paginates with it; before, lists stopped at 100 without saying so)."""
+    filters = []
+    if status:
+        filters.append(Client.status == status)
+    if router_id:
+        filters.append(Client.router_id == router_id)
+    if plan_id:
+        filters.append(Client.plan_id == plan_id)
+    if search and search.strip():
+        term = f"%{search.strip().lower()}%"
+        filters.append(or_(
+            func.lower(Client.first_name + " " + Client.last_name).like(term),
+            Client.ip_address.like(term),
+            Client.phone.like(term),
+            Client.dni.like(term),
+            func.lower(Client.mac_address).like(term),
+            func.lower(Client.email).like(term),
+        ))
+    total = (await db.execute(select(func.count()).select_from(Client).where(*filters))).scalar() or 0
+    response.headers["X-Total-Count"] = str(total)
     q = (
         select(Client)
         .options(selectinload(Client.plan), selectinload(Client.router))
-        .order_by(Client.last_name, Client.first_name)
+        .where(*filters)
+        .order_by(Client.last_name, Client.first_name, Client.id)
+        .offset(skip).limit(limit)
     )
-    if status:
-        q = q.where(Client.status == status)
-    if router_id:
-        q = q.where(Client.router_id == router_id)
-    if plan_id:
-        q = q.where(Client.plan_id == plan_id)
-    if search:
-        term = f"%{search}%"
-        q = q.where(
-            or_(
-                func.lower(Client.first_name + " " + Client.last_name).like(func.lower(term)),
-                Client.ip_address.like(term),
-                Client.phone.like(term),
-                Client.dni.like(term),
-            )
-        )
-    q = q.offset(skip).limit(limit)
-    result = await db.execute(q)
-    return result.scalars().all()
+    return (await db.execute(q)).scalars().all()
 
 
 @router.get("/connection-status")

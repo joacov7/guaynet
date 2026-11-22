@@ -6,7 +6,8 @@ import {
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
-import { workOrdersApi, clientsApi, usersApi } from "@/services/api";
+import { workOrdersApi, usersApi } from "@/services/api";
+import ClientSelect from "@/components/common/ClientSelect";
 import type { WorkOrder } from "@/types";
 
 const { Title } = Typography;
@@ -50,10 +51,6 @@ export default function WorkOrders() {
   const { data: orders = [], isLoading } = useQuery({
     queryKey: ["work-orders"],
     queryFn: () => workOrdersApi.list(),
-  });
-  const { data: clients = [] } = useQuery({
-    queryKey: ["clients-brief"],
-    queryFn: () => clientsApi.list({ limit: 1000 }),
   });
   const { data: users = [] } = useQuery({
     queryKey: ["users", "assignable"],
@@ -221,13 +218,7 @@ export default function WorkOrders() {
             </Form.Item>
           )}
           <Form.Item name="client_id" label="Cliente">
-            <Select
-              showSearch
-              allowClear
-              placeholder="Seleccionar cliente"
-              optionFilterProp="label"
-              options={clients.map((c) => ({ value: c.id, label: c.full_name }))}
-            />
+            <ClientSelect />
           </Form.Item>
           <Form.Item name="assigned_to_id" label="Técnico asignado">
             <Select

@@ -52,6 +52,7 @@ class ItemResponse(BaseModel):
     condition: EquipmentCondition
     status: EquipmentStatus
     client_id: Optional[int]
+    client_name: Optional[str] = None
     notes: Optional[str]
     created_at: str
 
@@ -100,8 +101,22 @@ async def list_items(
             | InventoryItem.model.ilike(like)
             | InventoryItem.serial_number.ilike(like)
         )
-    result = await db.execute(q.offset(skip).limit(limit))
-    return [ItemResponse.from_orm(i) for i in result.scalars().all()]
+    items = (await db.execute(q.offset(skip).limit(limit))).scalars().all()
+    # Customer names in one query (the panel used to load every customer for this)
+    from app.models.client import Client
+    ids = {i.client_id for i in items if i.client_id}
+    names = {
+        cid: f"{first} {last}"
+        for cid, first, last in (await db.execute(
+            select(Client.id, Client.first_name, Client.last_name).where(Client.id.in_(ids))
+        )).all()
+    } if ids else {}
+    out = []
+    for i in items:
+        row = ItemResponse.from_orm(i)
+        row.client_name = names.get(i.client_id)
+        out.append(row)
+    return out
 
 
 @router.get("/summary")
