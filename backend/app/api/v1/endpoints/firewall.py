@@ -228,13 +228,18 @@ async def confirm_dhcp_device_replacement(
         details=f"Reemplazo CPE: MAC {old_mac or 'sin registro'} -> {mac}; IP {old_ip} -> {body.ip_address}",
     )
     await db.commit()
+
+    # The queue (and a suspension block, if any) follows the new IP
+    from app.services.provisioning import provision_client
+    result = await provision_client(db, client)
     return {
         "updated": True,
         "client_id": client.id,
         "mac_address": mac,
         "ip_address": body.ip_address,
-        "router_sync_required": True,
-        "message": "Ficha actualizada en Guaynet. Verificá/sincronizá el router por separado.",
+        "router_sync_required": not result.ok,
+        "message": "Ficha actualizada y aplicada en el router." if result.ok
+        else f"Ficha actualizada en Guaynet. {result.message}",
     }
 
 
@@ -258,7 +263,7 @@ async def dhcp_import(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    mt_router = await _get_router_or_404(router_id, db)
+    await _get_router_or_404(router_id, db)
     plan = await db.get(Plan, body.plan_id)
     if not plan:
         raise HTTPException(404, "Plan no encontrado")
@@ -352,15 +357,22 @@ async def dhcp_import(
     # Guardar primero las altas en Guaynet.
     await db.commit()
 
-    # La importación solo crea fichas en Guaynet; no escribe en el MikroTik.
-    # Conservamos los campos previos para compatibilidad con clientes API existentes.
+    # Only the clients created now are applied to the router (one connection);
+    # existing clients are not touched.
+    from app.services.provisioning import provision_clients
+    results = await provision_clients(db, created_clients) if created_clients else {}
+    failed = [c for c in created_clients if not results.get(c.id) or not results[c.id].ok]
     return {
         "created": len(created_clients),
         "skipped": skipped,
-        "synced": 0,
-        "sync_failed": 0,
-        "sync_errors": [],
-        "provisioning_pending": len(created_clients),
+        "synced": len(created_clients) - len(failed),
+        "sync_failed": len(failed),
+        "sync_errors": [
+            {"client_id": c.id, "client_name": c.full_name,
+             "error": results[c.id].message if c.id in results else "sin resultado"}
+            for c in failed
+        ],
+        "provisioning_pending": len(failed),
     }
 
 # ── Firewall Filter ───────────────────────────────────────────────────────────

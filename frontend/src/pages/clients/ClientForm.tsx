@@ -88,9 +88,13 @@ export default function ClientForm() {
 
   const createMutation = useMutation({
     mutationFn: clientsApi.create,
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["clients"] });
-      message.success("Cliente creado y sincronizado con Mikrotik");
+      if (data.mikrotik_error) {
+        message.warning(`Cliente creado. MikroTik: ${data.mikrotik_error}`, 8);
+      } else {
+        message.success(`Cliente creado${data.mikrotik_sync ? ` · MikroTik: ${data.mikrotik_sync}` : ""}`, 6);
+      }
       navigate("/clients");
     },
     onError: (err: any) => {
@@ -104,9 +108,9 @@ export default function ClientForm() {
       qc.invalidateQueries({ queryKey: ["clients"] });
       qc.invalidateQueries({ queryKey: ["client", id] });
       if (data.mikrotik_error) {
-        message.warning(`Guardado. Error MikroTik: ${data.mikrotik_error}`, 8);
+        message.warning(`Guardado. MikroTik: ${data.mikrotik_error}`, 8);
       } else {
-        message.success(`Cliente actualizado${data.mikrotik_sync ? ` · MT: ${data.mikrotik_sync}` : ""}`, 6);
+        message.success(`Cliente actualizado${data.mikrotik_sync ? ` · MikroTik: ${data.mikrotik_sync}` : ""}`, 6);
       }
       navigate("/clients");
     },

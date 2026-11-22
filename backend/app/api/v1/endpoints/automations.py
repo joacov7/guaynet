@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -95,16 +95,17 @@ VALID_JOBS = {"auto_suspend", "auto_invoice", "whatsapp_reminder"}
 
 
 @router.post("/run/{job_name}", status_code=202)
-async def run_job(job_name: str, background_tasks: BackgroundTasks, _=Depends(require_admin)):
+async def run_job(job_name: str, _=Depends(require_admin)):
+    """Run a job now, even if its switch is off (a person asked for it).
+    Same Celery task the schedule runs; the result shows up in the logs."""
     if job_name not in VALID_JOBS:
         raise HTTPException(status_code=404, detail="Job desconocido")
 
-    from app import scheduler as sched_module
-    job_fn = {
-        "auto_suspend": sched_module.run_auto_suspend,
-        "auto_invoice": sched_module.run_auto_invoice,
-        "whatsapp_reminder": sched_module.run_whatsapp_reminder,
+    from app.tasks import billing as tasks
+    task = {
+        "auto_suspend": tasks.mark_overdue_and_suspend,
+        "auto_invoice": tasks.generate_monthly_invoices,
+        "whatsapp_reminder": tasks.send_payment_reminders,
     }[job_name]
-
-    background_tasks.add_task(job_fn)
+    task.delay(manual=True)
     return {"queued": job_name}

@@ -172,6 +172,9 @@ services:
       - guaynet_net
     ports:
       - "3000:80"
+      # Overdue notice for suspended clients (only that page): the routers send
+      # suspended clients here, see Configuración → Suspensión
+      - "8081:8081"
     depends_on:
       - backend
 

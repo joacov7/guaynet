@@ -45,12 +45,8 @@ async def lifespan(app: FastAPI):
                 db.add(RolePermission(role=role, section=section, can_view=can_view, can_edit=can_edit))
         await db.commit()
 
-    from app import scheduler as sched
-    sched.start()
-
+    # Scheduled jobs run only in Celery beat (app/tasks/celery_app.py)
     yield
-
-    sched.stop()
 
 
 app = FastAPI(

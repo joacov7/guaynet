@@ -10,11 +10,10 @@ from typing import Optional
 
 async def send_email_alert(subject: str, body: str, db) -> bool:
     """Send an email alert using SMTP settings from system_config. Returns True on success."""
-    from app.models.config import SystemConfig
 
     async def _get(key: str, default: str = "") -> str:
-        row = await db.get(SystemConfig, key)
-        return row.value if row else default
+        from app.services.config_secrets import config_value
+        return await config_value(db, key, default)
 
     smtp_host = await _get("smtp_host")
     smtp_port_s = await _get("smtp_port", "587")

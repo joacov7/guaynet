@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from typing import List
 
@@ -10,8 +9,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 
 from app.models.client import Client, ClientStatus
 from app.models.plan import Plan
-from app.models.router import MikrotikRouter
-from app.services.mikrotik import MikrotikError, build_service_from_router
+from app.services.mikrotik import MikrotikError
 from app.services.security.telegram_client_bot import build_client_handlers
 
 logger = logging.getLogger(__name__)
@@ -21,36 +19,13 @@ def _emoji(status: str) -> str:
     return {"active": "✅", "suspended": "⛔", "cancelled": "❌"}.get(status, "❓")
 
 
-async def _push_mikrotik(client: Client, db):
-    plan = await db.get(Plan, client.plan_id)
-    router = await db.get(MikrotikRouter, client.router_id)
-    if not plan or not router:
-        return
-    disabled = client.status == ClientStatus.suspended
+async def _push_mikrotik(client: Client, db) -> None:
+    """Same provisioning as the panel (suspension by address list, queue always on)."""
+    from app.services.provisioning import provision_client
 
-    def _sync():
-        svc = build_service_from_router(router)
-        with svc:
-            existing = svc.get_queue_by_name(client.mikrotik_queue_name)
-            params = dict(
-                name=client.mikrotik_queue_name,
-                target=client.mikrotik_target,
-                max_limit=plan.mikrotik_max_limit,
-                burst_limit=plan.mikrotik_burst_limit,
-                burst_threshold=plan.mikrotik_burst_threshold,
-                burst_time=plan.mikrotik_burst_time if plan.mikrotik_burst_limit else None,
-                comment=f"guaynet:{client.id}|{client.full_name}",
-                disabled=disabled,
-            )
-            if existing:
-                svc.update_simple_queue(existing["id"], **{
-                    k: v for k, v in params.items()
-                    if k not in ("name", "target") and v is not None
-                })
-            else:
-                svc.add_simple_queue(**params)
-
-    await asyncio.to_thread(_sync)
+    result = await provision_client(db, client)
+    if not result.ok:
+        raise MikrotikError(result.message)
 
 
 def build_application(token: str, database_url: str, allowed_ids: List[int]) -> Application:

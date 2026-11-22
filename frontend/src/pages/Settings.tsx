@@ -40,7 +40,14 @@ export default function Settings() {
 
   useEffect(() => {
     if (data) {
-      form.setFieldsValue(data);
+      form.setFieldsValue({
+        ...data,
+        // "disable" (disabled queue) never cut anyone: it is now the address-list block
+        suspension_action: data.suspension_action === "throttle" ? "throttle" : "block",
+        suspension_notice_port: data.suspension_notice_port ?? "8081",
+        suspension_payment_hosts: data.suspension_payment_hosts ??
+          "mercadopago.com.ar, www.mercadopago.com.ar, mercadopago.com, www.mercadopago.com, api.mercadopago.com, secure.mlstatic.com, http2.mlstatic.com, www.mercadolibre.com",
+      });
       waForm.setFieldsValue({
         twilio_account_sid: data.twilio_account_sid ?? "",
         twilio_auth_token: data.twilio_auth_token ?? "",
@@ -59,11 +66,13 @@ export default function Settings() {
       mpForm.setFieldsValue({
         mp_access_token: data.mp_access_token ?? "",
         mp_public_key: data.mp_public_key ?? "",
+        mp_webhook_secret: "",
       });
       companyForm.setFieldsValue({
         company_name: data.company_name ?? "",
         company_address: data.company_address ?? "",
         company_cuit: data.company_cuit ?? "",
+        company_phone: data.company_phone ?? "",
       });
       afipForm.setFieldsValue({
         afip_cuit: data.afip_cuit ?? "",
@@ -86,6 +95,10 @@ export default function Settings() {
   });
 
   const suspensionAction = Form.useWatch("suspension_action", form);
+  // Secrets are never sent back by the server: only whether each one is stored
+  const secretSet = (key: string): boolean => Boolean((data as any)?.secrets_configured?.[key]);
+  const secretHint = (key: string) =>
+    secretSet(key) ? "Guardado y cifrado. Dejalo vacío para no cambiarlo." : "Todavía no está cargado.";
 
   async function handleTestEmail() {
     setTestingEmail(true);
@@ -121,26 +134,30 @@ export default function Settings() {
           type="info"
           showIcon
           style={{ marginBottom: 20 }}
-          message="Define qué acción se aplica en MikroTik cuando un cliente es suspendido (manual o automáticamente por falta de pago)."
+          message="Qué pasa en el MikroTik cuando un cliente se suspende (a mano o por falta de pago)."
+          description="La cola de velocidad del cliente queda siempre activa: deshabilitarla le sacaba el límite en vez de cortarlo."
         />
         <Form
           form={form}
           layout="vertical"
           onFinish={(values) => mutation.mutate(values)}
-          initialValues={{ suspension_action: "disable", suspension_speed: "64k" }}
+          initialValues={{ suspension_action: "block", suspension_speed: "64k", suspension_notice_port: "8081" }}
         >
           <Form.Item name="suspension_action" label="Acción al suspender">
             <Radio.Group>
               <Space direction="vertical">
-                <Radio value="disable">
-                  <Text strong>Deshabilitar queue</Text>
+                <Radio value="block">
+                  <Text strong>Sin internet, con página de aviso</Text>
                   <br />
-                  <Text type="secondary">El cliente pierde el acceso completamente (disabled=yes en el queue).</Text>
+                  <Text type="secondary">
+                    El cliente queda en la lista «guaynet-morosos» del MikroTik: no navega, salvo la página de aviso con su
+                    deuda y MercadoPago para pagar. Al pagar se reconecta solo.
+                  </Text>
                 </Radio>
                 <Radio value="throttle">
-                  <Text strong>Reducir velocidad (throttle)</Text>
+                  <Text strong>Reducir velocidad</Text>
                   <br />
-                  <Text type="secondary">El cliente mantiene conexión pero con velocidad mínima. Útil para mostrar una página de aviso.</Text>
+                  <Text type="secondary">El cliente sigue navegando a la velocidad que indiques.</Text>
                 </Radio>
               </Space>
             </Radio.Group>
@@ -155,6 +172,35 @@ export default function Settings() {
             >
               <Input style={{ width: 160 }} placeholder="64k" />
             </Form.Item>
+          )}
+
+          {suspensionAction !== "throttle" && (
+            <>
+              <Row gutter={16}>
+                <Col span={16}>
+                  <Form.Item
+                    name="suspension_notice_ip"
+                    label="IP de este servidor vista desde los routers"
+                    extra="La IP de la red local donde corre Guaynet. Vacía = el cliente cortado no ve la página de aviso, solo queda sin internet."
+                    rules={[{ pattern: /^(\d{1,3}\.){3}\d{1,3}$/, message: "IP inválida (ej: 192.168.88.10)" }]}
+                  >
+                    <Input placeholder="192.168.88.10" />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item name="suspension_notice_port" label="Puerto de la página">
+                    <Input placeholder="8081" />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Form.Item
+                name="suspension_payment_hosts"
+                label="Sitios de pago permitidos"
+                extra="Dominios que el cliente cortado puede abrir para pagar, separados por coma."
+              >
+                <TextArea rows={2} />
+              </Form.Item>
+            </>
           )}
 
           <Form.Item style={{ marginTop: 8 }}>
@@ -186,8 +232,8 @@ export default function Settings() {
           <Form.Item name="twilio_account_sid" label="Account SID">
             <Input placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
           </Form.Item>
-          <Form.Item name="twilio_auth_token" label="Auth Token">
-            <Input.Password placeholder="Tu auth token de Twilio" />
+          <Form.Item name="twilio_auth_token" label="Auth Token" extra={secretHint("twilio_auth_token")}>
+            <Input.Password placeholder={secretSet("twilio_auth_token") ? "••••••••" : "Tu auth token de Twilio"} autoComplete="off" />
           </Form.Item>
           <Form.Item name="twilio_whatsapp_from" label="Número WhatsApp sender" extra="Ej: whatsapp:+14155238886 (sandbox de Twilio)">
             <Input placeholder="whatsapp:+14155238886" />
@@ -255,8 +301,8 @@ export default function Settings() {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="smtp_password" label="Contraseña / App Password">
-                <Input.Password placeholder="contraseña" />
+              <Form.Item name="smtp_password" label="Contraseña / App Password" extra={secretHint("smtp_password")}>
+                <Input.Password placeholder={secretSet("smtp_password") ? "••••••••" : "contraseña"} autoComplete="off" />
               </Form.Item>
             </Col>
           </Row>
@@ -297,12 +343,19 @@ export default function Settings() {
           <Form.Item
             name="mp_access_token"
             label="Access Token"
-            extra="Obtenelo en mercadopago.com.ar → Tu negocio → Credenciales"
+            extra={`Obtenelo en mercadopago.com.ar → Tu negocio → Credenciales. ${secretHint("mp_access_token")}`}
           >
             <Input.Password placeholder="APP_USR-..." />
           </Form.Item>
           <Form.Item name="mp_public_key" label="Public Key">
             <Input placeholder="APP_USR-..." />
+          </Form.Item>
+          <Form.Item
+            name="mp_webhook_secret"
+            label="Clave secreta del webhook (opcional)"
+            extra={`En MercadoPago → Tus integraciones → Webhooks. Si la cargás, se rechazan avisos de pago sin firma válida. ${secretHint("mp_webhook_secret")}`}
+          >
+            <Input.Password placeholder={secretSet("mp_webhook_secret") ? "••••••••" : ""} autoComplete="off" />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" loading={mutation.isPending}>
@@ -371,7 +424,7 @@ export default function Settings() {
           <Form.Item
             name="afip_key_pem"
             label="Clave privada (key.pem)"
-            extra="Pegá el contenido del archivo .key incluyendo las líneas BEGIN/END PRIVATE KEY"
+            extra={`Pegá el contenido del archivo .key incluyendo las líneas BEGIN/END PRIVATE KEY. ${secretHint("afip_key_pem")}`}
           >
             <Input.TextArea rows={5} placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----" />
           </Form.Item>
@@ -458,6 +511,9 @@ export default function Settings() {
           </Form.Item>
           <Form.Item name="company_address" label="Dirección">
             <Input placeholder="Calle 123, Ciudad, Provincia" />
+          </Form.Item>
+          <Form.Item name="company_phone" label="Teléfono de atención" extra="Se muestra en la página de aviso a los clientes cortados.">
+            <Input placeholder="+54 9 351 000-0000" />
           </Form.Item>
           <Form.Item name="company_cuit" label="CUIT">
             <Input placeholder="20-12345678-9" />

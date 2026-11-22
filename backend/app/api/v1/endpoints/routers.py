@@ -20,7 +20,7 @@ from app.schemas.router import (
     UbiquitiDeviceCreate,
     UbiquitiDeviceResponse,
 )
-from app.services.mikrotik import MikrotikError, MikrotikService, build_service_from_router
+from app.services.mikrotik import MikrotikError, build_service_from_router
 
 logger = logging.getLogger(__name__)
 
@@ -199,100 +199,20 @@ async def sync_clients_to_router(
         return {"synced": 0, "skipped": 0, "errors": [], "clients_found": 0,
                 "warning": "No hay clientes asignados a este router"}
 
-    # Pre-load plans
-    plan_ids = {c.plan_id for c in clients}
-    from app.models.plan import Plan
-    plan_result = await db.execute(select(Plan).where(Plan.id.in_(plan_ids)))
-    plans = {p.id: p for p in plan_result.scalars().all()}
+    # One connection, same rules as everywhere else (services/provisioning.py)
+    from app.services.provisioning import provision_clients
 
-    logger.info("sync router=%d: found %d clients, %d plans", router_id, len(clients), len(plans))
-
-    has_uplink = bool(rt.uplink_download_mbps and rt.uplink_upload_mbps)
-    uplink_max_limit = f"{rt.uplink_upload_mbps}M/{rt.uplink_download_mbps}M" if has_uplink else None
-    PARENT_NAME = "guaynet-uplink"
-
-    def _sync():
-        svc = build_service_from_router(rt)
-        with svc:
-            use_sfq = svc.has_queue_type("guaynet-sfq")
-            use_parent = has_uplink
-            if use_parent:
-                try:
-                    svc.ensure_parent_queue(PARENT_NAME, uplink_max_limit)
-                except MikrotikError:
-                    use_parent = False
-            existing = {q["name"]: q for q in svc.get_simple_queues()}
-            synced = 0
-            skipped = 0
-            errors = []
-            want_parent = PARENT_NAME if use_parent else None
-            for client in clients:
-                plan = plans.get(client.plan_id)
-                if not plan:
-                    logger.warning(
-                        "sync router=%d client=%d: plan_id=%d not found, skipping",
-                        router_id, client.id, client.plan_id,
-                    )
-                    skipped += 1
-                    continue
-                qname = client.mikrotik_queue_name
-                disabled = client.status == "suspended"
-                want_disabled = "yes" if disabled else "no"
-                try:
-                    if qname in existing:
-                        eq = existing[qname]
-                        changed = (
-                            eq.get("max_limit", "") != plan.mikrotik_max_limit
-                            or eq.get("disabled", "no") != want_disabled
-                            or (use_parent and eq.get("parent", "none") != PARENT_NAME)
-                        )
-                        if not changed:
-                            skipped += 1
-                            continue
-                        update_params = {
-                            "max_limit": plan.mikrotik_max_limit,
-                            "disabled": disabled,
-                            "comment": f"guaynet:{client.id}|{client.full_name}",
-                        }
-                        if plan.mikrotik_burst_limit and plan.mikrotik_burst_threshold:
-                            update_params["burst_limit"] = plan.mikrotik_burst_limit
-                            update_params["burst_threshold"] = plan.mikrotik_burst_threshold
-                            update_params["burst_time"] = plan.mikrotik_burst_time
-                        if want_parent:
-                            update_params["parent"] = want_parent
-                        if use_sfq:
-                            update_params["queue_type"] = "guaynet-sfq"
-                        svc.update_simple_queue(eq["id"], **update_params)
-                        action = "updated"
-                    else:
-                        svc.add_simple_queue(
-                            name=qname,
-                            target=client.mikrotik_target,
-                            max_limit=plan.mikrotik_max_limit,
-                            burst_limit=plan.mikrotik_burst_limit,
-                            burst_threshold=plan.mikrotik_burst_threshold,
-                            burst_time=plan.mikrotik_burst_time if plan.mikrotik_burst_limit else None,
-                            comment=f"guaynet:{client.id}|{client.full_name}",
-                            disabled=disabled,
-                            parent=want_parent,
-                            queue_type="guaynet-sfq" if use_sfq else None,
-                        )
-                        action = "created"
-                    logger.info("sync router=%d client=%d queue=%s %s", router_id, client.id, qname, action)
-                    synced += 1
-                except Exception as e:
-                    logger.error("sync router=%d client=%d queue=%s error: %s", router_id, client.id, qname, e)
-                    errors.append({"client_id": client.id, "name": client.full_name, "error": str(e)})
-            return {"synced": synced, "skipped": skipped, "errors": errors,
-                    "clients_found": len(clients)}
-
-    try:
-        result = await asyncio.to_thread(_sync)
-        logger.info("sync router=%d result: %s", router_id, result)
-        return result
-    except MikrotikError as e:
-        logger.error("sync router=%d connection error: %s", router_id, e)
-        raise HTTPException(status_code=503, detail=str(e))
+    results = await provision_clients(db, clients)
+    errors = [
+        {"client_id": c.id, "name": c.full_name, "error": results[c.id].message}
+        for c in clients if c.id in results and not results[c.id].ok
+    ]
+    if errors and len(errors) == len(clients) and all("router" in e["error"].lower() for e in errors):
+        raise HTTPException(status_code=503, detail=errors[0]["error"])
+    synced = sum(1 for c in clients if c.id in results and results[c.id].ok and results[c.id].message != "sin cambios")
+    skipped = sum(1 for c in clients if c.id in results and results[c.id].ok and results[c.id].message == "sin cambios")
+    logger.info("sync router=%d: %d updated, %d unchanged, %d errors", router_id, synced, skipped, len(errors))
+    return {"synced": synced, "skipped": skipped, "errors": errors, "clients_found": len(clients)}
 
 
 @router.get("/{router_id}/bandwidth")
@@ -472,26 +392,28 @@ async def update_client_ip(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
+    import ipaddress
+
+    from app.services.provisioning import provision_client
+
     client = await db.get(Client, client_id)
     if not client or client.router_id != router_id:
         raise HTTPException(status_code=404)
+    try:
+        new_ip = str(ipaddress.IPv4Address(new_ip.strip()))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="IP inválida")
+    dup = (await db.execute(select(Client.id).where(Client.ip_address == new_ip, Client.id != client_id))).first()
+    if dup:
+        raise HTTPException(status_code=400, detail=f"La IP {new_ip} ya está en uso")
     old_ip = client.ip_address
     client.ip_address = new_ip
     await db.commit()
 
-    rt = await db.get(MikrotikRouter, router_id)
-    if rt:
-        qname = client.mikrotik_queue_name
-        def _update():
-            svc = build_service_from_router(rt)
-            with svc:
-                svc.update_queue_target(qname, new_ip)
-        try:
-            await asyncio.to_thread(_update)
-        except Exception:
-            pass
-
-    return {"updated": True, "old_ip": old_ip, "new_ip": new_ip}
+    # Moves the queue target and, if the client is suspended, the block too
+    result = await provision_client(db, client)
+    return {"updated": True, "old_ip": old_ip, "new_ip": new_ip,
+            "mikrotik": result.message, "mikrotik_ok": result.ok}
 
 
 @router.post("/{router_id}/setup-qos")

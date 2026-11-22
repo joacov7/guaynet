@@ -10,73 +10,18 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.deps import ACTION_DENIED, add_audit_log, get_current_user, get_db, has_action, require_action, require_admin
+from app.core.deps import ACTION_DENIED, add_audit_log, get_current_user, get_db, has_action, require_action
 from app.core.security import decrypt_value, encrypt_value
 from app.models.client import Client, ClientStatus
-from app.models.config import SystemConfig
 from app.models.invoice import Invoice
 from app.models.plan import Plan
 from app.models.router import MikrotikRouter
 from app.schemas.client import ClientCreate, ClientListResponse, ClientResponse, ClientUpdate
 from app.schemas.invoice import InvoiceResponse
-from app.services.mikrotik import MikrotikError, build_service_from_router
+from app.services.mikrotik import build_service_from_router
+from app.services.provisioning import provision_client, remove_from_router
 
 router = APIRouter()
-
-
-async def _get_suspension_config(db: AsyncSession) -> tuple[str, str]:
-    """Returns (action, speed): action='disable'|'throttle', speed='64k'"""
-    rows = (await db.execute(
-        select(SystemConfig).where(SystemConfig.key.in_(["suspension_action", "suspension_speed"]))
-    )).scalars().all()
-    cfg = {r.key: r.value for r in rows}
-    return cfg.get("suspension_action", "disable"), cfg.get("suspension_speed", "64k")
-
-
-async def _push_to_mikrotik(client: Client, router_obj: MikrotikRouter, db) -> str:
-    """Sync a single client's queue to its Mikrotik router. Returns a description of what was done."""
-    plan = await db.get(Plan, client.plan_id)
-    if not plan:
-        return "sin plan"
-
-    is_suspended = client.status == ClientStatus.suspended
-    suspension_action, suspension_speed = await _get_suspension_config(db)
-
-    if is_suspended and suspension_action == "throttle":
-        effective_max_limit = f"{suspension_speed}/{suspension_speed}"
-        effective_disabled = False
-    else:
-        effective_max_limit = plan.mikrotik_max_limit
-        effective_disabled = is_suspended
-
-    def _sync() -> str:
-        svc = build_service_from_router(router_obj)
-        with svc:
-            use_sfq = svc.has_queue_type("guaynet-sfq")
-            existing = svc.get_queue_by_name(client.mikrotik_queue_name)
-            update_params = {
-                "max_limit": effective_max_limit,
-                "disabled": effective_disabled,
-                "comment": f"guaynet:{client.id}|{client.full_name}",
-            }
-            if not is_suspended and plan.mikrotik_burst_limit and plan.mikrotik_burst_threshold:
-                update_params["burst_limit"] = plan.mikrotik_burst_limit
-                update_params["burst_threshold"] = plan.mikrotik_burst_threshold
-                update_params["burst_time"] = plan.mikrotik_burst_time
-            if use_sfq:
-                update_params["queue_type"] = "guaynet-sfq"
-            if existing:
-                svc.update_simple_queue(existing["id"], **update_params)
-                return f"updated {client.mikrotik_queue_name} → {effective_max_limit}"
-            else:
-                svc.add_simple_queue(
-                    name=client.mikrotik_queue_name,
-                    target=client.mikrotik_target,
-                    **update_params,
-                )
-                return f"created {client.mikrotik_queue_name} → {effective_max_limit}"
-
-    return await asyncio.to_thread(_sync)
 
 
 async def _sync_pppoe_to_mikrotik(client: Client, db: AsyncSession) -> str:
@@ -229,12 +174,18 @@ async def create_client(
     await db.commit()
     await db.refresh(client)
 
-    # El alta registra al cliente en Guaynet. La provisión de red es manual/admin.
-    return await db.get(
-        Client,
-        client.id,
-        options=[selectinload(Client.plan), selectinload(Client.router)],
-    )
+    # Applied to the MikroTik right away, with a time limit: an unreachable router
+    # does not block the save, the response says so.
+    result = await provision_client(db, client)
+    pppoe = await _sync_pppoe_to_mikrotik(client, db) if client.pppoe_username else None
+    client = await db.get(Client, client.id, options=[selectinload(Client.plan), selectinload(Client.router)])
+    resp = ClientResponse.model_validate(client)
+    resp.has_pppoe = bool(client.pppoe_password_encrypted)
+    resp.mikrotik_sync = result.message if result.ok else None
+    resp.mikrotik_error = None if result.ok else result.message
+    if pppoe == "error":
+        resp.mikrotik_error = ((resp.mikrotik_error + "; ") if resp.mikrotik_error else "") + "No se pudo crear el usuario PPPoE"
+    return resp
 
 
 # ":int" so fixed paths declared further down (/resolve-location) are not taken as an id
@@ -283,6 +234,9 @@ async def update_client(
             raise HTTPException(status_code=400, detail=f"La IP {updates['ip_address']} ya está en uso")
 
     old_plan_id = client.plan_id
+    old_router_id = client.router_id
+    network_fields = {"plan_id", "ip_address", "status", "router_id"}
+    network_changed = any(f in updates and updates[f] != getattr(client, f) for f in network_fields)
     for field, value in updates.items():
         setattr(client, field, value)
     if pppoe_pw:
@@ -294,12 +248,26 @@ async def update_client(
 
     db.add(client)
     await db.commit()
-
     await db.refresh(client)
+
+    mt_sync, mt_error = None, None
+    if network_changed or pppoe_pw:
+        if old_router_id and old_router_id != client.router_id:
+            moved = await remove_from_router(db, client, old_router_id)
+            if not moved.ok:
+                mt_error = moved.message
+        result = await provision_client(db, client)
+        mt_sync = result.message if result.ok else None
+        if not result.ok:
+            mt_error = ((mt_error + "; ") if mt_error else "") + result.message
+        if client.pppoe_username and await _sync_pppoe_to_mikrotik(client, db) == "error":
+            mt_error = ((mt_error + "; ") if mt_error else "") + "No se pudo actualizar el usuario PPPoE"
+
+    client = await db.get(Client, client.id, options=[selectinload(Client.plan), selectinload(Client.router)])
     resp = ClientResponse.model_validate(client)
     resp.has_pppoe = bool(client.pppoe_password_encrypted)
-    resp.mikrotik_error = None
-    resp.mikrotik_sync = "Pendiente de sincronización manual"
+    resp.mikrotik_error = mt_error
+    resp.mikrotik_sync = mt_sync
     return resp
 
 
@@ -313,19 +281,7 @@ async def delete_client(
     if not client:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
 
-    rt = await db.get(MikrotikRouter, client.router_id)
-    if rt:
-        def _remove():
-            from app.services.mikrotik import build_service_from_router
-            svc = build_service_from_router(rt)
-            with svc:
-                q = svc.get_queue_by_name(client.mikrotik_queue_name)
-                if q:
-                    svc.remove_queue(q["id"])
-        try:
-            await asyncio.to_thread(_remove)
-        except MikrotikError:
-            pass
+    await remove_from_router(db, client)
 
     await db.delete(client)
     await db.commit()
@@ -349,13 +305,8 @@ async def suspend_client(
     db.add(client)
     await db.commit()
 
-    mt_error = None
-    rt = await db.get(MikrotikRouter, client.router_id)
-    if rt:
-        try:
-            await _push_to_mikrotik(client, rt, db)
-        except (MikrotikError, Exception) as e:
-            mt_error = str(e)
+    result = await provision_client(db, client)
+    mt_error = None if result.ok else result.message
 
     from app.services.telegram import send_telegram
     await send_telegram(f"⛔ *Servicio suspendido*\n{client.full_name} ({client.ip_address})")
@@ -384,13 +335,8 @@ async def activate_client(
     db.add(client)
     await db.commit()
 
-    mt_error = None
-    rt = await db.get(MikrotikRouter, client.router_id)
-    if rt:
-        try:
-            await _push_to_mikrotik(client, rt, db)
-        except (MikrotikError, Exception) as e:
-            mt_error = str(e)
+    result = await provision_client(db, client)
+    mt_error = None if result.ok else result.message
 
     from app.services.telegram import send_telegram
     await send_telegram(f"✅ *Servicio activado*\n{client.full_name} ({client.ip_address})")
@@ -401,34 +347,25 @@ async def activate_client(
     return resp
 
 
-@router.post("/{client_id}/sync-mikrotik", status_code=200)
+@router.post("/{client_id}/sync-mikrotik", status_code=200, dependencies=[Depends(require_action("act_client_service"))])
 async def sync_client_mikrotik(
     client_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
 ):
-    """Force-push this client's queue config to its router (admin only)."""
+    """Re-send this client's queue and suspension state to its router."""
     client = await db.get(Client, client_id)
     if not client:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
-
-    rt = await db.get(MikrotikRouter, client.router_id)
-    if not rt:
-        raise HTTPException(status_code=404, detail="Router no encontrado")
-
-    try:
-        action = await _push_to_mikrotik(client, rt, db)
-        return {"ok": True, "message": action or "Queue sincronizada correctamente"}
-    except (MikrotikError, Exception) as e:
-        detail = str(e) or type(e).__name__
-        raise HTTPException(status_code=503, detail=detail)
+    result = await provision_client(db, client, timeout=60)
+    if not result.ok:
+        raise HTTPException(status_code=503, detail=result.message)
+    return {"ok": True, "message": result.message}
 
 
-@router.post("/{client_id}/sync-pppoe")
+@router.post("/{client_id}/sync-pppoe", dependencies=[Depends(require_action("act_client_service"))])
 async def sync_client_pppoe(
     client_id: int,
     db: AsyncSession = Depends(get_db),
-    _=Depends(require_admin),
 ):
     client = await db.get(Client, client_id)
     if not client:
@@ -453,18 +390,7 @@ async def cancel_client(
     if client.status == ClientStatus.cancelled:
         raise HTTPException(status_code=400, detail="El cliente ya fue dado de baja")
 
-    rt = await db.get(MikrotikRouter, client.router_id)
-    if rt:
-        def _remove():
-            svc = build_service_from_router(rt)
-            with svc:
-                q = svc.get_queue_by_name(client.mikrotik_queue_name)
-                if q:
-                    svc.remove_queue(q["id"])
-        try:
-            await asyncio.to_thread(_remove)
-        except MikrotikError:
-            pass
+    await remove_from_router(db, client)
 
     client.ubiquiti_device_id = None
     client.status = ClientStatus.cancelled

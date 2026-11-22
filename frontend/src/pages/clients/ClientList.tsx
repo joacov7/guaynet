@@ -39,7 +39,7 @@ const statusConfig: Record<ClientStatus, { color: string; label: string }> = {
 export default function ClientList() {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { isAdmin } = usePermissions();
+  const { canEdit } = usePermissions();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<ClientStatus | undefined>();
 
@@ -143,9 +143,11 @@ export default function ClientList() {
           <Tooltip title="Editar">
             <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/clients/${r.id}`)} />
           </Tooltip>
-          {isAdmin && (          <Tooltip title="Sync Mikrotik">
-            <Button size="small" icon={<SyncOutlined />} onClick={() => syncMutation.mutate(r.id)} />
-          </Tooltip>) }
+          {canEdit("clients") && (
+            <Tooltip title="Volver a aplicar en el MikroTik">
+              <Button size="small" icon={<SyncOutlined />} onClick={() => syncMutation.mutate(r.id)} />
+            </Tooltip>
+          )}
           {r.status === "active" ? (
             <Tooltip title="Suspender">
               <Popconfirm title="¿Suspender cliente?" onConfirm={() => suspendMutation.mutate(r.id)}>

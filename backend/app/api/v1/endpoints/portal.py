@@ -292,6 +292,63 @@ async def _get_client_by_ip(ip: str, db: AsyncSession) -> Optional[Client]:
     return result.scalar_one_or_none()
 
 
+# ── Overdue notice (page a suspended client sees) ────────────────────────────
+# Served on its own port by nginx (8081): the MikroTik redirects the plain-HTTP
+# traffic of suspended clients there. The client is identified by its IP, so
+# only a first name and amounts are returned.
+
+async def _unpaid_invoices(client_id: int, db: AsyncSession):
+    from app.models.invoice import Invoice, InvoiceStatus
+    return (await db.execute(
+        select(Invoice)
+        .where(Invoice.client_id == client_id, Invoice.status.in_([InvoiceStatus.overdue, InvoiceStatus.pending]))
+        .order_by(Invoice.due_date)
+    )).scalars().all()
+
+
+@router.get("/aviso")
+async def portal_overdue_notice(request: Request, db: AsyncSession = Depends(get_db)):
+    from app.models.config import SystemConfig
+
+    keys = ["company_name", "company_phone", "company_address"]
+    rows = (await db.execute(select(SystemConfig).where(SystemConfig.key.in_(keys)))).scalars().all()
+    company = {r.key.removeprefix("company_"): r.value for r in rows if r.value}
+    company.setdefault("name", "Guaynet")
+
+    client = await _get_client_by_ip(_client_ip(request), db)
+    if not client:
+        return {"found": False, "company": company}
+    invoices = await _unpaid_invoices(client.id, db)
+    overdue = [i for i in invoices if (i.status.value if hasattr(i.status, "value") else i.status) == "overdue"]
+    from app.core.config import settings as _settings
+    return {
+        "found": True,
+        "first_name": client.first_name,
+        "suspended": (client.status.value if hasattr(client.status, "value") else client.status) == "suspended",
+        "debt_total": round(sum(float(i.amount) for i in invoices), 2),
+        "overdue_count": len(overdue),
+        "oldest_due": overdue[0].due_date.isoformat() if overdue else None,
+        "can_pay_online": bool(invoices),
+        "company": company,
+        "portal_url": _settings.PUBLIC_URL,
+    }
+
+
+@router.post("/aviso/pagar")
+async def portal_overdue_pay(request: Request, db: AsyncSession = Depends(get_db)):
+    """MercadoPago link for the oldest unpaid invoice of the client at this IP."""
+    from app.api.v1.endpoints.payments import _build_preference
+
+    client = await _get_client_by_ip(_client_ip(request), db)
+    if not client:
+        raise HTTPException(status_code=404, detail="No encontramos tu conexión")
+    invoices = await _unpaid_invoices(client.id, db)
+    if not invoices:
+        raise HTTPException(status_code=404, detail="No tenés facturas pendientes")
+    pref = await _build_preference(invoices[0].id, db)
+    return {"init_point": pref["init_point"], "invoice_id": invoices[0].id, "amount": float(invoices[0].amount)}
+
+
 # ── Identify ──────────────────────────────────────────────────────────────────
 
 @router.get("/by-ip")

@@ -42,7 +42,12 @@ celery_app.conf.update(
         },
         "generate-monthly-invoices": {
             "task": "app.tasks.billing.generate_monthly_invoices",
-            "schedule": crontab(hour=9, minute=0, day_of_month=1),
+            "schedule": crontab(hour=1, minute=0, day_of_month=1),
+            "options": {"queue": "low"},
+        },
+        "payment-reminders-daily": {
+            "task": "app.tasks.billing.send_payment_reminders",
+            "schedule": crontab(hour=9, minute=0),
             "options": {"queue": "low"},
         },
         # ── Network monitoring (default priority) ──────────────────────────────

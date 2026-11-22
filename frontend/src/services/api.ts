@@ -359,6 +359,7 @@ export const firewallApi = {
       synced: number;
       sync_failed: number;
       sync_errors: { client_id: number; client_name: string; error: string }[];
+      provisioning_pending: number;
     }>(`/dhcp/${routerId}/dhcp-import`, { items, plan_id }).then((r) => r.data),
   getQueueTreeStats: (routerId: number) =>
     http.get<{ entries: QueueTreeEntry[]; error: string | null }>(`/firewall/${routerId}/queue-tree-stats`).then((r) => r.data),

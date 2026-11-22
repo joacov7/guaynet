@@ -135,6 +135,10 @@ _PANEL_ONLY_KEYS = {"telegram_bot_token", "beat_api_key", "beat_webhook_secret"}
 class ConfigUpdate(BaseModel):
     suspension_action: Optional[str] = None
     suspension_speed: Optional[str] = None
+    # Overdue-notice page for suspended clients (see services/provisioning.py)
+    suspension_notice_ip: Optional[str] = None
+    suspension_notice_port: Optional[str] = None
+    suspension_payment_hosts: Optional[str] = None
     # WhatsApp / Twilio
     twilio_account_sid: Optional[str] = None
     twilio_auth_token: Optional[str] = None
@@ -150,6 +154,7 @@ class ConfigUpdate(BaseModel):
     # MercadoPago
     mp_access_token: Optional[str] = None
     mp_public_key: Optional[str] = None
+    mp_webhook_secret: Optional[str] = None  # "Clave secreta" of the webhook in MercadoPago
     # AFIP / ARCA electronic invoicing
     afip_cuit: Optional[str] = None
     afip_punto_venta: Optional[str] = None
@@ -166,10 +171,11 @@ class ConfigUpdate(BaseModel):
     company_name: Optional[str] = None
     company_address: Optional[str] = None
     company_cuit: Optional[str] = None
+    company_phone: Optional[str] = None  # shown on the overdue notice page
 
     @field_validator(
         "afip_punto_venta", "cpu_alert_threshold", "cpu_consecutive_checks",
-        "uplink_saturation_threshold", "ram_alert_threshold",
+        "uplink_saturation_threshold", "ram_alert_threshold", "suspension_notice_port",
         mode="before",
     )
     @classmethod
@@ -178,13 +184,43 @@ class ConfigUpdate(BaseModel):
         return None if v is None else str(v)
 
 
+def _validate_suspension(updates: dict) -> None:
+    import ipaddress
+
+    from app.services.provisioning import parse_suspension_config
+
+    ip = updates.get("suspension_notice_ip")
+    if ip:
+        try:
+            ipaddress.IPv4Address(ip.strip())
+        except ValueError:
+            raise HTTPException(400, "La IP del servidor de avisos no es válida (ej: 192.168.88.10)")
+        updates["suspension_notice_ip"] = ip.strip()
+    port = updates.get("suspension_notice_port")
+    if port and not (port.isdigit() and 1 <= int(port) <= 65535):
+        raise HTTPException(400, "El puerto de avisos debe estar entre 1 y 65535")
+    if "suspension_payment_hosts" in updates:
+        cfg = parse_suspension_config({"suspension_payment_hosts": updates["suspension_payment_hosts"]})
+        updates["suspension_payment_hosts"] = ", ".join(cfg.payment_hosts)
+
+
+def _config_payload(rows) -> dict:
+    """Config for the panel. Secrets are never sent back: only whether each is set."""
+    from app.services.config_secrets import SECRET_KEYS
+
+    out = {r.key: r.value for r in rows if r.key not in _PANEL_ONLY_KEYS and r.key not in SECRET_KEYS}
+    stored = {r.key for r in rows if r.value}
+    out["secrets_configured"] = {k: k in stored for k in sorted(SECRET_KEYS)}
+    return out
+
+
 @router.get("/config")
 async def get_config(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_admin),
 ):
     rows = (await db.execute(select(SystemConfig))).scalars().all()
-    return {r.key: r.value for r in rows if r.key not in _PANEL_ONLY_KEYS}
+    return _config_payload(rows)
 
 
 @router.put("/config")
@@ -194,9 +230,18 @@ async def update_config(
     _=Depends(require_admin),
 ):
     updates = body.model_dump(exclude_none=True)
-    if "suspension_action" in updates and updates["suspension_action"] not in ("disable", "throttle"):
-        raise HTTPException(400, "suspension_action debe ser 'disable' o 'throttle'")
+    if "suspension_action" in updates and updates["suspension_action"] not in ("block", "disable", "throttle"):
+        raise HTTPException(400, "suspension_action debe ser 'block' o 'throttle'")
+    if updates.get("suspension_action") == "disable":
+        updates["suspension_action"] = "block"  # "disable" never cut anyone (see provisioning.py)
+    _validate_suspension(updates)
+    from app.services.config_secrets import SECRET_KEYS, seal
+
     for key, value in updates.items():
+        if key in SECRET_KEYS:
+            if not value.strip():
+                continue  # empty = keep the stored secret (the panel never receives it)
+            value = seal(value.strip())
         row = await db.get(SystemConfig, key)
         if row:
             row.value = value
@@ -204,7 +249,7 @@ async def update_config(
             db.add(SystemConfig(key=key, value=value))
     await db.commit()
     rows = (await db.execute(select(SystemConfig))).scalars().all()
-    return {r.key: r.value for r in rows if r.key not in _PANEL_ONLY_KEYS}
+    return _config_payload(rows)
 
 
 @router.post("/test-email")

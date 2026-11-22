@@ -7,15 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user, get_db, require_action
 from app.models.client import Client, ClientStatus
-from app.models.config import SystemConfig
 from app.models.invoice import Invoice, InvoiceStatus
 
 router = APIRouter()
 
 
 async def _get_config(db: AsyncSession, key: str, default: str = "") -> str:
-    row = await db.get(SystemConfig, key)
-    return row.value if row else default
+    from app.services.config_secrets import config_value
+    return await config_value(db, key, default)
 
 
 async def _send_whatsapp(to_number: str, body: str, db: AsyncSession) -> dict:

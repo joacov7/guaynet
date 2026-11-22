@@ -14,7 +14,7 @@ export default function DHCPDevices() {
   const [selected, setSelected] = useState<DHCPLease[]>([]);
 
   const { data: routers = [] } = useQuery({ queryKey: ["routers"], queryFn: routersApi.list });
-  const { data: plans = [] } = useQuery({ queryKey: ["plans"], queryFn: plansApi.list });
+  const { data: plans = [] } = useQuery({ queryKey: ["plans", "active"], queryFn: () => plansApi.list(true) });
   const activePlans = useMemo(() => plans.filter((p) => p.is_active), [plans]);
 
   const { data, isLoading, error, refetch } = useQuery({
@@ -35,7 +35,12 @@ export default function DHCPDevices() {
       planId!,
     ),
     onSuccess: (res) => {
-      message.success(`Altas: ${res.created}. Omitidos: ${res.skipped}. Pendientes de provisión MikroTik: ${res.provisioning_pending ?? res.created}.`);
+      const text = `Altas: ${res.created}. Omitidos: ${res.skipped}. Aplicados en el router: ${res.synced}.`;
+      if (res.sync_failed) {
+        message.warning(`${text} Sin aplicar: ${res.sync_failed} (usá «Sincronizar» en Clientes).`, 8);
+      } else {
+        message.success(text);
+      }
       setSelected([]);
       qc.invalidateQueries({ queryKey: ["clients"] });
       refetch();

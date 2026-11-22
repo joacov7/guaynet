@@ -770,6 +770,15 @@ class MikrotikService:
 
     # ── PPPoE Secrets ─────────────────────────────────────────────────────────
 
+    def _find_pppoe_secret(self, username: str) -> Optional[Dict]:
+        """The secret with exactly this name. Filtered here, not with a "?name" kwarg:
+        librouteros sends kwargs as attributes, so RouterOS may ignore the filter and
+        secrets[0] would be another client's secret."""
+        return next(
+            (dict(s) for s in self._call("/ppp/secret/print") if s.get("name") == username),
+            None,
+        )
+
     def get_pppoe_secrets(self) -> list:
         try:
             return [dict(s) for s in self._call("/ppp/secret/print")]
@@ -795,11 +804,10 @@ class MikrotikService:
 
     def update_pppoe_secret(self, username: str, password: Optional[str] = None, ip_address: Optional[str] = None, disabled: Optional[bool] = None) -> bool:
         try:
-            secrets = self._call("/ppp/secret/print", **{"?name": username})
-            if not secrets:
+            secret = self._find_pppoe_secret(username)
+            if secret is None:
                 return False
-            secret_id = secrets[0].get(".id") or secrets[0].get("id")
-            params: Dict[str, str] = {".id": secret_id}
+            params: Dict[str, str] = {".id": secret[".id"]}
             if password is not None:
                 params["password"] = password
             if ip_address is not None:
@@ -814,16 +822,80 @@ class MikrotikService:
 
     def remove_pppoe_secret(self, username: str) -> bool:
         try:
-            secrets = self._call("/ppp/secret/print", **{"?name": username})
-            if not secrets:
+            secret = self._find_pppoe_secret(username)
+            if secret is None:
                 return True
-            secret_id = secrets[0].get(".id") or secrets[0].get("id")
-            self._call("/ppp/secret/remove", **{".id": secret_id})
+            self._call("/ppp/secret/remove", **{".id": secret[".id"]})
             return True
         except Exception as e:
             print(f"[mikrotik] remove_pppoe_secret error: {e}", flush=True)
             return False
 
+
+    # ── Address lists, rules and connections (suspension) ───────────────────────
+
+    def get_address_list(self, list_name: str) -> List[Dict]:
+        return [
+            {"id": r.get(".id", ""), "address": r.get("address", ""), "comment": r.get("comment", "")}
+            for r in self._call("/ip/firewall/address-list/print")
+            if r.get("list") == list_name
+        ]
+
+    def add_address_list_entry(self, list_name: str, address: str, comment: str = "") -> None:
+        self._call("/ip/firewall/address-list/add", list=list_name, address=address, comment=comment)
+
+    def remove_address_list_entry(self, entry_id: str) -> None:
+        self._call("/ip/firewall/address-list/remove", **{".id": entry_id})
+
+    def drop_connections(self, ip: str) -> int:
+        """Remove tracked connections from/to this IP, so a just-suspended client does
+        not keep open (or fasttracked) sessions alive. Returns how many."""
+        removed = 0
+        rows = self._call("/ip/firewall/connection/print", **{".proplist": ".id,src-address,dst-address"})
+        for c in rows:
+            src = (c.get("src-address") or "").rsplit(":", 1)[0]
+            dst = (c.get("dst-address") or "").rsplit(":", 1)[0]
+            if ip in (src, dst):
+                try:
+                    self._call("/ip/firewall/connection/remove", **{".id": c[".id"]})
+                    removed += 1
+                except MikrotikError:
+                    pass  # the connection may have closed in between
+        return removed
+
+    def ensure_rule(self, path: str, rule: Dict[str, str], place_before: Optional[str] = None) -> str:
+        """Make sure a firewall filter/nat rule identified by its comment exists with these
+        values. New rules go before `place_before` (an .id, or "top" = first in the table).
+        Returns the rule's .id."""
+        rows = self._call(f"{path}/print")
+        found = next((r for r in rows if r.get("comment") == rule["comment"]), None)
+        if found:
+            changes = {k: v for k, v in rule.items() if str(found.get(k, "")) != v}
+            if str(found.get("disabled", "false")) in ("true", "yes"):
+                changes["disabled"] = "no"
+            if changes:
+                self._call(f"{path}/set", **{".id": found[".id"], **changes})
+            return found[".id"]
+        params = dict(rule)
+        if place_before == "top" and rows:
+            params["place-before"] = rows[0][".id"]
+        elif place_before and place_before != "top":
+            params["place-before"] = place_before
+        result = self._call(f"{path}/add", **params)
+        new_id = (result[0].get("ret") if result else None)
+        if not new_id:
+            new_id = next(
+                (r[".id"] for r in self._call(f"{path}/print") if r.get("comment") == rule["comment"]), ""
+            )
+        return new_id
+
+    def remove_rules_by_comment(self, path: str, comments: List[str]) -> int:
+        removed = 0
+        for r in self._call(f"{path}/print"):
+            if r.get("comment") in comments:
+                self._call(f"{path}/remove", **{".id": r[".id"]})
+                removed += 1
+        return removed
 
     # ── WAN / Interface control ───────────────────────────────────────────────
 

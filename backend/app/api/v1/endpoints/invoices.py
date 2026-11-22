@@ -18,7 +18,6 @@ from app.models.client import Client, ClientStatus
 from app.models.config import SystemConfig
 from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus, Payment
 from app.schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceUpdate, PaymentCreate, PaymentResponse
-from app.services.telegram import send_telegram as _send_telegram
 
 logger = logging.getLogger(__name__)
 
@@ -169,91 +168,20 @@ async def add_payment(
 
     # Auto-reactivate suspended client when this payment makes the invoice fully paid
     if newly_paid and invoice.client_id:
-        client = await db.get(Client, invoice.client_id)
-        if client and client.status == ClientStatus.suspended:
-            # Check whether any other overdue invoice remains
-            other_overdue = await db.execute(
-                select(Invoice.id).where(
-                    Invoice.client_id == invoice.client_id,
-                    Invoice.id != invoice_id,
-                    Invoice.status == InvoiceStatus.overdue,
-                )
-            )
-            if not other_overdue.scalar_one_or_none():
-                client.status = ClientStatus.active
-                db.add(client)
-                await db.commit()
-
-                # Re-enable MikroTik queue
-                import asyncio
-                from app.models.router import MikrotikRouter
-                from app.services.mikrotik import build_service_from_router, MikrotikError
-                rt = await db.get(MikrotikRouter, client.router_id)
-                if rt:
-                    def _enable(router=rt, qname=client.mikrotik_queue_name):
-                        svc = build_service_from_router(router)
-                        with svc:
-                            q = svc.get_queue_by_name(qname)
-                            if q:
-                                svc.enable_queue(q["id"])
-                    try:
-                        await asyncio.to_thread(_enable)
-                    except MikrotikError:
-                        pass
-
-                try:
-                    await _send_telegram(
-                        f"✅ Cliente reactivado automáticamente: {client.full_name} (pago factura #{invoice_id})"
-                    )
-                except Exception:
-                    pass
+        # Same rule as MercadoPago payments: reconnect when nothing is overdue anymore
+        from app.services.billing import reactivate_if_settled
+        await reactivate_if_settled(db, invoice.client_id)
 
     return payment
 
 
 @router.post("/{invoice_id}/mp-link")
 async def create_mp_link(invoice_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
-    result = await db.execute(
-        select(Invoice).options(selectinload(Invoice.items)).where(Invoice.id == invoice_id)
-    )
-    invoice = result.scalar_one_or_none()
-    if not invoice:
-        raise HTTPException(status_code=404, detail="Factura no encontrada")
-    if invoice.status in (InvoiceStatus.paid, InvoiceStatus.cancelled):
-        raise HTTPException(status_code=400, detail="La factura ya está pagada o cancelada")
-
-    client = await db.get(Client, invoice.client_id)
-
-    # Load MP access token from SystemConfig
-    from app.models.config import SystemConfig
-    cfg_result = await db.execute(select(SystemConfig).where(SystemConfig.key == "mp_access_token"))
-    cfg = cfg_result.scalar_one_or_none()
-    if not cfg or not cfg.value:
-        raise HTTPException(status_code=400, detail="No se configuró el access token de MercadoPago (Configuración → MercadoPago)")
-
-    import mercadopago
-    sdk = mercadopago.SDK(cfg.value)
-
-    title = f"Factura #{invoice_id} — {invoice.period}"
-    if invoice.items:
-        items = [{"title": it.description, "quantity": int(it.quantity), "unit_price": float(it.unit_price)} for it in invoice.items]
-    else:
-        items = [{"title": title, "quantity": 1, "unit_price": float(invoice.amount)}]
-
-    preference_data = {
-        "items": items,
-        "external_reference": str(invoice_id),
-        "statement_descriptor": "Guaynet WISP",
-    }
-    if client and client.email:
-        preference_data["payer"] = {"email": client.email}
-
-    response = sdk.preference().create(preference_data)
-    if response["status"] not in (200, 201):
-        raise HTTPException(status_code=502, detail=f"Error MercadoPago: {response.get('response', {})}")
-
-    init_point = response["response"]["init_point"]
-    return {"init_point": init_point, "preference_id": response["response"]["id"]}
+    # Same preference as the portal and the notice page: absolute URLs, webhook
+    # notification and reconnection when paid (endpoints/payments.py)
+    from app.api.v1.endpoints.payments import _build_preference
+    pref = await _build_preference(invoice_id, db)
+    return {"init_point": pref["init_point"], "preference_id": pref["preference_id"]}
 
 
 @router.post("/{invoice_id}/emit-cae", dependencies=[Depends(require_action("act_invoice_afip"))])
@@ -263,7 +191,6 @@ async def emit_afip_cae(
     current_user=Depends(get_current_user),
 ):
     """Emit a CAE from ARCA/AFIP for this invoice."""
-    from app.models.config import SystemConfig
     from app.services.afip import emit_cae as _emit_cae
 
     invoice = await db.get(Invoice, invoice_id)
@@ -273,9 +200,8 @@ async def emit_afip_cae(
         raise HTTPException(status_code=400, detail="La factura ya tiene un CAE emitido")
 
     async def _get_config(key: str) -> Optional[str]:
-        r = await db.execute(select(SystemConfig).where(SystemConfig.key == key))
-        row = r.scalar_one_or_none()
-        return row.value if row else None
+        from app.services.config_secrets import config_value
+        return (await config_value(db, key)) or None
 
     cuit = await _get_config("afip_cuit")
     cert_pem = await _get_config("afip_cert_pem")
@@ -336,24 +262,16 @@ async def emit_afip_cae(
 
 @router.post("/mark-overdue", status_code=200, dependencies=[Depends(require_action("act_billing_bulk"))])
 async def mark_overdue_invoices(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
-    """Mark all pending invoices past due_date as overdue."""
-    today = date.today()
-    result = await db.execute(
-        select(Invoice).where(Invoice.status == InvoiceStatus.pending, Invoice.due_date < today)
-    )
-    invoices = result.scalars().all()
-    for inv in invoices:
-        inv.status = InvoiceStatus.overdue
-        db.add(inv)
-    await db.commit()
-    return {"updated": len(invoices)}
+    """Mark all pending invoices past due_date (Argentina date) as overdue."""
+    from app.services.billing import mark_overdue
+    return {"updated": await mark_overdue(db)}
 
 
 @router.post("/trigger-suspend", status_code=200, dependencies=[Depends(require_action("act_billing_bulk"))])
 async def trigger_auto_suspend(_=Depends(get_current_user)):
     """Manually trigger the auto-suspend billing task."""
     from app.tasks.billing import mark_overdue_and_suspend
-    task = mark_overdue_and_suspend.delay()
+    task = mark_overdue_and_suspend.delay(manual=True)
     return {"task_id": task.id, "status": "queued"}
 
 
@@ -361,7 +279,7 @@ async def trigger_auto_suspend(_=Depends(get_current_user)):
 async def trigger_generate_invoices(_=Depends(get_current_user)):
     """Manually trigger monthly invoice generation."""
     from app.tasks.billing import generate_monthly_invoices
-    task = generate_monthly_invoices.delay()
+    task = generate_monthly_invoices.delay(manual=True)
     return {"task_id": task.id, "status": "queued"}
 
 
