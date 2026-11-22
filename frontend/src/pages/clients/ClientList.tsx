@@ -162,7 +162,7 @@ export default function ClientList() {
       render: (_: unknown, r: Client) => (
         <Space size={4}>
           <Tooltip title="Editar">
-            <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/clients/${r.id}`)} />
+            <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/clients/${r.id}/edit`)} />
           </Tooltip>
           {canEdit("clients") && (
             <Tooltip title="Volver a aplicar en el MikroTik">

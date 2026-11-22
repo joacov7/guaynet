@@ -220,7 +220,7 @@ export default function Invoices() {
             <Button
               size="small"
               icon={<FilePdfOutlined />}
-              onClick={() => window.open(invoicesApi.pdfUrl(r.id), "_blank")}
+              onClick={() => invoicesApi.downloadPdf(r.id)}
             />
           </Tooltip>
           {!r.afip_cae && (

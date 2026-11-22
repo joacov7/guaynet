@@ -6,6 +6,7 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import ClientList from "@/pages/clients/ClientList";
 import ClientForm from "@/pages/clients/ClientForm";
+import ClientDetail from "@/pages/clients/ClientDetail";
 import Plans from "@/pages/Plans";
 import Routers from "@/pages/Routers";
 import Invoices from "@/pages/Invoices";
@@ -89,7 +90,8 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="clients" element={<ClientList />} />
           <Route path="clients/new" element={<ClientForm />} />
-          <Route path="clients/:id" element={<ClientForm />} />
+          <Route path="clients/:id" element={<ClientDetail />} />
+          <Route path="clients/:id/edit" element={<ClientForm />} />
           <Route path="plans" element={<Plans />} />
           <Route path="routers" element={<Routers />} />
           <Route path="billing" element={<Invoices />} />

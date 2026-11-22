@@ -6,6 +6,7 @@ from typing import List, Optional
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -156,7 +157,7 @@ async def get_clients_connection_status(
 async def create_client(
     body: ClientCreate,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     # Check IP uniqueness
     existing_ip = await db.execute(select(Client).where(Client.ip_address == body.ip_address))
@@ -177,6 +178,9 @@ async def create_client(
     if pppoe_pw:
         client.pppoe_password_encrypted = encrypt_value(pppoe_pw)
     db.add(client)
+    await db.flush()
+    add_audit_log(db, current_user, "create", "client", client.id, client.full_name,
+                  f"Plan {plan.name} · IP {client.ip_address}")
     await db.commit()
     await db.refresh(client)
 
@@ -210,6 +214,147 @@ async def get_client(
     if not client:
         raise HTTPException(status_code=404, detail="Cliente no encontrado")
     return client
+
+
+# ── Client record (ficha 360) ─────────────────────────────────────────────────
+
+async def _client_or_404(db: AsyncSession, client_id: int) -> Client:
+    client = await db.get(Client, client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente no encontrado")
+    return client
+
+
+@router.get("/{client_id:int}/summary")
+async def client_summary(client_id: int, db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
+    """Balance and counters for the header of the client record. Money only for users who see billing."""
+    from app.core.deps import _is_admin, effective_permissions
+    from app.models.invoice import Invoice, InvoiceStatus, Payment
+    from app.models.ticket import Ticket, TicketStatus
+    from app.models.work_order import WorkOrder
+
+    await _client_or_404(db, client_id)
+    sees_billing = _is_admin(current_user) or (await effective_permissions(db, current_user)).get("billing", (False, False))[0]
+    unpaid = (await db.execute(
+        select(Invoice).where(Invoice.client_id == client_id,
+                              Invoice.status.in_([InvoiceStatus.pending, InvoiceStatus.overdue]))
+        .order_by(Invoice.due_date)
+    )).scalars().all()
+    paid_on_unpaid = 0.0
+    if unpaid:
+        paid_on_unpaid = float((await db.execute(
+            select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.invoice_id.in_([i.id for i in unpaid]))
+        )).scalar() or 0)
+    overdue = [i for i in unpaid if i.status == InvoiceStatus.overdue]
+    last_payment = (await db.execute(
+        select(Payment).join(Invoice, Invoice.id == Payment.invoice_id)
+        .where(Invoice.client_id == client_id).order_by(Payment.payment_date.desc(), Payment.id.desc()).limit(1)
+    )).scalar_one_or_none()
+    open_tickets = (await db.execute(select(func.count()).select_from(Ticket).where(
+        Ticket.client_id == client_id, Ticket.status.in_([TicketStatus.open, TicketStatus.in_progress])
+    ))).scalar() or 0
+    open_orders = (await db.execute(select(func.count()).select_from(WorkOrder).where(
+        WorkOrder.client_id == client_id, WorkOrder.status.in_(["pending", "in_progress"])
+    ))).scalar() or 0
+    if not sees_billing:
+        return {"balance": None, "unpaid_count": None, "overdue_count": None, "oldest_overdue_due": None,
+                "oldest_unpaid_invoice_id": None, "last_payment": None,
+                "open_tickets": open_tickets, "open_work_orders": open_orders}
+    return {
+        "balance": round(sum(float(i.amount) for i in unpaid) - paid_on_unpaid, 2),
+        "unpaid_count": len(unpaid),
+        "overdue_count": len(overdue),
+        "oldest_overdue_due": overdue[0].due_date.isoformat() if overdue else None,
+        "oldest_unpaid_invoice_id": unpaid[0].id if unpaid else None,
+        "last_payment": {
+            "date": last_payment.payment_date.isoformat(),
+            "amount": float(last_payment.amount),
+            "method": last_payment.method.value if hasattr(last_payment.method, "value") else last_payment.method,
+        } if last_payment else None,
+        "open_tickets": open_tickets,
+        "open_work_orders": open_orders,
+    }
+
+
+@router.get("/{client_id:int}/connection")
+async def client_connection(client_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    """Whether this client is seen now in its router's ARP table (one router, time-limited)."""
+    client = await _client_or_404(db, client_id)
+    checked_at = datetime.now(timezone.utc).isoformat()
+    router_obj = await db.get(MikrotikRouter, client.router_id) if client.router_id else None
+    if not router_obj:
+        return {"status": "unknown", "checked_at": checked_at, "detail": "Sin router asignado"}
+
+    def _read():
+        with build_service_from_router(router_obj) as svc:
+            return svc.get_arp_table()
+
+    try:
+        rows = await asyncio.wait_for(asyncio.to_thread(_read), 10)
+    except Exception as exc:
+        logger.info("ARP read for client %s failed: %s", client_id, exc)
+        return {"status": "unknown", "checked_at": checked_at, "detail": f"El router {router_obj.name} no respondió"}
+    mac = (client.mac_address or "").replace("-", ":").upper()
+    for row in rows:
+        row_mac = (row.get("mac-address") or "").replace("-", ":").upper()
+        # librouteros turns "true"/"false" into booleans; an incomplete/invalid entry is not a live device
+        if str(row.get("complete", True)).lower() == "false" or str(row.get("invalid", False)).lower() == "true":
+            continue
+        if row.get("address") == client.ip_address or (mac and row_mac == mac):
+            return {"status": "online", "checked_at": checked_at, "mac_seen": row_mac or None,
+                    "ip_seen": row.get("address"), "interface": row.get("interface")}
+    return {"status": "not_detected", "checked_at": checked_at}
+
+
+@router.get("/{client_id:int}/history")
+async def client_history(client_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    """What was done on this client (audit log), newest first."""
+    from app.models.audit import AuditLog
+
+    await _client_or_404(db, client_id)
+    rows = (await db.execute(
+        select(AuditLog).where(AuditLog.entity_type == "client", AuditLog.entity_id == client_id)
+        .order_by(AuditLog.created_at.desc()).limit(200)
+    )).scalars().all()
+    return [{"id": r.id, "action": r.action, "username": r.username, "details": r.details,
+             "created_at": r.created_at.isoformat() if r.created_at else None} for r in rows]
+
+
+class NoteCreate(BaseModel):
+    body: str
+
+
+@router.get("/{client_id:int}/notes")
+async def list_client_notes(client_id: int, db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    from app.models.client_note import ClientNote
+
+    await _client_or_404(db, client_id)
+    rows = (await db.execute(
+        select(ClientNote).where(ClientNote.client_id == client_id).order_by(ClientNote.created_at.desc()).limit(200)
+    )).scalars().all()
+    return [{"id": n.id, "body": n.body, "username": n.username,
+             "created_at": n.created_at.isoformat() if n.created_at else None} for n in rows]
+
+
+@router.post("/{client_id:int}/notes", status_code=201)
+async def add_client_note(
+    client_id: int, body: NoteCreate, db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user),
+):
+    from app.models.client_note import ClientNote
+
+    await _client_or_404(db, client_id)
+    text = body.body.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="La nota está vacía")
+    if len(text) > 4000:
+        raise HTTPException(status_code=422, detail="La nota es demasiado larga (máximo 4000 caracteres)")
+    note = ClientNote(client_id=client_id, user_id=current_user.id,
+                      username=current_user.full_name or current_user.username, body=text)
+    db.add(note)
+    await db.commit()
+    await db.refresh(note)
+    return {"id": note.id, "body": note.body, "username": note.username,
+            "created_at": note.created_at.isoformat() if note.created_at else None}
 
 
 @router.put("/{client_id:int}", response_model=ClientResponse)

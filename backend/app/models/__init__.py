@@ -20,6 +20,7 @@ from app.models.alarm import Alarm, AlarmType, AlarmStatus
 from app.models.wan import WanInterface, WanSchedule
 from app.models.expense import Expense, ExpenseCategory
 from app.models.automation_log import AutomationLog
+from app.models.client_note import ClientNote  # noqa: F401
 
 # ── Security module ────────────────────────────────────────────────────────────
 from app.models.security import (  # noqa: F401

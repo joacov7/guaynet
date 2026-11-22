@@ -95,7 +95,7 @@ export default function ClientForm() {
       } else {
         message.success(`Cliente creado${data.mikrotik_sync ? ` · MikroTik: ${data.mikrotik_sync}` : ""}`, 6);
       }
-      navigate("/clients");
+      navigate(`/clients/${data.id}`);
     },
     onError: (err: any) => {
       message.error(err.response?.data?.detail ?? "Error al crear cliente");
@@ -112,7 +112,7 @@ export default function ClientForm() {
       } else {
         message.success(`Cliente actualizado${data.mikrotik_sync ? ` · MikroTik: ${data.mikrotik_sync}` : ""}`, 6);
       }
-      navigate("/clients");
+      navigate(`/clients/${id}`);
     },
     onError: (err: any) => {
       message.error(err.response?.data?.detail ?? "Error al actualizar");

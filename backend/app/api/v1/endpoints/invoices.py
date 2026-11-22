@@ -161,7 +161,7 @@ async def add_payment(
     db.add(payment)
 
     # Mark invoice as paid if amount covers total
-    total_paid = sum(p.amount for p in invoice.payments) + body.amount
+    total_paid = sum(float(p.amount) for p in invoice.payments) + float(body.amount)
     newly_paid = False
     if total_paid >= float(invoice.amount):
         invoice.status = InvoiceStatus.paid

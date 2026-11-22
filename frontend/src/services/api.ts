@@ -164,6 +164,34 @@ export const routersApi = {
     http.post<{ synced: number; errors: string[] }>(`/routers/${id}/sync-pppoe`).then((r) => r.data),
 };
 
+/** Header numbers of the client record (ficha 360). */
+export interface ClientSummary {
+  /** null when the user does not see billing */
+  balance: number | null;
+  unpaid_count: number | null;
+  overdue_count: number | null;
+  oldest_overdue_due: string | null;
+  oldest_unpaid_invoice_id: number | null;
+  last_payment: { date: string; amount: number; method: string } | null;
+  open_tickets: number;
+  open_work_orders: number;
+}
+
+export interface ClientNote {
+  id: number;
+  body: string;
+  username: string;
+  created_at: string;
+}
+
+export interface ClientHistoryEntry {
+  id: number;
+  action: string;
+  username: string;
+  details?: string | null;
+  created_at: string;
+}
+
 /** A page of rows with the total the server reports in X-Total-Count. */
 export interface Page<T> {
   items: T[];
@@ -209,6 +237,14 @@ export const clientsApi = {
     http.post<{ status: string }>(`/clients/${id}/sync-pppoe`).then((r) => r.data),
   invoices: (id: number) =>
     http.get<Invoice[]>(`/clients/${id}/invoices`).then((r) => r.data),
+  summary: (id: number) => http.get<ClientSummary>(`/clients/${id}/summary`).then((r) => r.data),
+  connection: (id: number) =>
+    http.get<{ status: "online" | "not_detected" | "unknown"; checked_at: string; detail?: string; interface?: string }>(
+      `/clients/${id}/connection`,
+    ).then((r) => r.data),
+  history: (id: number) => http.get<ClientHistoryEntry[]>(`/clients/${id}/history`).then((r) => r.data),
+  notes: (id: number) => http.get<ClientNote[]>(`/clients/${id}/notes`).then((r) => r.data),
+  addNote: (id: number, body: string) => http.post<ClientNote>(`/clients/${id}/notes`, { body }).then((r) => r.data),
   resolveLocation: (url: string) =>
     http.get<{ resolved_url: string }>("/clients/resolve-location", { params: { url } }).then((r) => r.data),
 };
@@ -286,8 +322,15 @@ export const invoicesApi = {
     http.post<{ init_point: string; preference_id: string }>(`/invoices/${id}/mp-link`).then((r) => r.data),
   emitCae: (id: number) =>
     http.post<{ cae: string; cae_fch_vto: string; cbte_nro: number }>(`/invoices/${id}/emit-cae`).then((r) => r.data),
-  downloadPdf: (id: number) => {
-    window.open(`/api/v1/invoices/${id}/pdf`, "_blank");
+  // Through axios so the login token goes along (a plain link does not send it)
+  downloadPdf: async (id: number) => {
+    const r = await http.get<Blob>(`/invoices/${id}/pdf`, { responseType: "blob" });
+    const url = URL.createObjectURL(r.data);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `factura_${id}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
   },
 };
 
@@ -412,7 +455,7 @@ export const ticketsApi = {
 
 // ── Work Orders ──────────────────────────────────────────────────────────────
 export const workOrdersApi = {
-  list: (params?: { status?: string; assigned_to_id?: number }) =>
+  list: (params?: { status?: string; assigned_to_id?: number; client_id?: number }) =>
     http.get<import("@/types").WorkOrder[]>("/work-orders/", { params }).then((r) => r.data),
   get: (id: number) => http.get<import("@/types").WorkOrder>(`/work-orders/${id}`).then((r) => r.data),
   create: (data: Partial<import("@/types").WorkOrder>) =>

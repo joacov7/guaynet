@@ -55,12 +55,15 @@ async def _enrich(wo: WorkOrder, db: AsyncSession):
 async def list_work_orders(
     status: Optional[str] = None,
     assigned_to_id: Optional[int] = None,
+    client_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
     q = select(WorkOrder)
     if status:
         q = q.where(WorkOrder.status == status)
+    if client_id is not None:
+        q = q.where(WorkOrder.client_id == client_id)
     if assigned_to_id is not None:
         q = q.where(WorkOrder.assigned_to_id == assigned_to_id)
     q = q.order_by(WorkOrder.scheduled_date.asc().nullslast(), WorkOrder.created_at.desc())
