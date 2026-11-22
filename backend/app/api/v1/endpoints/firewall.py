@@ -1,4 +1,6 @@
 from typing import List, Optional
+from datetime import datetime, timezone
+import ipaddress
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -6,11 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import asyncio
 
-from app.core.deps import get_current_user, get_db
+from app.core.deps import add_audit_log, get_current_user, get_db
 from app.models.router import MikrotikRouter
-from app.models.client import Client, ClientStatus
+from app.models.client import Client, ClientStatus, ClientDeviceHistory
 from app.models.plan import Plan
 from app.services.mikrotik import build_service_from_router, MikrotikError
+from app.services.dhcp_identity import normalize_mac
 from app.schemas.firewall import (
     DHCPScanResponse,
     DHCPLease,
@@ -21,6 +24,7 @@ from app.schemas.firewall import (
 )
 
 router = APIRouter()
+dhcp_router = APIRouter()
 
 
 async def _get_router_or_404(router_id: int, db: AsyncSession) -> MikrotikRouter:
@@ -33,7 +37,7 @@ async def _get_router_or_404(router_id: int, db: AsyncSession) -> MikrotikRouter
 
 # ── DHCP Scan ─────────────────────────────────────────────────────────────────
 
-@router.get("/{router_id}/dhcp-scan")
+@dhcp_router.get("/{router_id}/dhcp-scan")
 async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
     mt_router = await _get_router_or_404(router_id, db)
     svc = build_service_from_router(mt_router)
@@ -50,28 +54,84 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
         return DHCPScanResponse(total=0, registered=0, unregistered=0, leases=[], error=f"Error inesperado: {e}")
 
     rows = await db.execute(
-        select(Client.ip_address, Client.id, Client.first_name, Client.last_name)
+        select(Client.id, Client.ip_address, Client.mac_address, Client.first_name, Client.last_name)
         .where(Client.router_id == router_id)
     )
-    registered = {
-        row.ip_address: (row.id, f"{row.first_name} {row.last_name}")
-        for row in rows
-    }
+    clients = list(rows)
+    by_ip = {row.ip_address: row for row in clients if row.ip_address}
+    history_rows = await db.execute(select(ClientDeviceHistory.client_id, ClientDeviceHistory.mac_address, ClientDeviceHistory.ended_at).where(ClientDeviceHistory.router_id == router_id))
+    historical_mac_clients = {}
+    for client_id, historical_mac, ended_at in history_rows:
+        key = normalize_mac(historical_mac)
+        if key and ended_at is not None:
+            historical_mac_clients.setdefault(key, set()).add(client_id)
+
+    by_mac = {}
+    for client in clients:
+        mac = normalize_mac(client.mac_address)
+        if mac:
+            by_mac.setdefault(mac, []).append(client)
+
+    def normalize_name(value: Optional[str]) -> str:
+        return " ".join((value or "").strip().lower().replace("_", " ").replace("-", " ").split())
 
     leases: List[DHCPLease] = []
     for raw in leases_raw:
         ip = raw.get("address", "")
-        is_reg = ip in registered
+        mac = normalize_mac(raw.get("mac-address", ""))
+        hostname = raw.get("host-name", "") or None
+        matched = None
+        match_reason = None
+        replacement_candidate = None
+
+        # Stable device identity: MAC within the selected MikroTik router.
+        mac_matches = by_mac.get(mac, []) if mac else []
+        historical_ids = historical_mac_clients.get(mac, set()) if mac else set()
+        candidate_ids = {c.id for c in mac_matches} | historical_ids
+        if len(candidate_ids) == 1:
+            candidate_id = next(iter(candidate_ids))
+            matched = next((c for c in clients if c.id == candidate_id), None)
+            match_reason = "mac" if any(c.id == candidate_id for c in mac_matches) else "historical_mac"
+        elif len(candidate_ids) > 1:
+            match_reason = "ambiguous_mac"
+        elif ip in by_ip:
+            ip_client = by_ip[ip]
+            stored_mac = normalize_mac(ip_client.mac_address)
+            # An IP collision with a different known MAC is not proof of identity.
+            if not mac or not stored_mac:
+                matched = ip_client
+                match_reason = "ip"
+            else:
+                match_reason = "ip_conflict"
+                replacement_candidate = ip_client
+
+        # Hostname is only a hint for a possible antenna replacement, never proof.
+        if matched is None and hostname and replacement_candidate is None:
+            wanted = normalize_name(hostname)
+            candidates = [
+                c for c in clients
+                if normalize_name(f"{c.first_name} {c.last_name}") == wanted
+            ]
+            if len(candidates) == 1:
+                replacement_candidate = candidates[0]
+
         leases.append(
             DHCPLease(
                 address=ip,
                 mac_address=raw.get("mac-address", ""),
-                hostname=raw.get("host-name", "") or None,
+                hostname=hostname,
                 comment=raw.get("comment", "") or None,
                 status=raw.get("status", ""),
-                is_registered=is_reg,
-                client_id=registered[ip][0] if is_reg else None,
-                client_name=registered[ip][1] if is_reg else None,
+                is_registered=matched is not None,
+                client_id=matched.id if matched else None,
+                client_name=f"{matched.first_name} {matched.last_name}" if matched else None,
+                match_reason=match_reason,
+                ip_changed=bool(matched and matched.ip_address != ip),
+                replacement_client_id=replacement_candidate.id if replacement_candidate else None,
+                replacement_client_name=(
+                    f"{replacement_candidate.first_name} {replacement_candidate.last_name}"
+                    if replacement_candidate else None
+                ),
             )
         )
 
@@ -82,6 +142,100 @@ async def dhcp_scan(router_id: int, db: AsyncSession = Depends(get_db)):
         unregistered=len(leases) - registered_count,
         leases=leases,
     )
+
+
+
+class DHCPDeviceReplacement(BaseModel):
+    client_id: int
+    mac_address: str
+    ip_address: str
+    hostname: Optional[str] = None
+
+
+@dhcp_router.post("/{router_id}/dhcp-confirm-device")
+async def confirm_dhcp_device_replacement(
+    router_id: int,
+    body: DHCPDeviceReplacement,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Confirm an operator-approved CPE replacement and preserve the old MAC."""
+    client = await db.get(Client, body.client_id)
+    if not client or client.router_id != router_id:
+        raise HTTPException(404, "Cliente no encontrado en este router")
+
+    mac = normalize_mac(body.mac_address)
+    if not mac:
+        raise HTTPException(400, "MAC inválida. Usá formato AA:BB:CC:DD:EE:FF")
+
+    try:
+        normalized_ip = str(ipaddress.ip_address(body.ip_address.strip()))
+    except ValueError:
+        raise HTTPException(400, "Dirección IP inválida")
+
+    if normalized_ip != body.ip_address.strip():
+        body.ip_address = normalized_ip
+
+    router_clients = await db.execute(
+        select(Client.id, Client.mac_address).where(
+            Client.router_id == router_id,
+            Client.id != client.id,
+        )
+    )
+    if any(normalize_mac(existing_mac) == mac for _, existing_mac in router_clients):
+        raise HTTPException(409, "Esa MAC ya está asignada a otro cliente")
+
+    duplicate_ip = await db.execute(
+        select(Client.id).where(Client.ip_address == body.ip_address, Client.id != client.id)
+    )
+    if duplicate_ip.first():
+        raise HTTPException(409, "Esa IP ya está asignada a otro cliente")
+
+    now = datetime.now(timezone.utc)
+    active_history = await db.execute(
+        select(ClientDeviceHistory).where(
+            ClientDeviceHistory.client_id == client.id,
+            ClientDeviceHistory.ended_at.is_(None),
+        )
+    )
+    for device in active_history.scalars().all():
+        device.ended_at = now
+
+    old_mac = normalize_mac(client.mac_address)
+    old_ip = client.ip_address
+    if old_mac and old_mac != mac:
+        db.add(ClientDeviceHistory(
+            client_id=client.id,
+            router_id=router_id,
+            mac_address=old_mac,
+            ip_address=client.ip_address,
+            change_reason="replaced",
+            ended_at=now,
+        ))
+
+    client.mac_address = mac
+    client.ip_address = body.ip_address
+    db.add(ClientDeviceHistory(
+        client_id=client.id,
+        router_id=router_id,
+        mac_address=mac,
+        ip_address=body.ip_address,
+        hostname=body.hostname,
+        change_reason="replacement",
+    ))
+    add_audit_log(
+        db, current_user, "replace_device", "client", client.id, client.full_name,
+        details=f"Reemplazo CPE: MAC {old_mac or 'sin registro'} -> {mac}; IP {old_ip} -> {body.ip_address}",
+    )
+    await db.commit()
+    return {
+        "updated": True,
+        "client_id": client.id,
+        "mac_address": mac,
+        "ip_address": body.ip_address,
+        "router_sync_required": True,
+        "message": "Ficha actualizada en Guaynet. Verificá/sincronizá el router por separado.",
+    }
 
 
 # ── DHCP Import ───────────────────────────────────────────────────────────────
@@ -97,77 +251,117 @@ class DHCPImportRequest(BaseModel):
     plan_id: int
 
 
-@router.post("/{router_id}/dhcp-import")
+@dhcp_router.post("/{router_id}/dhcp-import")
 async def dhcp_import(
     router_id: int,
     body: DHCPImportRequest,
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    from app.services.mikrotik import build_service_from_router, MikrotikError
-    from app.api.v1.endpoints.clients import _push_to_mikrotik
-    from app.core.deps import add_audit_log
-
     mt_router = await _get_router_or_404(router_id, db)
     plan = await db.get(Plan, body.plan_id)
     if not plan:
         raise HTTPException(404, "Plan no encontrado")
 
-    existing_ips = {
-        row[0] for row in (await db.execute(select(Client.ip_address))).all()
+    # Validar y normalizar todo el lote antes de crear registros.
+    normalized_items = []
+    for item in body.items:
+        try:
+            address = str(ipaddress.ip_address(item.address.strip()))
+        except ValueError:
+            raise HTTPException(400, f"IP inválida: {item.address}")
+
+        mac = normalize_mac(item.mac_address)
+        if not mac:
+            raise HTTPException(400, f"MAC inválida para la IP {address}")
+
+        normalized_items.append((item, address, mac))
+
+    all_clients = (
+        await db.execute(
+            select(Client.ip_address, Client.mac_address, Client.router_id)
+        )
+    ).all()
+
+    existing_ips = {row.ip_address for row in all_clients if row.ip_address}
+    existing_macs = {
+        normalize_mac(row.mac_address)
+        for row in all_clients
+        if row.router_id == router_id and normalize_mac(row.mac_address)
     }
 
-    created, skipped = 0, 0
-    for item in body.items:
-        if item.address in existing_ips:
+    created_clients = []
+    skipped = 0
+    seen_ips = set()
+    seen_macs = set()
+
+    for item, address, mac in normalized_items:
+        if (
+            address in existing_ips
+            or address in seen_ips
+            or mac in existing_macs
+            or mac in seen_macs
+        ):
             skipped += 1
             continue
 
-        # Derive name from hostname or IP last octet
         if item.hostname:
-            name_parts = item.hostname.replace("-", " ").replace("_", " ").split()
-            first = name_parts[0].capitalize() if name_parts else item.address
-            last = " ".join(name_parts[1:]).capitalize() if len(name_parts) > 1 else "DHCP"
+            name_parts = (
+                item.hostname.replace("-", " ")
+                .replace("_", " ")
+                .split()
+            )
+            first = name_parts[0].capitalize() if name_parts else address
+            last = (
+                " ".join(name_parts[1:]).capitalize()
+                if len(name_parts) > 1
+                else "DHCP"
+            )
         else:
-            first = f"Cliente-{item.address.split('.')[-1]}"
+            first = f"Cliente-{address.split('.')[-1]}"
             last = "DHCP"
 
         client = Client(
             first_name=first,
             last_name=last,
-            ip_address=item.address,
-            mac_address=item.mac_address or None,
+            ip_address=address,
+            mac_address=mac,
             plan_id=body.plan_id,
             router_id=router_id,
             status=ClientStatus.active,
             billing_day=1,
         )
+
         db.add(client)
-        await db.flush()  # get client.id before commit
+        await db.flush()
 
-        add_audit_log(db, current_user, "create", "client", client.id, client.full_name,
-                      details=f"Importado desde DHCP ({item.address})")
+        add_audit_log(
+            db,
+            current_user,
+            "create",
+            "client",
+            client.id,
+            client.full_name,
+            details=f"Importado desde DHCP ({address}, MAC {mac})",
+        )
 
-        existing_ips.add(item.address)
-        created += 1
+        created_clients.append(client)
+        seen_ips.add(address)
+        seen_macs.add(mac)
 
+    # Guardar primero las altas en Guaynet.
     await db.commit()
 
-    # Push all new clients to MikroTik (best-effort)
-    new_clients_r = await db.execute(
-        select(Client).where(
-            Client.router_id == router_id,
-            Client.last_name == "DHCP",
-        )
-    )
-    for client in new_clients_r.scalars().all():
-        try:
-            await _push_to_mikrotik(client, mt_router, db)
-        except MikrotikError:
-            pass
-
-    return {"created": created, "skipped": skipped}
-
+    # La importación solo crea fichas en Guaynet; no escribe en el MikroTik.
+    # Conservamos los campos previos para compatibilidad con clientes API existentes.
+    return {
+        "created": len(created_clients),
+        "skipped": skipped,
+        "synced": 0,
+        "sync_failed": 0,
+        "sync_errors": [],
+        "provisioning_pending": len(created_clients),
+    }
 
 # ── Firewall Filter ───────────────────────────────────────────────────────────
 

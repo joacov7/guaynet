@@ -352,7 +352,7 @@ async def get_wireless(
         raise HTTPException(503, str(e))
 
 
-@router.put("/{device_id}/wireless", response_model=WirelessConfig)
+@router.put("/{device_id}/wireless", response_model=WirelessConfig, dependencies=[Depends(require_action("act_device_ssh"))])
 async def set_wireless(
     device_id: int,
     body: WirelessUpdate,
@@ -468,7 +468,13 @@ async def upload_firmware(
 ):
     dev = await _get_or_404(device_id, db)
     svc = build_service_from_device(dev)
-    firmware_bytes = await firmware.read()
+    # Limitar el tamaño antes de enviar el binario al dispositivo.
+    max_firmware_bytes = 32 * 1024 * 1024
+    firmware_bytes = await firmware.read(max_firmware_bytes + 1)
+    if len(firmware_bytes) > max_firmware_bytes:
+        raise HTTPException(413, "El firmware supera el límite permitido de 32 MiB")
+    if not firmware_bytes:
+        raise HTTPException(400, "El archivo de firmware está vacío")
     filename = firmware.filename or "firmware.bin"
 
     def _upload():

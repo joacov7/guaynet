@@ -10,6 +10,7 @@ import Plans from "@/pages/Plans";
 import Routers from "@/pages/Routers";
 import Invoices from "@/pages/Invoices";
 import Firewall from "@/pages/Firewall";
+import DHCPDevices from "@/pages/DHCPDevices";
 import Monitoring from "@/pages/Monitoring";
 import Ubiquiti from "@/pages/Ubiquiti";
 import NetworkMap from "@/pages/NetworkMap";
@@ -93,6 +94,7 @@ export default function App() {
           <Route path="routers" element={<Routers />} />
           <Route path="billing" element={<Invoices />} />
           <Route path="firewall" element={<Firewall />} />
+          <Route path="dhcp" element={<DHCPDevices />} />
           <Route path="monitoring" element={<Monitoring />} />
           <Route path="ubiquiti" element={<Ubiquiti />} />
           <Route path="map" element={<NetworkMap />} />

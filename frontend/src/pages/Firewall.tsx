@@ -349,7 +349,18 @@ export default function Firewall() {
       importPlanId!,
     ),
     onSuccess: (res) => {
-      message.success(`Importados: ${res.created} clientes, omitidos: ${res.skipped}`);
+      if (res.sync_failed > 0) {
+        message.warning(
+          `Importados: ${res.created}. Omitidos: ${res.skipped}. ` +
+          `Sincronizados: ${res.synced}. Errores de sincronización: ${res.sync_failed}.`
+        );
+      } else {
+        message.success(
+          `Importados: ${res.created}. Omitidos: ${res.skipped}. ` +
+          `Sincronizados: ${res.synced}.`
+        );
+      }
+
       setImportModalOpen(false);
       setSelectedLeases([]);
       refetchDhcp();
@@ -499,11 +510,14 @@ export default function Firewall() {
       render: (v: string, r: DHCPLease) => (
         <Space>
           <span>{v}</span>
-          {r.is_registered && (
-            <Tag color="green" style={{ fontSize: 11 }}>
-              Registrado
+          {(r.is_registered || r.match_reason === "ip_conflict") && (
+            <Tag color={r.match_reason === "mac" || r.match_reason === "historical_mac" ? "green" : r.match_reason === "ip_conflict" ? "red" : "blue"} style={{ fontSize: 11 }}>
+              {r.match_reason === "mac" ? "MAC reconocida" : r.match_reason === "historical_mac" ? "MAC histórica" : r.match_reason === "ip_conflict" ? "Conflicto IP/MAC" : "Registrado por IP"}
             </Tag>
           )}
+          {r.ip_changed && <Tag color="orange">IP modificada</Tag>
+          }
+          {r.replacement_client_id && <Tag color="gold">Posible cambio de antena</Tag>}
         </Space>
       ),
     },
@@ -520,7 +534,55 @@ export default function Firewall() {
       key: "client",
       render: (_: unknown, r: DHCPLease) =>
         r.is_registered ? (
-          <a onClick={() => navigate(`/clients/${r.client_id}`)}>{r.client_name}</a>
+          <Space direction="vertical" size={2}>
+            <a onClick={() => navigate(`/clients/${r.client_id}`)}>{r.client_name}</a>
+            {r.ip_changed && (
+              <Button
+                size="small"
+                type="link"
+                onClick={async () => {
+                  if (!window.confirm(`Actualizar la IP de ${r.client_name} de ${r.address} detectada por DHCP? La cola QoS se actualizará también.`)) return;
+                  try {
+                    await routersApi.updateClientIp(routerId!, r.client_id!, r.address);
+                    message.success("IP del cliente actualizada");
+                    refetchDhcp();
+                  } catch (err: any) {
+                    message.error(err.response?.data?.detail ?? "No se pudo actualizar la IP");
+                  }
+                }}
+              >
+                Aplicar nueva IP
+              </Button>
+            )}
+          </Space>
+        ) : r.replacement_client_id ? (
+          <Space direction="vertical" size={2}>
+            <Text type="warning">¿Equipo nuevo de {r.replacement_client_name}?</Text>
+            <Button size="small" onClick={() => navigate(`/clients/${r.replacement_client_id}`)}>
+              Revisar cliente
+            </Button>
+            <Button
+              size="small"
+              type="primary"
+              onClick={async () => {
+                if (!window.confirm(`Confirmás que la MAC ${r.mac_address} es la nueva antena de ${r.replacement_client_name}?`)) return;
+                try {
+                  await firewallApi.confirmDhcpDevice(routerId!, {
+                    client_id: r.replacement_client_id!,
+                    mac_address: r.mac_address,
+                    ip_address: r.address,
+                    hostname: r.hostname,
+                  });
+                  message.success("Ficha actualizada e historial guardado. La sincronización del MikroTik queda pendiente.");
+                  refetchDhcp();
+                } catch (err: any) {
+                  message.error(err.response?.data?.detail ?? "No se pudo confirmar el reemplazo");
+                }
+              }}
+            >
+              Confirmar reemplazo
+            </Button>
+          </Space>
         ) : (
           <Button
             size="small"

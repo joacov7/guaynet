@@ -1,8 +1,8 @@
 import enum
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Date, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -80,3 +80,18 @@ class Client(Base, TimestampMixin):
     @property
     def mikrotik_target(self) -> str:
         return f"{self.ip_address}/32"
+
+
+class ClientDeviceHistory(Base):
+    """Historical network identity of a client's CPE/device."""
+    __tablename__ = "client_device_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), index=True)
+    router_id: Mapped[int] = mapped_column(ForeignKey("mikrotik_routers.id", ondelete="CASCADE"), index=True)
+    mac_address: Mapped[str] = mapped_column(String(17), index=True)
+    hostname: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    change_reason: Mapped[str] = mapped_column(String(30), default="initial")

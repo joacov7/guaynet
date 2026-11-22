@@ -13,6 +13,7 @@ class UbiquitiDeviceCreate(BaseModel):
     password: Optional[str] = None
     mac_address: Optional[str] = None
     mikrotik_router_id: Optional[int] = None
+    controller_id: Optional[int] = None
     location: Optional[str] = None
     notes: Optional[str] = None
     latitude: Optional[float] = None
@@ -43,6 +44,7 @@ class UbiquitiDeviceResponse(BaseModel):
     username: Optional[str]
     mac_address: Optional[str]
     mikrotik_router_id: Optional[int]
+    controller_id: Optional[int] = None
     location: Optional[str]
     notes: Optional[str]
     latitude: Optional[float] = None
@@ -142,3 +144,44 @@ class DiscoveredDevice(BaseModel):
     ssid: str = ""
     frequency_mhz: Optional[int] = None
     suggested_type: str = ""
+
+
+# ── Network controller inventory schemas ─────────────────────────────────────
+
+from app.models.network_controller import NetworkControllerStatus, NetworkControllerType
+
+
+class NetworkControllerCreate(BaseModel):
+    name: str
+    controller_type: NetworkControllerType = NetworkControllerType.unifi_network
+    base_url: str
+    site_name: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    verify_tls: bool = True
+
+
+class NetworkControllerUpdate(BaseModel):
+    name: Optional[str] = None
+    base_url: Optional[str] = None
+    site_name: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    verify_tls: Optional[bool] = None
+
+
+class NetworkControllerResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    controller_type: NetworkControllerType
+    base_url: str
+    site_name: Optional[str]
+    username: Optional[str]
+    verify_tls: bool
+    status: NetworkControllerStatus
+    last_seen: Optional[datetime]
+    last_error: Optional[str]
+    created_at: datetime
+    updated_at: datetime

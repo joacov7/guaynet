@@ -285,15 +285,28 @@ function DeviceDrawer({
   const isAP = device.device_type === "airmax_ap" || device.device_type === "airmax_ac_ap" || device.device_type === "unifi_ap";
   const isStation = device.device_type === "airmax_station" || device.device_type === "airmax_ac_station";
 
-  // Build lookup maps to cross-reference live stations with registered clients
-  const clientByIp = Object.fromEntries(dbClients.map((c: any) => [c.ip_address, c]));
-  const clientByMac = Object.fromEntries(
-    dbClients.filter((c: any) => c.mac_address).map((c: any) => [c.mac_address?.toLowerCase(), c])
+  // Match abonados por MAC exacta. La IP es mutable y solo sirve para detectar conflictos.
+  const normalizeMac = (value?: string | null) =>
+    (value ?? "").replace(/[^a-fA-F0-9]/g, "").toLowerCase();
+  const clientByMac = new Map(
+    dbClients
+      .filter((c: any) => normalizeMac(c.mac_address).length === 12)
+      .map((c: any) => [normalizeMac(c.mac_address), c])
   );
-  const enrichedStations = stations.map((s) => ({
-    ...s,
-    _client: clientByIp[s.ip] || clientByMac[s.mac?.toLowerCase()] || null,
-  }));
+  const clientByIp = new Map(
+    dbClients.filter((c: any) => c.ip_address).map((c: any) => [c.ip_address, c])
+  );
+  const enrichedStations = stations.map((s) => {
+    const stationMac = normalizeMac(s.mac);
+    const macMatch = stationMac.length === 12 ? clientByMac.get(stationMac) : undefined;
+    const ipMatch = s.ip ? clientByIp.get(s.ip) : undefined;
+    return {
+      ...s,
+      _client: macMatch ?? null,
+      _identityConflict: !macMatch && Boolean(ipMatch && normalizeMac(ipMatch.mac_address) !== stationMac),
+      _ipClient: ipMatch ?? null,
+    };
+  });
 
   const stationColumns = [
     {
@@ -302,6 +315,10 @@ function DeviceDrawer({
       render: (_: unknown, r: any) =>
         r._client ? (
           <a onClick={() => navigate(`/clients/${r._client.id}`)}>{r._client.full_name}</a>
+        ) : r._identityConflict ? (
+          <Tooltip title={`La IP coincide con ${r._ipClient.full_name}, pero la MAC de la estación es distinta. No se vincula automáticamente.`}>
+            <Tag color="warning">Conflicto de identidad</Tag>
+          </Tooltip>
         ) : (
           <Text type="secondary">{r.name || "Desconocido"}</Text>
         ),
@@ -501,7 +518,7 @@ function DeviceDrawer({
                       </Button>
                       <Table
                         loading={stationsLoading}
-                        dataSource={stations}
+                        dataSource={enrichedStations}
                         rowKey="mac"
                         columns={stationColumns}
                         size="small"

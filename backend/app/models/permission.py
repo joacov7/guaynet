@@ -18,8 +18,8 @@ SECTIONS = [
 ]
 
 # Etapa 3: sensitive actions. Stored like sections (can_view = allowed) and
-# checked on top of "editar" of their section. Both roles start allowed, which
-# is what they could already do; switch them off in Usuarios → Permisos.
+# checked on top of "editar" of their section. Both non-admin roles start denied;
+# an administrator can grant each action explicitly in Usuarios → Permisos.
 ACTIONS = [
     "act_client_service",   # cortar / reactivar / dar de baja el servicio
     "act_client_delete",    # borrar clientes
@@ -68,7 +68,7 @@ DEFAULTS: list[tuple[str, str, bool, bool]] = [
     *[(role, section, True, True)
       for role in ("operator", "technician")
       for section in ("zones", "expenses", "alarms", "tickets", "work_orders", "inventory", "reports")],
-    *[(role, action, True, True) for role in ("operator", "technician") for action in ACTIONS],
+    *[(role, action, False, False) for role in ("operator", "technician") for action in ACTIONS],
 ]
 
 

@@ -11,6 +11,10 @@ class DHCPLease(BaseModel):
     is_registered: bool = False
     client_id: Optional[int] = None
     client_name: Optional[str] = None
+    match_reason: Optional[str] = None
+    ip_changed: bool = False
+    replacement_client_id: Optional[int] = None
+    replacement_client_name: Optional[str] = None
 
 
 class DHCPScanResponse(BaseModel):
