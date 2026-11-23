@@ -80,6 +80,7 @@ const ACTIONS: [string, string, string][] = [
   ["act_client_service", "Cortar, reactivar o dar de baja el servicio", "Clientes"],
   ["act_client_delete", "Borrar clientes", "Clientes"],
   ["act_payments", "Registrar pagos o marcar facturas como pagadas", "Facturación"],
+  ["act_payment_void", "Anular un pago ya registrado", "Facturación"],
   ["act_invoice_afip", "Emitir factura electrónica (AFIP)", "Facturación"],
   ["act_billing_bulk", "Acciones masivas: generar facturas del mes, marcar vencidas, corte masivo, recordatorios", "Facturación"],
   ["act_export", "Exportar datos (CSV)", "Facturación"],

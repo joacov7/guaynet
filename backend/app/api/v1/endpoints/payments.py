@@ -4,7 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoints.portal import get_current_portal_client
@@ -203,22 +203,22 @@ async def process_mp_payment(payment_id: str) -> Optional[str]:
             if amount <= 0:
                 await db.rollback()
                 return "monto inválido"
-            paid_before = float((await db.execute(
-                select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.invoice_id == invoice.id)
-            )).scalar() or 0)
-            db.add(Payment(
-                invoice_id=invoice.id, amount=amount, payment_date=today_ar(),
-                method=PaymentMethod.mercadopago, reference=str(payment_id),
-            ))
-            if paid_before + amount + 0.005 >= float(invoice.amount) and invoice.status != InvoiceStatus.paid:
-                invoice.status = InvoiceStatus.paid
-                invoice.paid_date = today_ar()
+            # Through the cuenta corriente: pays this invoice, anything extra goes to the
+            # client's other unpaid invoices and then to saldo a favor.
+            from app.services.account import register_payment
+            from app.services.account import audit_cobro
+            rows = await register_payment(
+                db, client_id=invoice.client_id, invoice_id=invoice.id, amount=amount,
+                payment_date=today_ar(), method=PaymentMethod.mercadopago, reference=str(payment_id),
+                received_by_name="MercadoPago",
+            )
+            await audit_cobro(db, rows, user_id=None, username="MercadoPago")
+            if invoice.status == InvoiceStatus.paid and not invoice.mp_payment_id:
                 invoice.mp_payment_id = str(payment_id)
+            client_id = invoice.client_id
             await db.commit()
             logger.info("MercadoPago payment %s: $%s on invoice %s", payment_id, amount, invoice.id)
-
-            if invoice.status == InvoiceStatus.paid:
-                await reactivate_if_settled(db, invoice.client_id)
+            await reactivate_if_settled(db, client_id)
             return "registrado"
         except Exception as exc:
             await db.rollback()

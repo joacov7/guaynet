@@ -157,6 +157,11 @@ export interface Payment {
   reference?: string;
   notes?: string;
   created_at: string;
+  group_id?: string | null;
+  received_by_name?: string | null;
+  voided_at?: string | null;
+  voided_by_name?: string | null;
+  void_reason?: string | null;
 }
 
 export interface DashboardStats {

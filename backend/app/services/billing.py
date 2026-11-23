@@ -213,6 +213,9 @@ async def generate_monthly_invoices(db: AsyncSession, *, manual: bool = False, t
             issue_date=today, due_date=_due_date(client.billing_day, today),
         ))
         created += 1
+    await db.flush()
+    from app.services.account import apply_credits_for
+    await apply_credits_for(db, [c.id for c in clients if c.id not in already and plans.get(c.plan_id)])
     await db.commit()
     await log_job(db, "auto_invoice", "success", f"Período {period}: {created} facturas generadas", created)
     return {"invoices_created": created, "period": period}

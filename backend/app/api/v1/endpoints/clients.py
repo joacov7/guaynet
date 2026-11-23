@@ -229,27 +229,27 @@ async def _client_or_404(db: AsyncSession, client_id: int) -> Client:
 async def client_summary(client_id: int, db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
     """Balance and counters for the header of the client record. Money only for users who see billing."""
     from app.core.deps import _is_admin, effective_permissions
-    from app.models.invoice import Invoice, InvoiceStatus, Payment
+    from app.models.invoice import InvoiceStatus, Payment
     from app.models.ticket import Ticket, TicketStatus
     from app.models.work_order import WorkOrder
 
     await _client_or_404(db, client_id)
     sees_billing = _is_admin(current_user) or (await effective_permissions(db, current_user)).get("billing", (False, False))[0]
-    unpaid = (await db.execute(
-        select(Invoice).where(Invoice.client_id == client_id,
-                              Invoice.status.in_([InvoiceStatus.pending, InvoiceStatus.overdue]))
-        .order_by(Invoice.due_date)
-    )).scalars().all()
-    paid_on_unpaid = 0.0
-    if unpaid:
-        paid_on_unpaid = float((await db.execute(
-            select(func.coalesce(func.sum(Payment.amount), 0)).where(Payment.invoice_id.in_([i.id for i in unpaid]))
-        )).scalar() or 0)
+    from app.services.account import client_balance, unpaid_invoices
+
+    bal = await client_balance(db, client_id)
+    unpaid = await unpaid_invoices(db, client_id)
     overdue = [i for i in unpaid if i.status == InvoiceStatus.overdue]
     last_payment = (await db.execute(
-        select(Payment).join(Invoice, Invoice.id == Payment.invoice_id)
-        .where(Invoice.client_id == client_id).order_by(Payment.payment_date.desc(), Payment.id.desc()).limit(1)
+        select(Payment).where(Payment.client_id == client_id, Payment.voided_at.is_(None))
+        .order_by(Payment.payment_date.desc(), Payment.id.desc()).limit(1)
     )).scalar_one_or_none()
+    last_total = 0.0
+    if last_payment:  # the whole cobro, even if it was split across invoices
+        last_total = float((await db.execute(
+            select(func.coalesce(func.sum(Payment.amount), 0)).where(
+                Payment.group_id == last_payment.group_id, Payment.voided_at.is_(None))
+        )).scalar() or 0) if last_payment.group_id else float(last_payment.amount)
     open_tickets = (await db.execute(select(func.count()).select_from(Ticket).where(
         Ticket.client_id == client_id, Ticket.status.in_([TicketStatus.open, TicketStatus.in_progress])
     ))).scalar() or 0
@@ -257,18 +257,20 @@ async def client_summary(client_id: int, db: AsyncSession = Depends(get_db), cur
         WorkOrder.client_id == client_id, WorkOrder.status.in_(["pending", "in_progress"])
     ))).scalar() or 0
     if not sees_billing:
-        return {"balance": None, "unpaid_count": None, "overdue_count": None, "oldest_overdue_due": None,
+        return {"balance": None, "credit": None, "unpaid_count": None, "overdue_count": None, "oldest_overdue_due": None,
                 "oldest_unpaid_invoice_id": None, "last_payment": None,
                 "open_tickets": open_tickets, "open_work_orders": open_orders}
     return {
-        "balance": round(sum(float(i.amount) for i in unpaid) - paid_on_unpaid, 2),
+        "balance": bal.balance,
+        "credit": bal.credit,
         "unpaid_count": len(unpaid),
         "overdue_count": len(overdue),
         "oldest_overdue_due": overdue[0].due_date.isoformat() if overdue else None,
         "oldest_unpaid_invoice_id": unpaid[0].id if unpaid else None,
         "last_payment": {
             "date": last_payment.payment_date.isoformat(),
-            "amount": float(last_payment.amount),
+            "amount": last_total,
+            "received_by": last_payment.received_by_name,
             "method": last_payment.method.value if hasattr(last_payment.method, "value") else last_payment.method,
         } if last_payment else None,
         "open_tickets": open_tickets,

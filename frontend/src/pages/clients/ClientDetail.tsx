@@ -12,11 +12,11 @@ import {
   Empty,
   Form,
   Input,
-  InputNumber,
   List,
   Modal,
   Popconfirm,
   Row,
+  Segmented,
   Select,
   Space,
   Spin,
@@ -55,6 +55,8 @@ import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import { MapContainer, Marker, TileLayer } from "react-leaflet";
 import { clientsApi, invoicesApi, plansApi, ticketsApi, workOrdersApi } from "@/services/api";
 import { usePermissions } from "@/contexts/PermissionsContext";
+import CollectModal, { VoidCobroModal, validPaid } from "@/components/billing/CollectModal";
+import { accountApi, type AccountMovement } from "@/services/api";
 import type { ClientStatus, Invoice, InvoiceStatus, PaymentMethod, TicketCategory, TicketPriority } from "@/types";
 
 const { Title, Text, Paragraph } = Typography;
@@ -112,6 +114,8 @@ const ACTIONS: Record<string, string> = {
   suspend: "Corte",
   activate: "Reactivación",
   cancel: "Baja",
+  payment: "Cobro",
+  payment_void: "Cobro anulado",
   delete: "Eliminado",
   plan_change: "Cambio de plan",
   replace_device: "Cambio de equipo",
@@ -120,7 +124,7 @@ const ACTIONS: Record<string, string> = {
 const money = (n: number) => n.toLocaleString("es-AR", { style: "currency", currency: "ARS" });
 const day = (d?: string | null) => (d ? dayjs(d).format("DD/MM/YYYY") : "—");
 const when = (d?: string | null) => (d ? dayjs(d).format("DD/MM/YYYY HH:mm") : "—");
-const paidOf = (inv: Invoice) => inv.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+const paidOf = validPaid;
 const isUnpaid = (inv: Invoice) => inv.status === "pending" || inv.status === "overdue";
 const apiError = (e: any, fallback: string) => e?.response?.data?.detail ?? fallback;
 
@@ -138,13 +142,14 @@ export default function ClientDetail() {
     ticket: canEdit("tickets"),
     order: canEdit("work_orders"),
     seeBilling: isAdmin || canView("billing"),
+    voidPay: canEdit("billing") && canView("act_payment_void"),
   };
 
   const [modal, setModal] = useState<null | "pay" | "plan" | "ticket" | "order" | "link">(null);
-  const [payInvoice, setPayInvoice] = useState<Invoice | null>(null);
+  const [payInvoiceId, setPayInvoiceId] = useState<number | undefined>(undefined);
+  const [voiding, setVoiding] = useState<{ id: number; total: number } | null>(null);
   const [link, setLink] = useState<string | null>(null);
   const [note, setNote] = useState("");
-  const [payForm] = Form.useForm();
   const [planForm] = Form.useForm();
   const [ticketForm] = Form.useForm();
   const [orderForm] = Form.useForm();
@@ -222,23 +227,6 @@ export default function ClientDetail() {
       message.error(apiError(e, "No se pudo sincronizar"), 8);
     },
   });
-  const pay = useMutation({
-    mutationFn: (v: any) =>
-      invoicesApi.addPayment(v.invoice_id, {
-        amount: v.amount,
-        payment_date: v.payment_date.format("YYYY-MM-DD"),
-        method: v.method,
-        reference: v.reference || undefined,
-      }),
-    onSuccess: () => {
-      refresh();
-      setModal(null);
-      message.success("Pago registrado");
-    },
-    onError: (e) => {
-      message.error(apiError(e, "No se pudo registrar el pago"));
-    },
-  });
   const changePlan = useMutation({
     mutationFn: (planId: number) => clientsApi.update(clientId, { plan_id: planId }),
     onSuccess: (d) => {
@@ -304,19 +292,7 @@ export default function ClientDetail() {
   });
 
   const openPay = (inv?: Invoice) => {
-    const target = inv ?? unpaid[0];
-    if (!target) {
-      message.info("El cliente no tiene facturas impagas");
-      return;
-    }
-    setPayInvoice(target);
-    payForm.setFieldsValue({
-      invoice_id: target.id,
-      amount: Math.max(0, Number(target.amount) - paidOf(target)),
-      payment_date: dayjs(),
-      method: "cash",
-      reference: "",
-    });
+    setPayInvoiceId(inv?.id);
     setModal("pay");
   };
 
@@ -384,9 +360,9 @@ export default function ClientDetail() {
           {can.seeBilling && <Col xs={24} md={10} style={{ textAlign: "right" }}>
             <Space size={32} wrap style={{ justifyContent: "flex-end" }}>
               <Statistic
-                title="Saldo"
-                value={summary?.balance != null ? money(summary.balance) : "…"}
-                valueStyle={{ color: (summary?.balance ?? 0) > 0 ? "#cf1322" : undefined }}
+                title={(summary?.balance ?? 0) < 0 ? "Saldo a favor" : "Saldo"}
+                value={summary?.balance != null ? money(Math.abs(summary.balance)) : "…"}
+                valueStyle={{ color: (summary?.balance ?? 0) > 0 ? "#cf1322" : (summary?.balance ?? 0) < 0 ? "#389e0d" : undefined }}
               />
               <Statistic title="Facturas vencidas" value={summary?.overdue_count ?? "…"} />
             </Space>
@@ -394,7 +370,8 @@ export default function ClientDetail() {
               <div>
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   Último pago: {money(summary.last_payment.amount)} el {day(summary.last_payment.date)} (
-                  {METHODS[summary.last_payment.method as PaymentMethod] ?? summary.last_payment.method})
+                  {METHODS[summary.last_payment.method as PaymentMethod] ?? summary.last_payment.method}
+                  {summary.last_payment.received_by ? `, cobró ${summary.last_payment.received_by}` : ""})
                 </Text>
               </div>
             )}
@@ -403,8 +380,8 @@ export default function ClientDetail() {
 
         {/* ── Actions ── */}
         <Space wrap style={{ marginTop: 16 }}>
-          {can.pay && unpaid.length > 0 && (
-            <Button type="primary" icon={<DollarOutlined />} onClick={() => openPay()}>Registrar pago</Button>
+          {can.pay && (
+            <Button type={unpaid.length ? "primary" : "default"} icon={<DollarOutlined />} onClick={() => openPay()}>Registrar cobro</Button>
           )}
           {can.cut && client.status === "active" && (
             <Popconfirm title="¿Cortar el servicio?" okText="Cortar" cancelText="Cancelar" onConfirm={() => cut.mutate()}>
@@ -443,7 +420,14 @@ export default function ClientDetail() {
         <Tabs
           defaultActiveKey={can.seeBilling ? "account" : "service"}
           items={[
-            can.seeBilling && { key: "account", label: `Cuenta${summary?.unpaid_count ? ` (${summary.unpaid_count} impagas)` : ""}`, children: <AccountTab invoices={invoices} canPay={can.pay} onPay={openPay} total={invoicePage?.total ?? 0} /> },
+            can.seeBilling && {
+              key: "account",
+              label: `Cuenta${summary?.unpaid_count ? ` (${summary.unpaid_count} impagas)` : ""}`,
+              children: (
+                <AccountTab clientId={clientId} invoices={invoices} canPay={can.pay} onPay={openPay} total={invoicePage?.total ?? 0}
+                  canVoid={can.voidPay} onVoid={(id, total) => setVoiding({ id, total })} />
+              ),
+            },
             { key: "service", label: "Servicio y red", children: <ServiceTab client={client} conn={conn} connLoading={connLoading} onRefresh={() => refreshConn()} /> },
             { key: "support", label: `Soporte${summary ? ` (${summary.open_tickets + summary.open_work_orders} abiertos)` : ""}`, children: <SupportTab clientId={clientId} /> },
             {
@@ -461,52 +445,8 @@ export default function ClientDetail() {
       </Card>
 
       {/* ── Modals ── */}
-      <Modal open={modal === "pay"} title="Registrar pago" okText="Registrar" cancelText="Cancelar"
-        onCancel={() => setModal(null)} onOk={() => payForm.submit()} confirmLoading={pay.isPending} destroyOnClose>
-        <Form form={payForm} layout="vertical" onFinish={(v) => pay.mutate(v)}>
-          <Form.Item name="invoice_id" label="Factura" rules={[{ required: true }]}>
-            <Select
-              onChange={(v) => {
-                const inv = unpaid.find((i) => i.id === v);
-                setPayInvoice(inv ?? null);
-                if (inv) payForm.setFieldValue("amount", Math.max(0, Number(inv.amount) - paidOf(inv)));
-              }}
-              options={unpaid.map((i) => ({
-                value: i.id,
-                label: `${i.period} · vence ${day(i.due_date)} · resta ${money(Math.max(0, Number(i.amount) - paidOf(i)))}`,
-              }))}
-            />
-          </Form.Item>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item name="amount" label="Monto" rules={[{ required: true }]}
-                extra={payInvoice ? `Total de la factura: ${money(Number(payInvoice.amount))}` : undefined}>
-                <InputNumber min={0.01} step={100} style={{ width: "100%" }} prefix="$" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="payment_date" label="Fecha" rules={[{ required: true }]}>
-                <DatePicker format="DD/MM/YYYY" style={{ width: "100%" }} />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item name="method" label="Medio" rules={[{ required: true }]}>
-                <Select options={Object.entries(METHODS).map(([value, label]) => ({ value, label }))} />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="reference" label="Referencia (opcional)">
-                <Input placeholder="N° de operación, recibo…" />
-              </Form.Item>
-            </Col>
-          </Row>
-          {client.status === "suspended" && (
-            <Alert type="info" showIcon message="Si con este pago no le quedan facturas vencidas, se reactiva solo." />
-          )}
-        </Form>
-      </Modal>
+      <CollectModal open={modal === "pay"} clientId={clientId} invoiceId={payInvoiceId} onClose={() => setModal(null)} />
+      <VoidCobroModal paymentId={voiding?.id ?? null} total={voiding?.total} onClose={() => setVoiding(null)} />
 
       <PlanModal open={modal === "plan"} form={planForm} onCancel={() => setModal(null)} loading={changePlan.isPending}
         onSubmit={(planId) => changePlan.mutate(planId)} />
@@ -593,54 +533,134 @@ export default function ClientDetail() {
 
 // ── Tabs ─────────────────────────────────────────────────────────────────────
 
-function AccountTab({ invoices, canPay, onPay, total }: { invoices: Invoice[]; canPay: boolean; onPay: (i: Invoice) => void; total: number }) {
-  if (!invoices.length) return <Empty description="Sin facturas" />;
+function AccountTab({ clientId, invoices, canPay, onPay, total, canVoid, onVoid }: {
+  clientId: number;
+  invoices: Invoice[];
+  canPay: boolean;
+  onPay: (i: Invoice) => void;
+  total: number;
+  canVoid: boolean;
+  onVoid: (paymentId: number, total: number) => void;
+}) {
+  const [view, setView] = useState<"moves" | "invoices">("moves");
+  const { data: st, isLoading } = useQuery({
+    queryKey: ["statement", clientId],
+    queryFn: () => accountApi.statement(clientId),
+  });
+  const moves = useMemo(() => [...(st?.movements ?? [])].reverse(), [st]);
+
   return (
     <>
-      <Table<Invoice>
-        dataSource={invoices}
-        rowKey="id"
-        size="small"
-        pagination={{ pageSize: 12 }}
-        scroll={{ x: 700 }}
-        expandable={{
-          rowExpandable: (r) => r.payments.length > 0,
-          expandedRowRender: (r) => (
-            <List
-              size="small"
-              dataSource={r.payments}
-              renderItem={(p) => (
-                <List.Item>
-                  {day(p.payment_date)} · {money(Number(p.amount))} · {METHODS[p.method] ?? p.method}
-                  {p.reference ? ` · ${p.reference}` : ""}
-                </List.Item>
-              )}
-            />
-          ),
-        }}
-        columns={[
-          { title: "Período", dataIndex: "period" },
-          { title: "Vence", dataIndex: "due_date", render: (d: string) => day(d) },
-          { title: "Monto", dataIndex: "amount", align: "right", render: (v: number) => money(Number(v)) },
-          { title: "Pagado", key: "paid", align: "right", render: (_: unknown, r) => money(paidOf(r)) },
-          { title: "Estado", dataIndex: "status", render: (s: InvoiceStatus) => <Tag color={INVOICE_STATUS[s].color}>{INVOICE_STATUS[s].label}</Tag> },
-          {
-            title: "",
-            key: "actions",
-            align: "right",
-            render: (_: unknown, r) => (
-              <Space size={4}>
-                {canPay && isUnpaid(r) && <Button size="small" onClick={() => onPay(r)}>Cobrar</Button>}
-                <Tooltip title="Descargar PDF">
-                  <Button size="small" icon={<FilePdfOutlined />} onClick={() => invoicesApi.downloadPdf(r.id)} />
-                </Tooltip>
-              </Space>
-            ),
-          },
-        ]}
-      />
-      {total > invoices.length && (
-        <Text type="secondary" style={{ fontSize: 12 }}>Se muestran las {invoices.length} facturas más recientes de {total}.</Text>
+      <Space style={{ marginBottom: 12, justifyContent: "space-between", width: "100%" }} wrap>
+        <Segmented
+          value={view}
+          onChange={(v) => setView(v as "moves" | "invoices")}
+          options={[{ value: "moves", label: "Movimientos" }, { value: "invoices", label: "Facturas" }]}
+        />
+        {st && (
+          <Space size={16} wrap>
+            <Text>Debe: <Text strong>{money(st.debt ?? 0)}</Text></Text>
+            <Text>A favor: <Text strong style={{ color: (st.credit ?? 0) > 0 ? "#389e0d" : undefined }}>{money(st.credit ?? 0)}</Text></Text>
+          </Space>
+        )}
+      </Space>
+      {view === "moves" ? (
+        <Table<AccountMovement>
+          loading={isLoading}
+          dataSource={moves}
+          rowKey={(m) => `${m.kind}-${m.invoice_id ?? ""}-${m.group_id ?? ""}-${m.date}`}
+          size="small"
+          pagination={{ pageSize: 15 }}
+          scroll={{ x: 760 }}
+          locale={{ emptyText: "Sin movimientos" }}
+          rowClassName={(m) => (m.voided ? "row-voided" : "")}
+          columns={[
+            { title: "Fecha", dataIndex: "date", width: 100, render: (d: string) => day(d) },
+            {
+              title: "Concepto",
+              key: "concept",
+              render: (_: unknown, m) => (
+                <>
+                  <span style={m.voided ? { textDecoration: "line-through" } : undefined}>{m.concept}</span>
+                  {m.kind === "adjust" && <Tag style={{ marginLeft: 6 }}>Ajuste</Tag>}
+                  {m.voided && (
+                    <div><Tag color="red">Anulado</Tag><Text type="secondary" style={{ fontSize: 12 }}>{m.voided_by} · {m.void_reason}</Text></div>
+                  )}
+                  {m.kind === "payment" && !m.voided && (m.received_by || m.reference) && (
+                    <div><Text type="secondary" style={{ fontSize: 12 }}>
+                      {m.received_by ? `Cobró ${m.received_by}` : ""}{m.received_by && m.reference ? " · " : ""}{m.reference ?? ""}
+                    </Text></div>
+                  )}
+                </>
+              ),
+            },
+            { title: "Debe", dataIndex: "debit", align: "right", width: 120, render: (v: number) => (v ? money(v) : "") },
+            { title: "Haber", dataIndex: "credit", align: "right", width: 120, render: (v: number, m) => (v ? <span style={m.voided ? { textDecoration: "line-through" } : undefined}>{money(v)}</span> : "") },
+            {
+              title: "Saldo", dataIndex: "balance", align: "right", width: 120,
+              render: (v: number) => <span style={{ color: v > 0 ? "#cf1322" : v < 0 ? "#389e0d" : undefined }}>{money(v)}</span>,
+            },
+            {
+              title: "", key: "act", width: 90, align: "right",
+              render: (_: unknown, m) =>
+                m.kind === "payment" && !m.voided && canVoid && m.payment_id ? (
+                  <Button size="small" danger onClick={() => onVoid(m.payment_id!, m.credit)}>Anular</Button>
+                ) : null,
+            },
+          ]}
+        />
+      ) : !invoices.length ? (
+        <Empty description="Sin facturas" />
+      ) : (
+        <>
+          <Table<Invoice>
+            dataSource={invoices}
+            rowKey="id"
+            size="small"
+            pagination={{ pageSize: 12 }}
+            scroll={{ x: 700 }}
+            expandable={{
+              rowExpandable: (r) => r.payments.length > 0,
+              expandedRowRender: (r) => (
+                <List
+                  size="small"
+                  dataSource={r.payments}
+                  renderItem={(p) => (
+                    <List.Item style={p.voided_at ? { textDecoration: "line-through", opacity: 0.6 } : undefined}>
+                      {day(p.payment_date)} · {money(Number(p.amount))} · {METHODS[p.method] ?? p.method}
+                      {p.reference ? ` · ${p.reference}` : ""}
+                      {p.received_by_name ? ` · cobró ${p.received_by_name}` : ""}
+                      {p.voided_at ? ` · ANULADO (${p.void_reason ?? ""})` : ""}
+                    </List.Item>
+                  )}
+                />
+              ),
+            }}
+            columns={[
+              { title: "Período", dataIndex: "period" },
+              { title: "Vence", dataIndex: "due_date", render: (d: string) => day(d) },
+              { title: "Monto", dataIndex: "amount", align: "right", render: (v: number) => money(Number(v)) },
+              { title: "Pagado", key: "paid", align: "right", render: (_: unknown, r) => money(paidOf(r)) },
+              { title: "Estado", dataIndex: "status", render: (s: InvoiceStatus) => <Tag color={INVOICE_STATUS[s].color}>{INVOICE_STATUS[s].label}</Tag> },
+              {
+                title: "",
+                key: "actions",
+                align: "right",
+                render: (_: unknown, r) => (
+                  <Space size={4}>
+                    {canPay && isUnpaid(r) && <Button size="small" onClick={() => onPay(r)}>Cobrar</Button>}
+                    <Tooltip title="Descargar PDF">
+                      <Button size="small" icon={<FilePdfOutlined />} onClick={() => invoicesApi.downloadPdf(r.id)} />
+                    </Tooltip>
+                  </Space>
+                ),
+              },
+            ]}
+          />
+          {total > invoices.length && (
+            <Text type="secondary" style={{ fontSize: 12 }}>Se muestran las {invoices.length} facturas más recientes de {total}.</Text>
+          )}
+        </>
       )}
     </>
   );

@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 from app.core.deps import ACTION_DENIED, get_current_user, get_db, has_action, require_action
 from app.models.client import Client, ClientStatus
 from app.models.config import SystemConfig
-from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus, Payment
+from app.models.invoice import Invoice, InvoiceItem, InvoiceStatus
 from app.schemas.invoice import InvoiceCreate, InvoiceResponse, InvoiceUpdate, PaymentCreate, PaymentResponse
 
 logger = logging.getLogger(__name__)
@@ -93,6 +93,10 @@ async def create_invoice(
             subtotal=subtotal,
         ))
 
+    await db.flush()
+    # Saldo a favor of the client pays the new invoice right away
+    from app.services.account import apply_credit
+    await apply_credit(db, invoice.client_id)
     await db.commit()
     result = await db.execute(
         select(Invoice).options(selectinload(Invoice.payments), selectinload(Invoice.items)).where(Invoice.id == invoice.id)
@@ -130,8 +134,15 @@ async def update_invoice(
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
 
+    was_cancelled = invoice.status == InvoiceStatus.cancelled
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(invoice, field, value)
+    if invoice.status == InvoiceStatus.cancelled and not was_cancelled:
+        # What was paid on a cancelled invoice is the client's money: saldo a favor,
+        # used on their other unpaid invoices.
+        from app.services.account import apply_credit, release_to_credit
+        await release_to_credit(db, invoice)
+        await apply_credit(db, invoice.client_id)
 
     db.add(invoice)
     await db.commit()
@@ -148,37 +159,32 @@ async def add_payment(
     invoice_id: int,
     body: PaymentCreate,
     db: AsyncSession = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
-    result = await db.execute(
-        select(Invoice).options(selectinload(Invoice.payments)).where(Invoice.id == invoice_id)
-    )
-    invoice = result.scalar_one_or_none()
+    """Payment on an invoice. Anything beyond what the invoice owes pays the client's
+    other unpaid invoices, and what is left stays as saldo a favor."""
+    from app.services.account import register_payment
+    from app.services.billing import reactivate_if_settled
+
+    invoice = await db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Factura no encontrada")
-
-    payment = Payment(invoice_id=invoice_id, **body.model_dump())
-    db.add(payment)
-
-    # Mark invoice as paid if amount covers total
-    total_paid = sum(float(p.amount) for p in invoice.payments) + float(body.amount)
-    newly_paid = False
-    if total_paid >= float(invoice.amount):
-        invoice.status = InvoiceStatus.paid
-        invoice.paid_date = body.payment_date
-        db.add(invoice)
-        newly_paid = True
-
+    if invoice.status in (InvoiceStatus.cancelled, InvoiceStatus.draft):
+        raise HTTPException(status_code=400, detail="La factura está anulada o en borrador: registrá el pago desde la cuenta del cliente")
+    try:
+        rows = await register_payment(
+            db, client_id=invoice.client_id, invoice_id=invoice_id, amount=body.amount,
+            payment_date=body.payment_date, method=body.method, reference=body.reference, notes=body.notes,
+            received_by_id=current_user.id, received_by_name=current_user.full_name or current_user.username,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    from app.services.account import audit_cobro
+    await audit_cobro(db, rows, user_id=current_user.id, username=current_user.username)
     await db.commit()
-    await db.refresh(payment)
-
-    # Auto-reactivate suspended client when this payment makes the invoice fully paid
-    if newly_paid and invoice.client_id:
-        # Same rule as MercadoPago payments: reconnect when nothing is overdue anymore
-        from app.services.billing import reactivate_if_settled
-        await reactivate_if_settled(db, invoice.client_id)
-
-    return payment
+    await db.refresh(rows[0])
+    await reactivate_if_settled(db, invoice.client_id)
+    return rows[0]
 
 
 @router.post("/{invoice_id}/mp-link")
@@ -385,8 +391,12 @@ async def generate_monthly_invoices_direct(
         ))
         created += 1
 
+    await db.flush()
+    from app.services.account import apply_credits_for
+    await apply_credits_for(db, [c.id for c in clients if c.id not in existing_ids and c.plan])
     await db.commit()
     return {"period": body.period, "created": created, "skipped": skipped}
+
 
 
 @router.get("/overdue-report")

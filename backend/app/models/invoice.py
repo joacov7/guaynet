@@ -1,8 +1,8 @@
 import enum
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Date, Enum as SAEnum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Date, DateTime, Enum as SAEnum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -69,14 +69,30 @@ class InvoiceItem(Base):
 
 
 class Payment(Base, TimestampMixin):
+    """Money received from a client (cuenta corriente, app/services/account.py).
+
+    One collection ("cobro") can be split into several rows that share `group_id`:
+    one per invoice it paid, plus one without invoice for what was left over
+    (saldo a favor), which is applied to the next invoices. A voided row stays
+    for the record and no longer counts anywhere.
+    """
     __tablename__ = "payments"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoices.id"), index=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), index=True)
+    # None = saldo a favor not applied to an invoice yet
+    invoice_id: Mapped[Optional[int]] = mapped_column(ForeignKey("invoices.id"), index=True, nullable=True)
     amount: Mapped[float] = mapped_column(Numeric(10, 2))
     payment_date: Mapped[date] = mapped_column(Date)
     method: Mapped[PaymentMethod] = mapped_column(SAEnum(PaymentMethod))
     reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    group_id: Mapped[Optional[str]] = mapped_column(String(36), index=True, nullable=True)
+    # Who collected it (panel user), or "MercadoPago"
+    received_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    received_by_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    voided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    voided_by_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    void_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    invoice: Mapped["Invoice"] = relationship(back_populates="payments")
+    invoice: Mapped[Optional["Invoice"]] = relationship(back_populates="payments")

@@ -30,6 +30,7 @@ ACTIONS = [
     "act_client_service",   # cortar / reactivar / dar de baja el servicio
     "act_client_delete",    # borrar clientes
     "act_payments",         # registrar pagos
+    "act_payment_void",     # anular un pago ya registrado
     "act_invoice_afip",     # emitir factura electrónica (AFIP)
     "act_billing_bulk",     # generar facturas del mes, marcar vencidas, corte masivo, recordatorios masivos
     "act_export",           # exportar datos (CSV)

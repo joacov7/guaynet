@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.deps import require_admin, section_guard
 
-from app.api.v1.endpoints import admin, alarms, auth, automations, clients, dashboard, expenses, firewall, inventory, invoices, mobile, network_controllers, notifications, payments, permissions, plans, portal, push, reports, routers, tickets, ubiquiti, vpn, wan, work_orders, workspace, zones
+from app.api.v1.endpoints import account, admin, alarms, auth, automations, clients, dashboard, expenses, firewall, inventory, invoices, mobile, network_controllers, notifications, payments, permissions, plans, portal, push, reports, routers, tickets, ubiquiti, vpn, wan, work_orders, workspace, zones
 from app.api.v1.endpoints import smart
 from app.api.v1.endpoints.security import (
     alerts as sec_alerts,
@@ -46,6 +46,7 @@ api_router.include_router(clients.router, prefix="/clients", tags=["clients"], d
 api_router.include_router(plans.router, prefix="/plans", tags=["plans"], dependencies=[Depends(section_guard("plans", also_view=("clients", "firewall")))])
 api_router.include_router(routers.router, prefix="/routers", tags=["routers"], dependencies=[Depends(section_guard("routers", also_view=("clients", "monitoring", "firewall", "ubiquiti", "bandwidth", "map", "zones")))])
 api_router.include_router(invoices.router, prefix="/invoices", tags=["invoices"], dependencies=[Depends(section_guard("billing"))])
+api_router.include_router(account.router, prefix="/account", tags=["account"], dependencies=[Depends(section_guard("billing"))])
 api_router.include_router(firewall.router, prefix="/firewall", tags=["firewall"], dependencies=[Depends(section_guard("firewall"))])
 api_router.include_router(firewall.dhcp_router, prefix="/dhcp", tags=["dhcp"], dependencies=[Depends(section_guard("clients"))])
 api_router.include_router(ubiquiti.router, prefix="/ubiquiti", tags=["ubiquiti"], dependencies=[Depends(section_guard("ubiquiti", also_view=("clients",)))])

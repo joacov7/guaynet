@@ -6,6 +6,7 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import ClientList from "@/pages/clients/ClientList";
 import ClientForm from "@/pages/clients/ClientForm";
+import Cobros from "@/pages/Cobros";
 import ClientDetail from "@/pages/clients/ClientDetail";
 import Plans from "@/pages/Plans";
 import Routers from "@/pages/Routers";
@@ -95,6 +96,7 @@ export default function App() {
           <Route path="plans" element={<Plans />} />
           <Route path="routers" element={<Routers />} />
           <Route path="billing" element={<Invoices />} />
+          <Route path="billing/cobros" element={<Cobros />} />
           <Route path="firewall" element={<Firewall />} />
           <Route path="dhcp" element={<DHCPDevices />} />
           <Route path="monitoring" element={<Monitoring />} />

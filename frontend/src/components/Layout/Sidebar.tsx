@@ -69,6 +69,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     key: "g-money", icon: <WalletOutlined />, label: "Cobranza", children: [
       { key: "/billing", icon: <FileTextOutlined />, label: "Facturación", section: "billing" },
+      { key: "/billing/cobros", icon: <DollarOutlined />, label: "Cobros (caja)", section: "billing" },
       { key: "/expenses", icon: <DollarOutlined />, label: "Gastos", section: "expenses" },
       { key: "/reports", icon: <BarChartOutlined />, label: "Reportes", section: "reports" },
     ],

@@ -94,7 +94,8 @@ async def payment_methods(
 ):
     """Payments grouped by method."""
     result = await db.execute(
-        select(Payment.method, func.count().label("count"), func.sum(Payment.amount).label("total"))
+        select(Payment.method, func.count(func.distinct(Payment.group_id)).label("count"), func.sum(Payment.amount).label("total"))
+        .where(Payment.voided_at.is_(None))
         .group_by(Payment.method)
     )
     rows = result.all()

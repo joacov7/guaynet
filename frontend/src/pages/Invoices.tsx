@@ -376,10 +376,12 @@ export default function Invoices() {
                 <>
                   <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 13 }}>Pagos:</div>
                   {r.payments.map((p) => (
-                    <div key={p.id} style={{ marginBottom: 4, fontSize: 13 }}>
+                    <div key={p.id} style={{ marginBottom: 4, fontSize: 13, ...(p.voided_at ? { textDecoration: "line-through", opacity: 0.6 } : {}) }}>
                       {dayjs(p.payment_date).format("DD/MM/YYYY")} — {formatARS(p.amount)} —{" "}
                       {methodLabel[p.method] ?? p.method}
                       {p.reference ? ` — Ref: ${p.reference}` : ""}
+                      {p.received_by_name ? ` — cobró ${p.received_by_name}` : ""}
+                      {p.voided_at ? ` — ANULADO (${p.void_reason ?? ""})` : ""}
                     </div>
                   ))}
                 </>

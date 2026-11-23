@@ -28,3 +28,8 @@
     flex-direction: column;
   }
 }
+
+/* Voided payments in account statements */
+.row-voided td {
+  opacity: 0.55;
+}

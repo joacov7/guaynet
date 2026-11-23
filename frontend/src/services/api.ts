@@ -168,11 +168,13 @@ export const routersApi = {
 export interface ClientSummary {
   /** null when the user does not see billing */
   balance: number | null;
+  /** saldo a favor */
+  credit: number | null;
   unpaid_count: number | null;
   overdue_count: number | null;
   oldest_overdue_due: string | null;
   oldest_unpaid_invoice_id: number | null;
-  last_payment: { date: string; amount: number; method: string } | null;
+  last_payment: { date: string; amount: number; method: string; received_by?: string | null } | null;
   open_tickets: number;
   open_work_orders: number;
 }
@@ -271,6 +273,82 @@ export interface InvoicePreviewResult {
   skipped: number;
   items: InvoicePreviewItem[];
 }
+
+// ── Cuenta corriente ──────────────────────────────────────────────────────────
+export interface AccountMovement {
+  kind: "invoice" | "payment" | "adjust";
+  date: string;
+  concept: string;
+  debit: number;
+  credit: number;
+  balance: number;
+  invoice_id?: number;
+  status?: string;
+  due_date?: string;
+  group_id?: string;
+  payment_id?: number;
+  method?: string;
+  reference?: string | null;
+  received_by?: string | null;
+  voided?: boolean;
+  voided_by?: string | null;
+  void_reason?: string | null;
+}
+export interface Statement {
+  balance: number;
+  debt: number;
+  credit: number;
+  movements: AccountMovement[];
+}
+export interface CollectResult {
+  group_id: string;
+  total: number;
+  applied: { invoice_id: number; period: string; amount: number; invoice_status: string | null }[];
+  to_credit: number;
+  balance: number;
+  credit: number;
+  reactivated: boolean;
+  router_message: string | null;
+  router_ok: boolean | null;
+}
+export interface Cobro {
+  group_id: string;
+  payment_id: number;
+  date: string;
+  client_id: number;
+  client_name: string;
+  method: string;
+  reference?: string | null;
+  notes?: string | null;
+  received_by?: string | null;
+  total: number;
+  invoices: string[];
+  to_credit: number;
+  voided: boolean;
+  voided_by?: string | null;
+  void_reason?: string | null;
+  created_at?: string | null;
+}
+export interface CobrosReport {
+  date_from: string;
+  date_to: string;
+  total: number;
+  count: number;
+  voided_count: number;
+  by_method: Record<string, number>;
+  by_collector: Record<string, number>;
+  collectors: string[];
+  items: Cobro[];
+}
+export const accountApi = {
+  statement: (clientId: number) => http.get<Statement>(`/account/clients/${clientId}/statement`).then((r) => r.data),
+  collect: (clientId: number, data: { amount: number; method: string; payment_date?: string; reference?: string; notes?: string; invoice_id?: number }) =>
+    http.post<CollectResult>(`/account/clients/${clientId}/payments`, data).then((r) => r.data),
+  void: (paymentId: number, reason: string) =>
+    http.post<{ voided: number; total: number; balance: number; credit: number }>(`/account/payments/${paymentId}/void`, { reason }).then((r) => r.data),
+  cobros: (params: { date_from?: string; date_to?: string; method?: string; received_by?: string; client_id?: number }) =>
+    http.get<CobrosReport>("/account/payments", { params }).then((r) => r.data),
+};
 
 export const invoicesApi = {
   list: (params?: { status?: string; period?: string; client_id?: number }) =>

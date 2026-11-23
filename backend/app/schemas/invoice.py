@@ -24,6 +24,11 @@ class PaymentResponse(BaseModel):
     reference: Optional[str]
     notes: Optional[str]
     created_at: datetime
+    group_id: Optional[str] = None
+    received_by_name: Optional[str] = None
+    voided_at: Optional[datetime] = None
+    voided_by_name: Optional[str] = None
+    void_reason: Optional[str] = None
 
 
 class InvoiceItemCreate(BaseModel):
